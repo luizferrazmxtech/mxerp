@@ -1,16 +1,21 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
-import { adicionarProduto, type Resultado } from "../actions";
 import type { LinhaEstoque } from "@/lib/estoque/consultas";
+
+export type Resultado = { ok: boolean; mensagem: string; pegar?: { local: string; quantidade: number }[] } | null;
 
 const fmt = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 4 });
 
-export default function AdicionarProduto({ osId }: { osId: string }) {
+export default function AdicionarProduto({ docId, acao: acaoServidor, rotuloBotao = "Adicionar e reservar" }: {
+  docId: string;
+  acao: (estado: Resultado, form: FormData) => Promise<Resultado>;
+  rotuloBotao?: string;
+}) {
   const [q, setQ] = useState("");
   const [opcoes, setOpcoes] = useState<LinhaEstoque[]>([]);
   const [sel, setSel] = useState<LinhaEstoque | null>(null);
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(adicionarProduto, null);
+  const [estado, acao, pendente] = useActionState<Resultado, FormData>(acaoServidor, null);
   const qtdRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -32,7 +37,7 @@ export default function AdicionarProduto({ osId }: { osId: string }) {
   return (
     <div className="space-y-2">
       <form action={acao} className="flex flex-wrap items-start gap-2">
-        <input type="hidden" name="osId" value={osId} />
+        <input type="hidden" name="docId" value={docId} />
         <input type="hidden" name="produtoId" value={sel?.id ?? ""} />
         <div className="relative min-w-64 flex-1">
           <input
@@ -65,7 +70,7 @@ export default function AdicionarProduto({ osId }: { osId: string }) {
         </div>
         <input ref={qtdRef} name="quantidade" defaultValue="1" className="campo w-24" aria-label="Quantidade" />
         <input name="valorUnit" key={sel?.id} defaultValue={sel ? String(sel.precoVenda) : ""} className="campo w-28" placeholder="Valor" aria-label="Valor unitário" />
-        <button className="btn" disabled={!sel || pendente}>{pendente ? "Reservando…" : "Adicionar e reservar"}</button>
+        <button className="btn" disabled={!sel || pendente}>{pendente ? "Salvando…" : rotuloBotao}</button>
       </form>
       {estado && (
         <div className={`rounded-md px-3 py-2 text-sm ${estado.ok ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>

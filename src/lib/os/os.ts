@@ -1,19 +1,10 @@
 import { Prisma, SituacaoOs } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
-import {
-  baixarDocumento,
-  cobrirFaltas,
-  estornarBaixa,
-  liberarDocumento,
-  liberarItem,
-  reservarItem,
-  EstoqueError,
-} from "@/lib/estoque/estoque";
+import { liberarItem, reservarItem, EstoqueError } from "@/lib/estoque/estoque";
+import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { proximoNumero } from "@/lib/sequencia";
 
 /** Em que "estado de estoque" cada situação deixa a OS. */
-export type EstadoEstoque = "RESERVADO" | "BAIXADO" | "LIVRE";
-
 export function estadoEstoque(s: SituacaoOs): EstadoEstoque {
   switch (s) {
     case "CONCLUIDA":
@@ -164,20 +155,10 @@ export async function alterarSituacao(
     if (!os) throw new EstoqueError("OS não encontrada");
     const de = estadoEstoque(os.situacao);
     const para = estadoEstoque(nova);
-
-    if (de === "RESERVADO" && para === "BAIXADO") {
-      await baixarDocumento(tx, "OS", osId, opts);
-    } else if (de === "RESERVADO" && para === "LIVRE") {
-      await liberarDocumento(tx, "OS", osId);
-    } else if (de === "BAIXADO" && para === "RESERVADO") {
-      const afetados = await estornarBaixa(tx, "OS", osId, { usuarioId: opts.usuarioId, cobrirFaltas: false });
-      await reservarTodos(tx, osId);
-      for (const p of afetados) await cobrirFaltas(tx, p);
-    } else if (de === "BAIXADO" && para === "LIVRE") {
-      await estornarBaixa(tx, "OS", osId, { usuarioId: opts.usuarioId });
-    } else if (de === "LIVRE" && para === "RESERVADO") {
-      await reservarTodos(tx, osId);
-    }
+    await transicionarEstoque(tx, "OS", osId, de, para, async () =>
+      (await tx.osItemProduto.findMany({ where: { osId } })).map((i) => ({ id: i.id, produtoId: i.produtoId, quantidade: Number(i.quantidade) })),
+      opts,
+    );
 
     const rotulo = (s: SituacaoOs) => SITUACOES_OS.find((x) => x.valor === s)?.rotulo ?? s;
     await tx.osHistorico.create({
@@ -188,19 +169,6 @@ export async function alterarSituacao(
       data: { situacao: nova, saida: para === "BAIXADO" ? new Date() : para === "RESERVADO" ? null : undefined },
     });
   });
-}
-
-async function reservarTodos(tx: Tx, osId: string) {
-  const itens = await tx.osItemProduto.findMany({ where: { osId } });
-  for (const i of itens) {
-    await reservarItem(tx, {
-      produtoId: i.produtoId,
-      quantidade: Number(i.quantidade),
-      origemTipo: "OS",
-      origemId: osId,
-      origemItemId: i.id,
-    });
-  }
 }
 
 async function recalcularTotais(tx: Tx, osId: string) {

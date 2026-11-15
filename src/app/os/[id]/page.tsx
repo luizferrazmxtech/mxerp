@@ -3,8 +3,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { estadoEstoque, SITUACOES_OS } from "@/lib/os/os";
 import { brl, dataHora, qtd } from "@/lib/ui/format";
-import { adicionarServico, alterarQuantidade, removerProduto, removerServico } from "../actions";
-import AdicionarProduto from "./AdicionarProduto";
+import { adicionarProduto, adicionarServico, alterarQuantidade, removerProduto, removerServico } from "../actions";
+import AdicionarProduto from "@/components/AdicionarProduto";
 import MudarSituacao from "./MudarSituacao";
 
 export const dynamic = "force-dynamic";
@@ -65,7 +65,7 @@ export default async function DetalheOs({ params }: { params: Promise<{ id: stri
           <h2 className="font-semibold">Produtos / peças</h2>
           {!editavel && <span className="text-xs text-slate-500">Estoque já baixado. Reabra a OS para alterar.</span>}
         </div>
-        {editavel && <div className="border-b p-4"><AdicionarProduto osId={id} /></div>}
+        {editavel && <div className="border-b p-4"><AdicionarProduto docId={id} acao={adicionarProduto} /></div>}
         <div className="overflow-x-auto">
           <table className="tabela">
             <thead><tr><th>Produto</th><th>Onde pegar</th><th className="text-right">Qtd</th><th className="text-right">Valor</th><th className="text-right">Subtotal</th><th></th></tr></thead>
