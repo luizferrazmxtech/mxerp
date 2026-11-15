@@ -43,22 +43,30 @@ Write-Host "Montando e iniciando o sistema (pode levar uns 5 minutos na primeira
 docker compose up -d --build
 if ($LASTEXITCODE -ne 0) { Write-Host "Falhou ao subir. Veja a mensagem acima." -ForegroundColor Red; Read-Host "Enter para sair"; exit 1 }
 
-# 4. Libera a porta na rede local (outros computadores da loja). Precisa de PowerShell como administrador.
+# 4. Libera a porta na rede local (outros computadores da loja). Se nao for administrador, pede a permissao (UAC).
 $porta = ((Get-Content $envArq | Where-Object { $_ -match '^PORTA=' }) -replace 'PORTA=', '').Trim()
 if (-not $porta) { $porta = "3000" }
-try {
-  if (-not (Get-NetFirewallRule -DisplayName "MXERP" -ErrorAction SilentlyContinue)) {
-    New-NetFirewallRule -DisplayName "MXERP" -Direction Inbound -Protocol TCP -LocalPort $porta -Action Allow -Profile Private | Out-Null
+if (-not (Get-NetFirewallRule -DisplayName "MXERP" -ErrorAction SilentlyContinue)) {
+  $regra = "New-NetFirewallRule -DisplayName 'MXERP' -Direction Inbound -Protocol TCP -LocalPort $porta -Action Allow -Profile Private -ErrorAction Stop | Out-Null"
+  $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  try {
+    if ($admin) { Invoke-Expression $regra }
+    else {
+      Write-Host "O Windows vai pedir permissao de administrador para liberar a porta $porta na rede local."
+      $p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList "-NoProfile", "-Command", $regra
+      if ($p.ExitCode -ne 0) { throw "falhou" }
+    }
     Write-Host "Porta $porta liberada no firewall (rede privada)." -ForegroundColor Green
-  }
-} catch { Write-Host "Nao consegui liberar a porta no firewall (rode como administrador se outros PCs forem acessar)." -ForegroundColor Yellow }
+  } catch { Write-Host "Nao consegui liberar a porta no firewall. Outros PCs so vao acessar depois de rodar o instalador como administrador." -ForegroundColor Yellow }
+}
 
 # 5. Espera responder e abre o navegador
 Write-Host "Aguardando o sistema responder..."
 for ($i = 0; $i -lt 90; $i++) {
   try { Invoke-WebRequest "http://localhost:$porta/login" -UseBasicParsing -TimeoutSec 3 | Out-Null; break } catch { Start-Sleep 2 }
 }
-$ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.PrefixOrigin -in 'Dhcp', 'Manual' -and $_.IPAddress -notlike '169.*' } | Select-Object -First 1).IPAddress
+# placa com gateway e ligada: ignora as placas virtuais do WSL/Docker (vEthernet)
+$ip = (Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1).IPv4Address.IPAddress
 Write-Host ""
 Write-Host "Pronto!" -ForegroundColor Green
 Write-Host "Neste computador:   http://localhost:$porta"

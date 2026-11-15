@@ -19,6 +19,8 @@ Next.js 15 (App Router, server actions) · TypeScript · PostgreSQL 16 · Prisma
 
 Passo a passo em [docs/instalar-windows.md](docs/instalar-windows.md): Docker Desktop + `windows/instalar.ps1`. Sobe banco, sistema, backup diário e busca do extrato do Inter; no primeiro acesso a tela pede para criar o administrador.
 
+Para outros computadores da loja acessarem, a rede no Windows do computador que roda o sistema precisa estar como **Privada** (*Configurações → Rede e Internet → propriedades da conexão → Perfil de rede: Privada*); a regra de firewall do instalador vale só para redes privadas.
+
 ## Rodando localmente (desenvolvimento)
 
 ```bash
