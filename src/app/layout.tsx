@@ -13,6 +13,8 @@ const menu = [
   { href: "/pdv", rotulo: "PDV" },
   { href: "/vendas", rotulo: "Vendas" },
   { href: "/estoque", rotulo: "Estoque" },
+  { href: "/financeiro", rotulo: "Financeiro" },
+  { href: "/financeiro/dre", rotulo: "DRE" },
   { href: "/estoque/locais", rotulo: "Locais (prateleiras)" },
   { href: "/clientes", rotulo: "Clientes" },
 ];

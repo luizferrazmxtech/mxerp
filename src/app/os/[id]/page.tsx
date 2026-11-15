@@ -2,10 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { estadoEstoque, SITUACOES_OS } from "@/lib/os/os";
-import { brl, dataHora, qtd } from "@/lib/ui/format";
+import { brl, data, dataHora, qtd } from "@/lib/ui/format";
 import { adicionarProduto, adicionarServico, alterarQuantidade, removerProduto, removerServico } from "../actions";
 import AdicionarProduto from "@/components/AdicionarProduto";
 import MudarSituacao from "./MudarSituacao";
+import Faturar from "./Faturar";
+import { garantirPadroes } from "@/lib/financeiro/padroes";
 
 export const dynamic = "force-dynamic";
 
@@ -23,12 +25,15 @@ export default async function DetalheOs({ params }: { params: Promise<{ id: stri
   });
   if (!os) notFound();
 
-  const [reservas, servicos] = await Promise.all([
+  await prisma.$transaction((tx) => garantirPadroes(tx));
+  const [reservas, servicos, formas, lancamentos] = await Promise.all([
     prisma.reserva.findMany({
       where: { origemTipo: "OS", origemId: id, status: { in: ["ATIVA", "BAIXADA"] } },
       include: { local: true },
     }),
     prisma.servico.findMany({ where: { ativo: true }, orderBy: { nome: "asc" } }),
+    prisma.formaPagamento.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } }),
+    prisma.lancamento.findMany({ where: { origemTipo: "OS", origemId: id }, orderBy: { vencimento: "asc" } }),
   ]);
   const porItem = new Map<string, typeof reservas>();
   for (const r of reservas) porItem.set(r.origemItemId, [...(porItem.get(r.origemItemId) ?? []), r]);
@@ -116,7 +121,7 @@ export default async function DetalheOs({ params }: { params: Promise<{ id: stri
 
       <section className="cartao">
         <h2 className="border-b px-4 py-3 font-semibold">Serviços</h2>
-        <form action={adicionarServico} className="flex flex-wrap gap-2 border-b p-4">
+        {editavel && <form action={adicionarServico} className="flex flex-wrap gap-2 border-b p-4">
           <input type="hidden" name="osId" value={id} />
           <select name="servicoId" required className="campo min-w-64 flex-1">
             <option value="">Serviço…</option>
@@ -124,7 +129,7 @@ export default async function DetalheOs({ params }: { params: Promise<{ id: stri
           </select>
           <input name="valorUnit" className="campo w-28" placeholder="Valor" />
           <button className="btn">Adicionar</button>
-        </form>
+        </form>}
         <table className="tabela">
           <tbody>
             {os.servicos.map((s) => (
@@ -133,11 +138,11 @@ export default async function DetalheOs({ params }: { params: Promise<{ id: stri
                 <td className="text-right">{qtd(s.quantidade)} × {brl(s.valorUnit)}</td>
                 <td className="text-right">{brl(s.subtotal)}</td>
                 <td className="text-right">
-                  <form action={removerServico}>
+                  {editavel && <form action={removerServico}>
                     <input type="hidden" name="osId" value={id} />
                     <input type="hidden" name="itemId" value={s.id} />
                     <button className="text-xs text-red-600 hover:underline">remover</button>
-                  </form>
+                  </form>}
                 </td>
               </tr>
             ))}
@@ -150,10 +155,27 @@ export default async function DetalheOs({ params }: { params: Promise<{ id: stri
           <h2 className="mb-2 font-semibold">Situação</h2>
           <MudarSituacao osId={id} atual={os.situacao} opcoes={SITUACOES_OS} />
           <p className="mt-2 text-xs text-slate-500">
-            Concluída/Faturada baixam o estoque. Cancelada/Devolvida liberam as reservas. As demais mantêm as peças reservadas.
+            Concluída baixa o estoque; Faturar também gera o contas a receber. Cancelada/Devolvida liberam as reservas. As demais mantêm as peças reservadas.
           </p>
         </section>
         <section className="cartao p-4">
+          <h2 className="mb-2 font-semibold">Faturamento</h2>
+          {os.situacao === "FATURADA" ? (
+            <ul className="space-y-1 text-sm">
+              {lancamentos.map((l) => (
+                <li key={l.id} className="flex justify-between">
+                  <span>{l.descricao} · venc. {data(l.vencimento)}</span>
+                  <span>{brl(l.valor)} {l.pagoEm ? <span className="text-emerald-700">recebido</span> : <span className="text-slate-500">a receber</span>}</span>
+                </li>
+              ))}
+            </ul>
+          ) : os.situacao === "CANCELADA" || os.situacao === "DEVOLVIDA_SEM_REPARO" ? (
+            <p className="text-sm text-slate-500">OS sem faturamento.</p>
+          ) : (
+            <Faturar osId={id} total={Number(os.total)} formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo }))} />
+          )}
+        </section>
+        <section className="cartao p-4 md:col-span-2">
           <h2 className="mb-2 font-semibold">Histórico</h2>
           <ul className="space-y-1 text-sm">
             {os.historico.map((h) => <li key={h.id}><span className="text-slate-500">{dataHora(h.createdAt)}</span> · {h.descricao}</li>)}

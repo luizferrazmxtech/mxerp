@@ -1,11 +1,11 @@
 import { Prisma, type OrigemDocumento } from "@prisma/client";
 import type { Tx } from "@/lib/db";
 import { garantirPadroes } from "./padroes";
+import { diaSP, somarDias } from "@/lib/datas";
 
 export type Pagamento = { formaPagamentoId: string; valor: number; parcelas?: number };
 
 const D = (v: number) => new Prisma.Decimal(v.toFixed(2));
-const somarDias = (d: Date, dias: number) => new Date(d.getTime() + dias * 86400000);
 
 /** Divide em parcelas com centavos na primeira, para fechar o total exato. */
 export function dividirParcelas(valor: number, n: number): number[] {
@@ -32,7 +32,7 @@ export async function gerarRecebimentos(
   },
 ) {
   await garantirPadroes(tx);
-  const data = args.data ?? new Date();
+  const data = diaSP(args.data ?? new Date());
   const caixa = await tx.contaBancaria.findUniqueOrThrow({ where: { nome: "Caixa" } });
   for (const p of args.pagamentos) {
     const forma = await tx.formaPagamento.findUniqueOrThrow({ where: { id: p.formaPagamentoId } });
@@ -69,4 +69,82 @@ export async function cancelarRecebimentos(tx: Tx, origemTipo: OrigemDocumento, 
   const pagos = await tx.lancamento.count({ where: { origemTipo, origemId, pagoEm: { not: null } } });
   if (pagos && !forcar) throw new Error("Há parcelas já recebidas. Estorne o recebimento antes de cancelar.");
   await tx.lancamento.deleteMany({ where: { origemTipo, origemId } });
+}
+
+/** Lançamento manual (conta a pagar/receber), com parcelas mensais. */
+export async function criarLancamentos(
+  tx: Tx,
+  args: {
+    tipo: "PAGAR" | "RECEBER";
+    descricao: string;
+    categoriaId: string;
+    pessoaId?: string | null;
+    valorTotal: number;
+    parcelas?: number;
+    primeiroVencimento: Date;
+    competencia?: Date;
+    formaPagamentoId?: string | null;
+    contaBancariaId?: string | null;
+    pago?: boolean;
+  },
+) {
+  const n = Math.max(1, args.parcelas ?? 1);
+  const valores = dividirParcelas(args.valorTotal, n);
+  const criados = [];
+  for (let i = 0; i < n; i++) {
+    const venc = new Date(args.primeiroVencimento);
+    venc.setUTCMonth(venc.getUTCMonth() + i);
+    criados.push(
+      await tx.lancamento.create({
+        data: {
+          tipo: args.tipo,
+          descricao: n > 1 ? `${args.descricao} (${i + 1}/${n})` : args.descricao,
+          categoriaId: args.categoriaId,
+          pessoaId: args.pessoaId ?? null,
+          formaPagamentoId: args.formaPagamentoId ?? null,
+          contaBancariaId: args.contaBancariaId ?? null,
+          valor: D(valores[i]),
+          vencimento: venc,
+          competencia: args.competencia ?? venc,
+          parcela: i + 1,
+          totalParcelas: n,
+          pagoEm: args.pago && i === 0 ? venc : null,
+          valorPago: args.pago && i === 0 ? D(valores[i]) : null,
+        },
+      }),
+    );
+  }
+  return criados;
+}
+
+/** Registra o pagamento/recebimento de um lançamento. */
+export async function baixarLancamento(
+  tx: Tx,
+  id: string,
+  args: { data: Date; contaBancariaId: string; juros?: number; desconto?: number; valorPago?: number },
+) {
+  const l = await tx.lancamento.findUniqueOrThrow({ where: { id } });
+  if (l.pagoEm) throw new Error("Lançamento já baixado");
+  const juros = args.juros ?? 0;
+  const desconto = args.desconto ?? 0;
+  const valorPago = args.valorPago ?? Number(l.valor) + juros - desconto;
+  return tx.lancamento.update({
+    where: { id },
+    data: { pagoEm: args.data, contaBancariaId: args.contaBancariaId, juros: D(juros), desconto: D(desconto), valorPago: D(valorPago) },
+  });
+}
+
+export async function estornarLancamento(tx: Tx, id: string) {
+  return tx.lancamento.update({ where: { id }, data: { pagoEm: null, valorPago: null, juros: D(0), desconto: D(0) } });
+}
+
+/** Saldo atual de cada conta: saldo inicial + recebido - pago. */
+export async function saldosContas(tx: Tx) {
+  return tx.$queryRaw<{ id: string; nome: string; saldo: number }[]>`
+    SELECT c.id, c.nome,
+           (c."saldoInicial" + COALESCE(SUM(CASE WHEN l.tipo = 'RECEBER' THEN l."valorPago" ELSE -l."valorPago" END), 0))::float AS saldo
+      FROM "ContaBancaria" c
+      LEFT JOIN "Lancamento" l ON l."contaBancariaId" = c.id AND l."pagoEm" IS NOT NULL
+     WHERE c.ativa
+     GROUP BY c.id ORDER BY c.nome`;
 }
