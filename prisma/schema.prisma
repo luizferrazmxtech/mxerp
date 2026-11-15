@@ -486,6 +486,7 @@ model ContaBancaria {
   saldoInicial Decimal  @default(0) @db.Decimal(14, 2)
   ativa        Boolean  @default(true)
   lancamentos  Lancamento[]
+  transacoes   TransacaoBancaria[]
 }
 
 model FormaPagamento {
@@ -554,6 +555,9 @@ model Lancamento {
   origemTipo       OrigemDocumento?
   origemId         String?
   idLegado         String?         @unique
+  // baixa feita pela conciliação do extrato
+  transacaoId      String?
+  transacao        TransacaoBancaria? @relation(fields: [transacaoId], references: [id])
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
@@ -619,4 +623,28 @@ model NotaEvento {
 model Sequencia {
   chave String @id
   valor Int    @default(0)
+}
+
+/** Linha do extrato bancário importado (OFX/CSV), casada com um lançamento na conciliação. */
+model TransacaoBancaria {
+  id              String         @id @default(cuid())
+  contaBancariaId String
+  contaBancaria   ContaBancaria  @relation(fields: [contaBancariaId], references: [id])
+  data            DateTime       @db.Date
+  valor           Decimal        @db.Decimal(14, 2) // positivo = entrada, negativo = saída
+  descricao       String
+  documento       String?
+  chave           String         // FITID do OFX ou hash da linha do CSV
+  situacao        SituacaoConciliacao @default(PENDENTE)
+  lancamentos     Lancamento[]
+  createdAt       DateTime       @default(now())
+
+  @@unique([contaBancariaId, chave])
+  @@index([situacao])
+}
+
+enum SituacaoConciliacao {
+  PENDENTE
+  CONCILIADA
+  IGNORADA
 }

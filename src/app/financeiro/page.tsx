@@ -48,7 +48,10 @@ export default async function Financeiro({ searchParams }: {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold">Financeiro</h1>
-        <Link href="/financeiro/dre" className="btn-sec">DRE gerencial</Link>
+        <div className="flex gap-2">
+          <Link href="/financeiro/conciliacao" className="btn-sec">Conciliação bancária</Link>
+          <Link href="/financeiro/dre" className="btn-sec">DRE gerencial</Link>
+        </div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">

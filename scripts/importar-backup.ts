@@ -2,7 +2,7 @@
  * Importa o backup completo do Gestão Click pela linha de comando.
  *   npx tsx scripts/importar-backup.ts backup.zip            (simula)
  *   npx tsx scripts/importar-backup.ts backup.zip --gravar   (grava)
- *   --sem-pagar / --com-pagar, --sem-os, --sem-receber
+ *   --sem-os, --sem-receber, --sem-pagar, --pagar-vencidas (por padrão só entram as contas a pagar a vencer)
  */
 import fs from "node:fs";
 import { importarBackupGestaoClick, lerBackupGestaoClick } from "../src/lib/migracao/gestaoclick";
@@ -15,7 +15,7 @@ const tabelas = await lerBackupGestaoClick(fs.readFileSync(arquivo));
 console.log("Tabelas:", Object.entries(tabelas).map(([k, v]) => `${k}(${v.length})`).join(", "));
 const res = await importarBackupGestaoClick(tabelas, {
   simular: !flags.includes("--gravar"),
-  etapas: { cadastros: true, estoque: true, os: !flags.includes("--sem-os"), receber: !flags.includes("--sem-receber"), pagar: flags.includes("--com-pagar") },
+  etapas: { cadastros: true, estoque: true, os: !flags.includes("--sem-os"), receber: !flags.includes("--sem-receber"), pagar: !flags.includes("--sem-pagar"), pagarVencidas: flags.includes("--pagar-vencidas") },
 });
 for (const r of res) {
   console.log(`\n## ${r.tipo}${r.simulado ? " (simulação)" : ""}: ${r.lidas} lidas, ${r.criados} novos, ${r.atualizados} atualizados, ${r.ignorados.length} ignorados`);
