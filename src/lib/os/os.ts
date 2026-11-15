@@ -155,7 +155,7 @@ export async function alterarSituacao(
   return prisma.$transaction((tx) => alterarSituacaoTx(tx, osId, nova, opts));
 }
 
-async function alterarSituacaoTx(
+export async function alterarSituacaoTx(
   tx: Tx,
   osId: string,
   nova: SituacaoOs,
@@ -210,7 +210,7 @@ export async function faturarOs(
   });
 }
 
-async function recalcularTotais(tx: Tx, osId: string) {
+export async function recalcularTotais(tx: Tx, osId: string) {
   const [p, s, os] = await Promise.all([
     tx.osItemProduto.aggregate({ where: { osId }, _sum: { subtotal: true } }),
     tx.osItemServico.aggregate({ where: { osId }, _sum: { subtotal: true } }),

@@ -6,7 +6,8 @@ import { prisma } from "@/lib/db";
 import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
 import BotaoImprimir from "@/app/os/[id]/separacao/BotaoImprimir";
-import { cancelar } from "../actions";
+import { cancelar, cancelarServico } from "../actions";
+import { URL_DANFSE } from "@/lib/fiscal/nfse";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +31,22 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
         <Link href="/fiscal" className="text-sm text-slate-500 hover:underline">← Notas fiscais</Link>
         <div className="flex gap-2">
           {n.xml && <a href={`/api/notas/${n.id}/xml`} className="btn-sec">Baixar XML</a>}
+          {n.modelo === "NFSE" && n.chave && <a href={`${URL_DANFSE[n.ambiente === "PRODUCAO" ? 1 : 2]}/${n.chave}`} target="_blank" rel="noreferrer" className="btn-sec">DANFSe (PDF oficial)</a>}
           {n.status === "AUTORIZADA" && <BotaoImprimir />}
         </div>
       </div>
 
-      {/* DANFE simplificado / DANFCE: largura de bobina 80mm na impressão */}
+      {n.modelo === "NFSE" && (
+        <div className="cartao mx-auto max-w-md space-y-1 p-4 text-sm">
+          <h1 className="font-semibold">NFS-e · DPS {n.serie}/{n.numero}</h1>
+          <p>Situação: {n.status.toLowerCase()} {n.motivo && <span className="text-slate-500">({n.motivo})</span>}</p>
+          <p>Valor dos serviços: {brl(n.valorTotal)}</p>
+          {n.chave && <p className="break-all font-mono text-xs">Chave {n.chave}</p>}
+          {n.ambiente === "HOMOLOGACAO" && <p className="text-xs font-bold text-red-700">PRODUÇÃO RESTRITA · SEM VALOR FISCAL</p>}
+        </div>
+      )}
+      {n.modelo !== "NFSE" && (
+      /* DANFE simplificado / DANFCE: largura de bobina 80mm na impressão */
       <div className="cartao mx-auto max-w-md space-y-3 p-4 text-sm print:max-w-[76mm] print:border-0 print:p-0 print:shadow-none">
         <div className="text-center">
           <div className="font-semibold">{inf?.emit?.xNome}</div>
@@ -72,6 +84,22 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
           {inf?.infAdic?.infCpl && <div className="mt-1">{inf.infAdic.infCpl}</div>}
         </div>
       </div>
+
+      )}
+
+      {n.modelo === "NFSE" && n.status === "AUTORIZADA" && (
+        <div className="no-print cartao mx-auto max-w-md p-4">
+          <h2 className="mb-2 font-semibold">Cancelar NFS-e</h2>
+          <BotaoAcao acao={cancelarServico} campos={{ notaId: n.id }} rotulo="Cancelar NFS-e" secundario>
+            <select name="cMotivo" className="campo" defaultValue="1">
+              <option value="1">Erro na emissão</option>
+              <option value="2">Serviço não prestado</option>
+              <option value="9">Outros</option>
+            </select>
+            <textarea name="justificativa" minLength={15} required rows={2} className="campo" placeholder="Motivo (mínimo 15 caracteres)" />
+          </BotaoAcao>
+        </div>
+      )}
 
       {cancelavel && (
         <div className="no-print cartao mx-auto max-w-md p-4">

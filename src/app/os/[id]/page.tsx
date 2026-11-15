@@ -176,9 +176,10 @@ export default async function DetalheOs({ params }: { params: Promise<{ id: stri
             <Faturar osId={id} total={Number(os.total)} formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo }))} />
           )}
         </section>
-        {os.produtos.length > 0 && (
+        {(os.produtos.length > 0 || os.servicos.length > 0) && (
           <div className="md:col-span-2">
-            <NotasDoDocumento origemTipo="OS" origemId={id} podeEmitir={os.situacao === "CONCLUIDA" || os.situacao === "FATURADA"} />
+            <NotasDoDocumento origemTipo="OS" origemId={id} podeEmitir={os.situacao === "CONCLUIDA" || os.situacao === "FATURADA"}
+              temProdutos={os.produtos.length > 0} temServicos={os.servicos.length > 0} />
           </div>
         )}
         <section className="cartao p-4 md:col-span-2">

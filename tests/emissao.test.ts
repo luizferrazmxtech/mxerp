@@ -14,6 +14,8 @@ const vendas = await import("@/lib/vendas/vendas");
 const { garantirPadroes } = await import("@/lib/financeiro/padroes");
 const { lerCertificado } = await import("@/lib/fiscal/certificado");
 const fiscal = await import("@/lib/fiscal/emissao");
+const osSvc = await import("@/lib/os/os");
+const { gzipB64 } = await import("@/lib/fiscal/nfse");
 type Transporte = import("@/lib/fiscal/sefaz").Transporte;
 
 const { pfx, senha } = pfxDeTeste();
@@ -38,7 +40,7 @@ let prod: string, dinheiro: string;
 beforeAll(() => execSync("npx prisma migrate deploy", { env: { ...process.env, DATABASE_URL: URL }, stdio: "ignore" }));
 
 beforeEach(async () => {
-  await prisma.$executeRawUnsafe(`TRUNCATE "NotaEvento","NotaFiscal","Empresa","Lancamento","VendaPagamento","VendaItem","Venda","Reserva","MovimentoEstoque","Saldo","Produto","Local","Deposito","Pessoa","Sequencia","FormaPagamento","CategoriaFinanceira","ContaBancaria" CASCADE`);
+  await prisma.$executeRawUnsafe(`TRUNCATE "NotaEvento","NotaFiscal","Empresa","OsItemServico","OsItemProduto","OsHistorico","OrdemServico","Servico","Lancamento","VendaPagamento","VendaItem","Venda","Reserva","MovimentoEstoque","Saldo","Produto","Local","Deposito","Pessoa","Sequencia","FormaPagamento","CategoriaFinanceira","ContaBancaria" CASCADE`);
   await prisma.empresa.create({ data: {
     razaoSocial: "MXTECH TESTE LTDA", cnpj: "12345678000195", inscricaoEstadual: "111111111111", logradouro: "Rua A", numero: "1",
     bairro: "Centro", cidade: "São Carlos", codigoMunicipio: "3548906", uf: "SP", cep: "13560000", cscId: "000001", cscToken: "CSCTESTE",
@@ -84,5 +86,42 @@ describe("emissão a partir da venda", () => {
     const c = await fiscal.cancelarNota(n.id, "Cliente desistiu da compra", { cert, transporte: autoriza });
     expect(c.status).toBe("CANCELADA");
     expect(await prisma.notaEvento.count({ where: { notaId: n.id } })).toBe(1);
+  });
+});
+
+describe("NFS-e da OS", () => {
+  it("emite com os serviços da OS e cancela", async () => {
+    await prisma.empresa.updateMany({ data: { inscricaoMunicipal: "12345" } });
+    const cli = await prisma.pessoa.create({ data: { nome: "Condomínio", documento: "11222333000181" } });
+    const sv = await prisma.servico.create({ data: { codigo: "INST", nome: "Instalação de rede", preco: 600, codigoTributacaoNacional: "140101" } });
+    const o = await osSvc.criarOs({ clienteId: cli.id, equipamento: "Rack" });
+    await osSvc.adicionarServico(o.id, { servicoId: sv.id });
+    await expect(fiscal.emitirNfseOs(o.id, { cert })).rejects.toThrow(/Conclua/);
+    await osSvc.alterarSituacao(o.id, "CONCLUIDA");
+    let enviado = "";
+    const n = await fiscal.emitirNfseOs(o.id, {
+      cert,
+      transporte: async (_m, _u, corpo) => {
+        enviado = corpo!;
+        return { status: 201, corpo: JSON.stringify({ chaveAcesso: "35489062".padEnd(50, "1"), nfseXmlGZipB64: gzipB64("<NFSe>ok</NFSe>") }) };
+      },
+    });
+    expect(n).toMatchObject({ status: "AUTORIZADA", modelo: "NFSE", numero: 1, xml: "<NFSe>ok</NFSe>" });
+    expect(Number(n.valorTotal)).toBe(600);
+    expect(enviado).toContain("dpsXmlGZipB64");
+    const c = await fiscal.cancelarNfse(n.id, 1, "Erro no valor do serviço informado", {
+      cert, transporte: async () => ({ status: 201, corpo: JSON.stringify({ eventoXmlGZipB64: gzipB64("<evento/>") }) }),
+    });
+    expect(c.status).toBe("CANCELADA");
+  });
+
+  it("exige código de tributação nacional no serviço", async () => {
+    await prisma.empresa.updateMany({ data: { inscricaoMunicipal: "12345" } });
+    const cli = await prisma.pessoa.create({ data: { nome: "X" } });
+    const sv = await prisma.servico.create({ data: { codigo: "V", nome: "Visita", preco: 100 } });
+    const o = await osSvc.criarOs({ clienteId: cli.id });
+    await osSvc.adicionarServico(o.id, { servicoId: sv.id });
+    await osSvc.alterarSituacao(o.id, "CONCLUIDA");
+    await expect(fiscal.emitirNfseOs(o.id, { cert })).rejects.toThrow(/código de tributação nacional/);
   });
 });

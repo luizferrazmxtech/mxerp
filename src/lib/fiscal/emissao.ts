@@ -6,6 +6,7 @@ import { certificadoDoAmbiente, type Certificado } from "./certificado";
 import { codigoNumerico } from "./chave";
 import { incluirInfNFeSupl, montarNfe, qrCodeNfce, type DadosNota, type Destinatario, type ItemNota, type PagamentoNota } from "./nfe";
 import { ClienteSefaz, montarProc, type Transporte } from "./sefaz";
+import { ClienteNfse, assinarDps, montarDps, type TransporteRest } from "./nfse";
 
 export class FiscalError extends Error {}
 
@@ -207,5 +208,89 @@ export async function cancelarNota(notaId: string, justificativa: string, deps: 
   return prisma.$transaction(async (tx) => {
     await tx.notaEvento.create({ data: { notaId, tipo: "110111", xml: r.eventoXml + (r.retornoXml ?? ""), protocolo: r.protocolo } });
     return tx.notaFiscal.update({ where: { id: notaId }, data: { status: "CANCELADA", motivo: `${r.cStat} - ${r.xMotivo}` } });
+  });
+}
+
+// ───────────── NFS-e (serviços da OS) ─────────────
+
+const OP_SIMPLES: Record<RegimeTributario, 1 | 2 | 3> = {
+  SIMPLES_NACIONAL: 3, SIMPLES_EXCESSO_SUBLIMITE: 3, MEI: 2, REGIME_NORMAL: 1,
+};
+
+export type DependenciasNfse = { cert?: Certificado; transporte?: TransporteRest; agora?: Date };
+
+/** NFS-e (padrão nacional) dos serviços de uma OS concluída/faturada. */
+export async function emitirNfseOs(osId: string, deps: DependenciasNfse = {}) {
+  const e = await empresa();
+  if (!e.inscricaoMunicipal) throw new FiscalError("Informe a inscrição municipal da empresa");
+  const os = await prisma.ordemServico.findUniqueOrThrow({
+    where: { id: osId },
+    include: { cliente: true, servicos: { include: { servico: true } } },
+  });
+  if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a NFS-e");
+  if (!os.servicos.length) throw new FiscalError("OS sem serviços");
+  const ja = await prisma.notaFiscal.findFirst({ where: { origemTipo: "OS", origemId: osId, modelo: "NFSE", status: "AUTORIZADA" } });
+  if (ja) throw new FiscalError(`Já existe NFS-e autorizada para esta OS (DPS ${ja.numero})`);
+  const codigos = [...new Set(os.servicos.map((s) => s.servico.codigoTributacaoNacional))];
+  if (codigos.some((c) => !c)) throw new FiscalError(`Informe o código de tributação nacional dos serviços: ${os.servicos.filter((s) => !s.servico.codigoTributacaoNacional).map((s) => s.servico.nome).join(", ")}`);
+  if (codigos.length > 1) throw new FiscalError("A NFS-e aceita um código de serviço por nota: separe os serviços com códigos diferentes em OS distintas");
+
+  const cert = deps.cert ?? certificadoDoAmbiente();
+  const amb: 1 | 2 = e.ambienteFiscal === "PRODUCAO" ? 1 : 2;
+  const agora = deps.agora ?? new Date();
+  const valor = os.servicos.reduce((s, i) => s + Number(i.subtotal), 0);
+  const c = os.cliente;
+  const serie = "1";
+  const nota = await prisma.$transaction(async (tx) => {
+    const numero = await proximoNumero(tx, `DPS-${serie}-${amb === 1 ? "P" : "H"}`);
+    return tx.notaFiscal.create({
+      data: { modelo: "NFSE", serie: 1, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: "OS", origemId: osId, valorTotal: valor },
+    });
+  });
+  try {
+    const descricao = [
+      ...os.servicos.map((s) => `${Number(s.quantidade)} x ${s.servico.nome}`),
+      os.equipamento ? `Equipamento: ${os.equipamento}` : "",
+      `OS ${os.numero}`,
+    ].filter(Boolean).join(" | ");
+    const { xml } = montarDps({
+      tpAmb: amb, emissao: agora, competencia: os.saida ?? agora, serie, numero: nota.numero,
+      prestador: { cnpj: e.cnpj, im: e.inscricaoMunicipal, codigoMunicipio: e.codigoMunicipio!, fone: e.telefone, email: e.email, opSimpNac: OP_SIMPLES[e.regimeTributario] },
+      tomador: c.documento ? {
+        documento: c.documento, nome: c.nome, email: c.email, fone: c.telefone,
+        endereco: c.codigoMunicipio && c.cep && c.logradouro && c.bairro
+          ? { codigoMunicipio: c.codigoMunicipio, cep: c.cep, logradouro: c.logradouro, numero: c.numero ?? "SN", complemento: c.complemento, bairro: c.bairro } : null,
+      } : null,
+      servico: {
+        codigoMunicipioPrestacao: e.codigoMunicipio!, cTribNac: codigos[0]!, cNBS: os.servicos[0].servico.codigoNbs,
+        descricao, valor, aliquotaIss: os.servicos[0].servico.aliquotaIss == null ? null : Number(os.servicos[0].servico.aliquotaIss),
+      },
+    });
+    const assinada = assinarDps(xml, cert);
+    await prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "ASSINADA", xml: assinada } });
+    const r = await new ClienteNfse(cert, amb, deps.transporte).emitir(assinada);
+    if (r.ok) {
+      return prisma.notaFiscal.update({
+        where: { id: nota.id },
+        data: { status: "AUTORIZADA", chave: r.chave, xml: r.xmlNfse ?? assinada, motivo: r.mensagem, emitidaEm: agora },
+      });
+    }
+    return prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "REJEITADA", motivo: r.mensagem.slice(0, 1000) } });
+  } catch (err) {
+    await prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "REJEITADA", motivo: (err as Error).message.slice(0, 500) } });
+    throw err;
+  }
+}
+
+export async function cancelarNfse(notaId: string, cMotivo: 1 | 2 | 9, motivo: string, deps: DependenciasNfse = {}) {
+  const n = await prisma.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+  if (n.modelo !== "NFSE" || n.status !== "AUTORIZADA" || !n.chave) throw new FiscalError("Só é possível cancelar NFS-e autorizada");
+  const e = await empresa();
+  const r = await new ClienteNfse(deps.cert ?? certificadoDoAmbiente(), n.ambiente === "PRODUCAO" ? 1 : 2, deps.transporte)
+    .cancelar({ cnpj: e.cnpj, chave: n.chave, cMotivo, motivo, data: deps.agora });
+  if (!r.ok) throw new FiscalError(`Cancelamento recusado: ${r.mensagem}`);
+  return prisma.$transaction(async (tx) => {
+    await tx.notaEvento.create({ data: { notaId, tipo: "101101", xml: r.eventoXml ?? r.pedidoXml } });
+    return tx.notaFiscal.update({ where: { id: notaId }, data: { status: "CANCELADA", motivo: r.mensagem } });
   });
 }
