@@ -67,6 +67,20 @@ model Usuario {
   osComoVendedor OrdemServico[] @relation("OsVendedor")
   vendas         Venda[]
   movimentos     MovimentoEstoque[]
+  sessoes        Sessao[]
+}
+
+/** Sessão de login: o cookie guarda um token aleatório; aqui fica só o hash dele. */
+model Sessao {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  expira    DateTime
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([usuarioId])
 }
 
 enum PapelUsuario {

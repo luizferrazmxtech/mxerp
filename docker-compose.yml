@@ -1,0 +1,85 @@
+# Sobe o MXERP completo: banco PostgreSQL, sistema, backup diário e busca do extrato do Inter.
+#   docker compose up -d --build
+name: mxerp
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mxerp
+      POSTGRES_PASSWORD: ${DB_SENHA:?defina DB_SENHA no .env}
+      POSTGRES_DB: mxerp
+      TZ: America/Sao_Paulo
+    volumes:
+      - dados:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mxerp -d mxerp"]
+      interval: 5s
+      retries: 20
+
+  app:
+    build: .
+    image: mxerp
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://mxerp:${DB_SENHA}@db:5432/mxerp?schema=public
+    ports:
+      - "${PORTA:-3000}:3000"
+    volumes:
+      # certificado A1 (.pfx) e arquivos da integração do Inter (.crt/.key): só leitura
+      - ./certificados:/certificados:ro
+
+  # cópia do banco todo dia às 12h30 e 19h30 na pasta backups; guarda 30 dias
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${DB_SENHA}
+      TZ: America/Sao_Paulo
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "backup: ativo"
+        while true; do
+          h=$$(date +%H%M)
+          if [ "$$h" = "1230" ] || [ "$$h" = "1930" ]; then
+            f=/backups/mxerp-$$(date +%Y%m%d-%H%M).dump
+            pg_dump -h db -U mxerp -d mxerp -Fc -f "$$f" && echo "backup: $$f"
+            find /backups -name 'mxerp-*.dump' -mtime +30 -delete
+            sleep 60
+          fi
+          sleep 30
+        done
+
+  # busca o extrato do Banco Inter de hora em hora (8h às 20h); fica parado se a integração não estiver configurada
+  agendador:
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    depends_on: [app]
+    environment:
+      CRON_SECRET: ${CRON_SECRET:-}
+      INTER_CLIENT_ID: ${INTER_CLIENT_ID:-}
+      TZ: America/Sao_Paulo
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          h=$$(date +%H)
+          if [ -n "$$INTER_CLIENT_ID" ] && [ -n "$$CRON_SECRET" ] && [ "$$h" -ge 8 ] && [ "$$h" -le 20 ]; then
+            curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/inter/sincronizar; echo
+          fi
+          sleep 3600
+        done
+
+volumes:
+  dados:

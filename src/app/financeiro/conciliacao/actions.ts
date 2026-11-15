@@ -1,5 +1,6 @@
 "use server";
 
+import { exigirUsuario } from "@/lib/auth/atual";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { conciliarTx, desfazerTx, ignorarTx, importarExtrato, lancarAvulsoTx, lerExtrato, sugestoes } from "@/lib/financeiro/extrato";
@@ -14,6 +15,7 @@ const resumo = (r: { novas: number; repetidas: number; baixadas: number }) =>
   `${r.novas} transações novas${r.repetidas ? ` (${r.repetidas} já tinham vindo antes)` : ""}, ${r.baixadas} contas baixadas automaticamente.`;
 
 export async function enviarExtrato(_: Estado, form: FormData): Promise<Estado> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   const arquivo = form.get("arquivo");
   const contaId = str(form.get("contaBancariaId"));
   if (!(arquivo instanceof File) || arquivo.size === 0) return { ok: false, mensagem: "Escolha o arquivo do extrato" };
@@ -25,6 +27,7 @@ export async function enviarExtrato(_: Estado, form: FormData): Promise<Estado> 
 }
 
 export async function puxarInter(_: Estado, form: FormData): Promise<Estado> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   try {
     const r = await sincronizarInter({ dias: Number(form.get("dias") || 7) });
     return feito(`Inter (${r.conta}): ${resumo(r)}`);
@@ -32,6 +35,7 @@ export async function puxarInter(_: Estado, form: FormData): Promise<Estado> {
 }
 
 export async function confirmarSugestoes(): Promise<Estado> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   try {
     const s = await sugestoes();
     for (const x of s) await prisma.$transaction((tx) => conciliarTx(tx, x.transacaoId, [x.lancamentoId]));
@@ -40,22 +44,26 @@ export async function confirmarSugestoes(): Promise<Estado> {
 }
 
 export async function conciliar(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   const ids = form.getAll("lancamentoId").map(String).filter(Boolean);
   await prisma.$transaction((tx) => conciliarTx(tx, str(form.get("transacaoId")), ids));
   feito("");
 }
 
 export async function lancarAvulso(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.$transaction((tx) => lancarAvulsoTx(tx, str(form.get("transacaoId")), str(form.get("categoriaId"))));
   feito("");
 }
 
 export async function ignorar(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.$transaction((tx) => ignorarTx(tx, str(form.get("transacaoId"))));
   feito("");
 }
 
 export async function desfazer(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.$transaction((tx) => desfazerTx(tx, str(form.get("transacaoId"))));
   feito("");
 }

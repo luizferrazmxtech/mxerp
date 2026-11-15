@@ -1,5 +1,6 @@
 "use server";
 
+import { exigirUsuario } from "@/lib/auth/atual";
 import { lerPlanilha } from "@/lib/migracao/planilha";
 import { importarBackupGestaoClick, lerBackupGestaoClick } from "@/lib/migracao/gestaoclick";
 import { importarPessoas, importarProdutos, importarServicos, type Resultado, type Tipo } from "@/lib/migracao/importar";
@@ -7,6 +8,7 @@ import { importarPessoas, importarProdutos, importarServicos, type Resultado, ty
 export type EstadoMigracao = { ok: boolean; mensagem: string; resultado?: Resultado; colunas?: string[] } | null;
 
 export async function importar(_: EstadoMigracao, form: FormData): Promise<EstadoMigracao> {
+  await exigirUsuario(["ADMIN"]);
   const arquivo = form.get("arquivo");
   const tipo = String(form.get("tipo")) as Tipo;
   const simular = form.get("modo") !== "gravar";
@@ -26,6 +28,7 @@ export async function importar(_: EstadoMigracao, form: FormData): Promise<Estad
 export type EstadoBackup = { ok: boolean; mensagem: string; resultados?: Resultado[] } | null;
 
 export async function importarBackup(_: EstadoBackup, form: FormData): Promise<EstadoBackup> {
+  await exigirUsuario(["ADMIN"]);
   const arquivo = form.get("arquivo");
   const simular = form.get("modo") !== "gravar";
   if (!(arquivo instanceof File) || arquivo.size === 0) return { ok: false, mensagem: "Escolha o arquivo .zip do backup" };

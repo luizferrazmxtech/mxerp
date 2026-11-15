@@ -1,0 +1,5 @@
+# arquivos que rodam dentro do Docker (Linux) precisam de fim de linha LF, mesmo vindo do Windows
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.pfx binary
+*.zip binary

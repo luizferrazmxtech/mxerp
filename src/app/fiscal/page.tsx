@@ -1,3 +1,4 @@
+import { exigirArea } from "@/lib/auth/atual";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { brl, dataHora } from "@/lib/ui/format";
@@ -13,6 +14,7 @@ const COR: Record<string, string> = {
 };
 
 export default async function Fiscal() {
+  await exigirArea("/fiscal");
   const [e, notas] = await Promise.all([
     prisma.empresa.findFirst(),
     prisma.notaFiscal.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),

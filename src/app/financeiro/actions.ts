@@ -1,5 +1,6 @@
 "use server";
 
+import { exigirUsuario } from "@/lib/auth/atual";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { baixarLancamento, criarLancamentos, estornarLancamento } from "@/lib/financeiro/lancamentos";
@@ -9,6 +10,7 @@ const num = (x: FormDataEntryValue | null) => Number(String(x ?? "").replace(/\.
 const str = (x: FormDataEntryValue | null) => String(x ?? "").trim();
 
 export async function novoLancamento(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.$transaction((tx) =>
     criarLancamentos(tx, {
       tipo: str(form.get("tipo")) as "PAGAR" | "RECEBER",
@@ -25,6 +27,7 @@ export async function novoLancamento(form: FormData) {
 }
 
 export async function baixar(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.$transaction((tx) =>
     baixarLancamento(tx, str(form.get("id")), {
       data: parseDia(str(form.get("data"))),
@@ -37,16 +40,19 @@ export async function baixar(form: FormData) {
 }
 
 export async function estornar(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.$transaction((tx) => estornarLancamento(tx, str(form.get("id"))));
   revalidatePath("/financeiro");
 }
 
 export async function excluir(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.lancamento.deleteMany({ where: { id: str(form.get("id")), pagoEm: null, origemTipo: null } });
   revalidatePath("/financeiro");
 }
 
 export async function novaConta(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.contaBancaria.create({
     data: { nome: str(form.get("nome")), banco: str(form.get("banco")) || null, saldoInicial: num(form.get("saldoInicial")) },
   });
