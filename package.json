@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "migrar:gestaoclick": "tsx scripts/importar-backup.ts"
+    "migrar:gestaoclick": "tsx scripts/importar-backup.ts",
+    "usuario:admin": "tsx scripts/criar-admin.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

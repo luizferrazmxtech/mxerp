@@ -1,5 +1,6 @@
 "use server";
 
+import { exigirUsuario } from "@/lib/auth/atual";
 import { revalidatePath } from "next/cache";
 import type { RegimeTributario, AmbienteFiscal } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -12,6 +13,7 @@ const s = (v: FormDataEntryValue | null) => String(v ?? "").trim();
 const msg = (e: unknown) => (e instanceof Error ? e.message : "Erro inesperado");
 
 export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   try {
     const dados = {
       razaoSocial: s(form.get("razaoSocial")), nomeFantasia: s(form.get("nomeFantasia")) || null,
@@ -38,6 +40,7 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
 }
 
 export async function consultarStatus(_: Res, form: FormData): Promise<Res> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   try {
     const e = await empresa();
     const modelo = Number(form.get("modelo")) === 65 ? 65 : 55;
@@ -49,6 +52,7 @@ export async function consultarStatus(_: Res, form: FormData): Promise<Res> {
 }
 
 export async function emitirVenda(_: Res, form: FormData): Promise<Res> {
+  await exigirUsuario(["ADMIN", "GERENTE", "OPERADOR", "CAIXA"]);
   const vendaId = s(form.get("vendaId"));
   try {
     const n = await emitirNotaVenda(vendaId, Number(form.get("modelo")) === 55 ? 55 : 65);
@@ -61,6 +65,7 @@ export async function emitirVenda(_: Res, form: FormData): Promise<Res> {
 }
 
 export async function emitirOs(_: Res, form: FormData): Promise<Res> {
+  await exigirUsuario(["ADMIN", "GERENTE", "OPERADOR", "CAIXA"]);
   const osId = s(form.get("osId"));
   try {
     const n = await emitirNotaOs(osId);
@@ -73,6 +78,7 @@ export async function emitirOs(_: Res, form: FormData): Promise<Res> {
 }
 
 export async function cancelar(_: Res, form: FormData): Promise<Res> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   try {
     await cancelarNota(s(form.get("notaId")), s(form.get("justificativa")));
     revalidatePath("/fiscal");
@@ -83,6 +89,7 @@ export async function cancelar(_: Res, form: FormData): Promise<Res> {
 }
 
 export async function emitirNfse(_: Res, form: FormData): Promise<Res> {
+  await exigirUsuario(["ADMIN", "GERENTE", "OPERADOR", "CAIXA"]);
   const osId = s(form.get("osId"));
   try {
     const n = await emitirNfseOs(osId);
@@ -95,6 +102,7 @@ export async function emitirNfse(_: Res, form: FormData): Promise<Res> {
 }
 
 export async function cancelarServico(_: Res, form: FormData): Promise<Res> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
   try {
     await cancelarNfse(s(form.get("notaId")), Number(form.get("cMotivo")) as 1 | 2 | 9, s(form.get("justificativa")));
     revalidatePath("/fiscal");

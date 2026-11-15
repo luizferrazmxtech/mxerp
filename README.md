@@ -15,7 +15,11 @@ ERP da MXTECH: ordens de serviço, vendas/PDV, estoque com localização, financ
 
 Next.js 15 (App Router, server actions) · TypeScript · PostgreSQL 16 · Prisma · Tailwind · Vitest.
 
-## Rodando localmente
+## Instalar na loja (Windows)
+
+Passo a passo em [docs/instalar-windows.md](docs/instalar-windows.md): Docker Desktop + `windows/instalar.ps1`. Sobe banco, sistema, backup diário e busca do extrato do Inter; no primeiro acesso a tela pede para criar o administrador.
+
+## Rodando localmente (desenvolvimento)
 
 ```bash
 cp .env.example .env          # ajuste DATABASE_URL
