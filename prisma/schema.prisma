@@ -1,0 +1,616 @@
+// MXERP - modelo de dados
+// Convenções: quantidades Decimal(14,4), valores Decimal(14,2).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Empresa e usuários ─────────────────────────
+
+model Empresa {
+  id                String   @id @default(cuid())
+  razaoSocial       String
+  nomeFantasia      String?
+  cnpj              String   @unique
+  inscricaoEstadual String?
+  inscricaoMunicipal String?
+  regimeTributario  RegimeTributario @default(SIMPLES_NACIONAL)
+  logradouro        String?
+  numero            String?
+  bairro            String?
+  cidade            String?
+  codigoMunicipio   String?  // IBGE
+  uf                String?  @db.Char(2)
+  cep               String?
+  telefone          String?
+  email             String?
+  ambienteFiscal    AmbienteFiscal @default(HOMOLOGACAO)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+enum RegimeTributario {
+  SIMPLES_NACIONAL
+  SIMPLES_EXCESSO_SUBLIMITE
+  REGIME_NORMAL
+  MEI
+}
+
+enum AmbienteFiscal {
+  PRODUCAO
+  HOMOLOGACAO
+}
+
+model Usuario {
+  id        String   @id @default(cuid())
+  nome      String
+  email     String   @unique
+  senhaHash String
+  papel     PapelUsuario @default(OPERADOR)
+  ativo     Boolean  @default(true)
+  tecnico   Boolean  @default(false)
+  vendedor  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  osComoTecnico  OrdemServico[] @relation("OsTecnico")
+  osComoVendedor OrdemServico[] @relation("OsVendedor")
+  vendas         Venda[]
+  movimentos     MovimentoEstoque[]
+}
+
+enum PapelUsuario {
+  ADMIN
+  GERENTE
+  OPERADOR
+  TECNICO
+  CAIXA
+}
+
+// ───────────────────────── Cadastros ─────────────────────────
+
+model Pessoa {
+  id                String   @id @default(cuid())
+  tipoPessoa        TipoPessoa @default(JURIDICA)
+  nome              String   // razão social ou nome completo
+  fantasia          String?
+  documento         String?  @unique // CPF/CNPJ só dígitos
+  inscricaoEstadual String?
+  contribuinteIcms  ContribuinteIcms @default(NAO_CONTRIBUINTE)
+  email             String?
+  telefone          String?
+  celular           String?
+  logradouro        String?
+  numero            String?
+  complemento       String?
+  bairro            String?
+  cidade            String?
+  codigoMunicipio   String?
+  uf                String?  @db.Char(2)
+  cep               String?
+  cliente           Boolean  @default(true)
+  fornecedor        Boolean  @default(false)
+  ativo             Boolean  @default(true)
+  observacoes       String?
+  idLegado          String?  @unique // id no sistema anterior (migração)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  ordensServico OrdemServico[]
+  vendas        Venda[]
+  lancamentos   Lancamento[]
+  compras       Compra[]
+
+  @@index([nome])
+}
+
+enum TipoPessoa {
+  FISICA
+  JURIDICA
+}
+
+enum ContribuinteIcms {
+  CONTRIBUINTE
+  ISENTO
+  NAO_CONTRIBUINTE
+}
+
+model GrupoProduto {
+  id       String    @id @default(cuid())
+  nome     String    @unique
+  produtos Produto[]
+}
+
+model Produto {
+  id              String   @id @default(cuid())
+  codigo          String   @unique
+  gtin            String?
+  nome            String
+  unidade         String   @default("UN")
+  grupoId         String?
+  grupo           GrupoProduto? @relation(fields: [grupoId], references: [id])
+  precoVenda      Decimal  @default(0) @db.Decimal(14, 2)
+  custo           Decimal  @default(0) @db.Decimal(14, 4)
+  controlaEstoque Boolean  @default(true)
+  estoqueMinimo   Decimal  @default(0) @db.Decimal(14, 4)
+  localPadraoId   String?  // onde o item "mora"; usado para entradas
+  localPadrao     Local?   @relation("LocalPadrao", fields: [localPadraoId], references: [id])
+  // fiscal
+  ncm             String?
+  cest            String?
+  origem          Int      @default(0)
+  cfopInterno     String?
+  cfopExterno     String?
+  csosn           String?
+  cstIcms         String?
+  aliquotaIcms    Decimal? @db.Decimal(7, 4)
+  cstPis          String?
+  cstCofins       String?
+  cClassTrib      String?  // IBS/CBS (reforma tributária)
+  ativo           Boolean  @default(true)
+  idLegado        String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  saldos     Saldo[]
+  reservas   Reserva[]
+  movimentos MovimentoEstoque[]
+  itensOs    OsItemProduto[]
+  itensVenda VendaItem[]
+  itensCompra CompraItem[]
+
+  @@index([nome])
+}
+
+model Servico {
+  id          String   @id @default(cuid())
+  codigo      String   @unique
+  nome        String
+  preco       Decimal  @default(0) @db.Decimal(14, 2)
+  // NFS-e
+  codigoTributacaoNacional String? // cTribNac
+  codigoNbs   String?
+  aliquotaIss Decimal? @db.Decimal(7, 4)
+  ativo       Boolean  @default(true)
+  idLegado    String?  @unique
+  createdAt   DateTime @default(now())
+
+  itensOs    OsItemServico[]
+  itensVenda VendaItemServico[]
+}
+
+// ───────────────────────── Estoque ─────────────────────────
+
+model Deposito {
+  id     String  @id @default(cuid())
+  nome   String  @unique
+  ativo  Boolean @default(true)
+  locais Local[]
+}
+
+/// Endereço físico: depósito > corredor > prateleira > nível.
+model Local {
+  id         String   @id @default(cuid())
+  depositoId String
+  deposito   Deposito @relation(fields: [depositoId], references: [id])
+  corredor   String?
+  prateleira String?
+  nivel      String?
+  codigo     String   @unique // ex.: "LOJA-A-03-2"
+  descricao  String?
+  ativo      Boolean  @default(true)
+
+  saldos          Saldo[]
+  reservas        Reserva[]
+  movimentos      MovimentoEstoque[]
+  produtosPadrao  Produto[] @relation("LocalPadrao")
+}
+
+/// Quantidade física de um produto em um local.
+model Saldo {
+  produtoId  String
+  produto    Produto @relation(fields: [produtoId], references: [id])
+  localId    String
+  local      Local   @relation(fields: [localId], references: [id])
+  quantidade Decimal @default(0) @db.Decimal(14, 4)
+  updatedAt  DateTime @updatedAt
+
+  @@id([produtoId, localId])
+  @@index([localId])
+}
+
+enum OrigemDocumento {
+  OS
+  VENDA
+  COMPRA
+  AJUSTE
+  TRANSFERENCIA
+  DEVOLUCAO
+  IMPLANTACAO
+}
+
+enum StatusReserva {
+  ATIVA
+  BAIXADA   // virou saída de estoque
+  LIBERADA  // cancelada / item removido
+}
+
+/// Reserva de um item de documento (OS/venda). Cada linha diz DE ONDE
+/// a peça deve ser retirada. localId nulo = quantidade em falta (sem estoque).
+model Reserva {
+  id           String          @id @default(cuid())
+  produtoId    String
+  produto      Produto         @relation(fields: [produtoId], references: [id])
+  localId      String?
+  local        Local?          @relation(fields: [localId], references: [id])
+  quantidade   Decimal         @db.Decimal(14, 4)
+  origemTipo   OrigemDocumento
+  origemId     String          // id do documento (OS, venda)
+  origemItemId String          // id do item do documento
+  status       StatusReserva   @default(ATIVA)
+  separado     Boolean         @default(false) // já foi pego na prateleira
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([produtoId, status])
+  @@index([origemTipo, origemId])
+  @@index([origemItemId])
+}
+
+enum TipoMovimento {
+  ENTRADA
+  SAIDA
+}
+
+/// Livro-razão do estoque: toda alteração de saldo gera um movimento.
+model MovimentoEstoque {
+  id         String          @id @default(cuid())
+  produtoId  String
+  produto    Produto         @relation(fields: [produtoId], references: [id])
+  localId    String
+  local      Local           @relation(fields: [localId], references: [id])
+  tipo       TipoMovimento
+  quantidade Decimal         @db.Decimal(14, 4) // sempre positiva
+  custoUnit  Decimal?        @db.Decimal(14, 4)
+  origemTipo OrigemDocumento
+  origemId   String?
+  observacao String?
+  usuarioId  String?
+  usuario    Usuario?        @relation(fields: [usuarioId], references: [id])
+  createdAt  DateTime        @default(now())
+
+  @@index([produtoId, createdAt])
+  @@index([origemTipo, origemId])
+}
+
+// ───────────────────────── Ordem de serviço ─────────────────────────
+
+enum SituacaoOs {
+  ABERTA
+  EM_ANDAMENTO
+  AGUARDANDO_PECA
+  AGUARDANDO_APROVACAO
+  CONCLUIDA      // serviço feito: baixa estoque
+  FATURADA       // gerou financeiro/nota
+  CANCELADA      // libera reservas
+  DEVOLVIDA_SEM_REPARO
+}
+
+model OrdemServico {
+  id            String     @id @default(cuid())
+  numero        Int        @unique
+  clienteId     String
+  cliente       Pessoa     @relation(fields: [clienteId], references: [id])
+  tecnicoId     String?
+  tecnico       Usuario?   @relation("OsTecnico", fields: [tecnicoId], references: [id])
+  vendedorId    String?
+  vendedor      Usuario?   @relation("OsVendedor", fields: [vendedorId], references: [id])
+  situacao      SituacaoOs @default(ABERTA)
+  entrada       DateTime   @default(now())
+  previsao      DateTime?
+  saida         DateTime?
+  equipamento   String?
+  marca         String?
+  modelo        String?
+  numeroSerie   String?
+  defeito       String?
+  laudo         String?
+  observacoes   String?
+  desconto      Decimal    @default(0) @db.Decimal(14, 2)
+  totalProdutos Decimal    @default(0) @db.Decimal(14, 2)
+  totalServicos Decimal    @default(0) @db.Decimal(14, 2)
+  total         Decimal    @default(0) @db.Decimal(14, 2)
+  idLegado      String?    @unique
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  produtos OsItemProduto[]
+  servicos OsItemServico[]
+  historico OsHistorico[]
+
+  @@index([situacao])
+  @@index([clienteId])
+}
+
+model OsItemProduto {
+  id         String       @id @default(cuid())
+  osId       String
+  os         OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
+  produtoId  String
+  produto    Produto      @relation(fields: [produtoId], references: [id])
+  quantidade Decimal      @db.Decimal(14, 4)
+  valorUnit  Decimal      @db.Decimal(14, 2)
+  custoUnit  Decimal      @default(0) @db.Decimal(14, 4)
+  desconto   Decimal      @default(0) @db.Decimal(14, 2)
+  subtotal   Decimal      @db.Decimal(14, 2)
+  createdAt  DateTime     @default(now())
+}
+
+model OsItemServico {
+  id         String       @id @default(cuid())
+  osId       String
+  os         OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
+  servicoId  String
+  servico    Servico      @relation(fields: [servicoId], references: [id])
+  quantidade Decimal      @default(1) @db.Decimal(14, 4)
+  valorUnit  Decimal      @db.Decimal(14, 2)
+  desconto   Decimal      @default(0) @db.Decimal(14, 2)
+  subtotal   Decimal      @db.Decimal(14, 2)
+  createdAt  DateTime     @default(now())
+}
+
+model OsHistorico {
+  id        String       @id @default(cuid())
+  osId      String
+  os        OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
+  descricao String
+  usuarioId String?
+  createdAt DateTime     @default(now())
+}
+
+// ───────────────────────── Vendas / PDV ─────────────────────────
+
+enum TipoVenda {
+  PEDIDO
+  BALCAO  // PDV
+}
+
+enum SituacaoVenda {
+  ORCAMENTO   // não reserva
+  ABERTA      // reserva
+  CONCLUIDA   // baixa estoque + financeiro
+  CANCELADA
+}
+
+model Venda {
+  id         String        @id @default(cuid())
+  numero     Int           @unique
+  tipo       TipoVenda     @default(PEDIDO)
+  clienteId  String?
+  cliente    Pessoa?       @relation(fields: [clienteId], references: [id])
+  vendedorId String?
+  vendedor   Usuario?      @relation(fields: [vendedorId], references: [id])
+  situacao   SituacaoVenda @default(ABERTA)
+  data       DateTime      @default(now())
+  desconto   Decimal       @default(0) @db.Decimal(14, 2)
+  frete      Decimal       @default(0) @db.Decimal(14, 2)
+  total      Decimal       @default(0) @db.Decimal(14, 2)
+  observacoes String?
+  idLegado   String?       @unique
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  itens     VendaItem[]
+  servicos  VendaItemServico[]
+  pagamentos VendaPagamento[]
+}
+
+model VendaItem {
+  id         String  @id @default(cuid())
+  vendaId    String
+  venda      Venda   @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  produtoId  String
+  produto    Produto @relation(fields: [produtoId], references: [id])
+  quantidade Decimal @db.Decimal(14, 4)
+  valorUnit  Decimal @db.Decimal(14, 2)
+  custoUnit  Decimal @default(0) @db.Decimal(14, 4)
+  desconto   Decimal @default(0) @db.Decimal(14, 2)
+  subtotal   Decimal @db.Decimal(14, 2)
+}
+
+model VendaItemServico {
+  id         String  @id @default(cuid())
+  vendaId    String
+  venda      Venda   @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  servicoId  String
+  servico    Servico @relation(fields: [servicoId], references: [id])
+  quantidade Decimal @default(1) @db.Decimal(14, 4)
+  valorUnit  Decimal @db.Decimal(14, 2)
+  subtotal   Decimal @db.Decimal(14, 2)
+}
+
+model VendaPagamento {
+  id               String         @id @default(cuid())
+  vendaId          String
+  venda            Venda          @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  formaPagamentoId String
+  formaPagamento   FormaPagamento @relation(fields: [formaPagamentoId], references: [id])
+  valor            Decimal        @db.Decimal(14, 2)
+  parcelas         Int            @default(1)
+}
+
+// ───────────────────────── Compras ─────────────────────────
+
+model Compra {
+  id           String   @id @default(cuid())
+  numero       Int      @unique
+  fornecedorId String
+  fornecedor   Pessoa   @relation(fields: [fornecedorId], references: [id])
+  data         DateTime @default(now())
+  recebida     Boolean  @default(false)
+  chaveNfe     String?
+  total        Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt    DateTime @default(now())
+  itens        CompraItem[]
+}
+
+model CompraItem {
+  id         String  @id @default(cuid())
+  compraId   String
+  compra     Compra  @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  produtoId  String
+  produto    Produto @relation(fields: [produtoId], references: [id])
+  localId    String? // onde vai ser guardado
+  quantidade Decimal @db.Decimal(14, 4)
+  custoUnit  Decimal @db.Decimal(14, 4)
+}
+
+// ───────────────────────── Financeiro ─────────────────────────
+
+model ContaBancaria {
+  id           String   @id @default(cuid())
+  nome         String   @unique
+  banco        String?
+  agencia      String?
+  conta        String?
+  saldoInicial Decimal  @default(0) @db.Decimal(14, 2)
+  ativa        Boolean  @default(true)
+  lancamentos  Lancamento[]
+}
+
+model FormaPagamento {
+  id          String  @id @default(cuid())
+  nome        String  @unique
+  tPag        String  // código do meio de pagamento na NF-e (01 dinheiro, 03 crédito, 17 PIX...)
+  taxa        Decimal @default(0) @db.Decimal(7, 4)
+  diasPrazo   Int     @default(0)
+  ativa       Boolean @default(true)
+  pagamentos  VendaPagamento[]
+  lancamentos Lancamento[]
+}
+
+/// Grupo da DRE gerencial para onde a categoria soma.
+enum GrupoDre {
+  RECEITA_BRUTA
+  DEDUCOES        // impostos sobre venda, devoluções
+  CUSTO           // CMV / CSP
+  DESPESA_OPERACIONAL
+  DESPESA_FINANCEIRA
+  RECEITA_FINANCEIRA
+  OUTRAS_RECEITAS
+  OUTRAS_DESPESAS
+  NAO_OPERACIONAL // transferências, aportes, retiradas: fora da DRE
+}
+
+enum TipoLancamento {
+  RECEBER
+  PAGAR
+}
+
+model CategoriaFinanceira {
+  id          String         @id @default(cuid())
+  nome        String
+  tipo        TipoLancamento
+  grupoDre    GrupoDre
+  paiId       String?
+  pai         CategoriaFinanceira?  @relation("CategoriaPai", fields: [paiId], references: [id])
+  filhas      CategoriaFinanceira[] @relation("CategoriaPai")
+  lancamentos Lancamento[]
+
+  @@unique([nome, tipo])
+}
+
+model Lancamento {
+  id               String          @id @default(cuid())
+  tipo             TipoLancamento
+  descricao        String
+  pessoaId         String?
+  pessoa           Pessoa?         @relation(fields: [pessoaId], references: [id])
+  categoriaId      String
+  categoria        CategoriaFinanceira @relation(fields: [categoriaId], references: [id])
+  contaBancariaId  String?
+  contaBancaria    ContaBancaria?  @relation(fields: [contaBancariaId], references: [id])
+  formaPagamentoId String?
+  formaPagamento   FormaPagamento? @relation(fields: [formaPagamentoId], references: [id])
+  valor            Decimal         @db.Decimal(14, 2)
+  vencimento       DateTime        @db.Date
+  competencia      DateTime        @db.Date // mês da DRE
+  pagoEm           DateTime?       @db.Date
+  valorPago        Decimal?        @db.Decimal(14, 2)
+  juros            Decimal         @default(0) @db.Decimal(14, 2)
+  desconto         Decimal         @default(0) @db.Decimal(14, 2)
+  parcela          Int             @default(1)
+  totalParcelas    Int             @default(1)
+  origemTipo       OrigemDocumento?
+  origemId         String?
+  idLegado         String?         @unique
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([tipo, vencimento])
+  @@index([competencia])
+  @@index([origemTipo, origemId])
+}
+
+// ───────────────────────── Fiscal ─────────────────────────
+
+enum ModeloNota {
+  NFE   // 55
+  NFCE  // 65
+  NFSE  // padrão nacional
+}
+
+enum StatusNota {
+  RASCUNHO
+  ASSINADA
+  ENVIADA
+  AUTORIZADA
+  REJEITADA
+  DENEGADA
+  CANCELADA
+  INUTILIZADA
+}
+
+model NotaFiscal {
+  id          String     @id @default(cuid())
+  modelo      ModeloNota
+  serie       Int
+  numero      Int
+  chave       String?    @unique
+  status      StatusNota @default(RASCUNHO)
+  ambiente    AmbienteFiscal
+  origemTipo  OrigemDocumento?
+  origemId    String?
+  valorTotal  Decimal    @db.Decimal(14, 2)
+  xml         String?    // XML assinado / autorizado (procNFe)
+  protocolo   String?
+  motivo      String?    // cStat + xMotivo da última resposta
+  emitidaEm   DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  eventos     NotaEvento[]
+
+  @@unique([modelo, serie, numero, ambiente])
+  @@index([origemTipo, origemId])
+}
+
+model NotaEvento {
+  id        String     @id @default(cuid())
+  notaId    String
+  nota      NotaFiscal @relation(fields: [notaId], references: [id], onDelete: Cascade)
+  tipo      String     // 110111 cancelamento, 110110 CC-e...
+  sequencia Int        @default(1)
+  xml       String?
+  protocolo String?
+  createdAt DateTime   @default(now())
+}
+
+/// Contadores de numeração (OS, venda, compra, NF por série...).
+model Sequencia {
+  chave String @id
+  valor Int    @default(0)
+}

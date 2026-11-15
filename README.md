@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MXERP
 
-## Getting Started
+ERP da MXTECH: ordens de serviço, vendas/PDV, estoque com localização, financeiro/DRE e notas fiscais (NF-e, NFC-e, NFS-e) emitidas direto na SEFAZ e no padrão nacional de NFS-e.
 
-First, run the development server:
+## Diferencial: OS reserva o estoque
+
+- Cada produto tem saldo **por local** (depósito › corredor › prateleira › nível).
+- Ao adicionar um produto na OS ele é **reservado na hora** e o sistema diz **de qual prateleira pegar**.
+- Se não houver estoque, a quantidade fica **em falta** e aparece na tela inicial como "comprar/repor". Quando a mercadoria entra, a falta é coberta automaticamente, na ordem das OS.
+- Situações: *Concluída/Faturada* baixam o estoque das prateleiras reservadas; *Cancelada/Devolvida* liberam; reabrir uma OS concluída estorna e reserva de novo.
+- Reservas são serializadas por produto no PostgreSQL (`SELECT … FOR NO KEY UPDATE`): dois técnicos nunca pegam a mesma peça.
+- Lista de separação imprimível por OS, ordenada por local.
+
+## Stack
+
+Next.js 15 (App Router, server actions) · TypeScript · PostgreSQL 16 · Prisma · Tailwind · Vitest.
+
+## Rodando localmente
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env          # ajuste DATABASE_URL
+npm install
+npx prisma migrate dev        # cria as tabelas
+npm run db:seed               # dados de demonstração (opcional)
+npm run dev                   # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Testes (usam o banco `mxerp_test`):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+createdb mxerp_test
+npm test
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Estrutura
 
-## Learn More
+- `prisma/schema.prisma` — modelo de dados de todos os módulos.
+- `src/lib/estoque/` — motor de estoque (alocação por prateleira, reservas, baixa, estorno, transferência).
+- `src/lib/os/` — regras da ordem de serviço.
+- `src/app/` — telas.
 
-To learn more about Next.js, take a look at the following resources:
+## Roadmap até 01/01/2027
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. ✅ Estoque com localização + OS com reserva
+2. Vendas / PDV (mesmo motor de reserva)
+3. Financeiro (contas a pagar/receber, caixa, bancos) e DRE gerencial
+4. NF-e / NFC-e (SEFAZ-SP) e NFS-e (padrão nacional), primeiro em homologação
+5. Importação de dados do Gestão Click e conferência de inventário
+6. Login e permissões por usuário
