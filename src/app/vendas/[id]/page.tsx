@@ -7,6 +7,7 @@ import { brl, data, dataHora, qtd } from "@/lib/ui/format";
 import AdicionarProduto from "@/components/AdicionarProduto";
 import { adicionarItem, removerItem } from "../actions";
 import Fechamento from "./Fechamento";
+import NotasDoDocumento from "@/components/NotasDoDocumento";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,8 @@ export default async function DetalheVenda({ params }: { params: Promise<{ id: s
       </section>
 
       <Fechamento vendaId={id} situacao={v.situacao} total={Number(v.total)} formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo }))} />
+
+      <NotasDoDocumento origemTipo="VENDA" origemId={id} podeEmitir={v.situacao === "CONCLUIDA"} />
 
       {lancamentos.length > 0 && (
         <section className="cartao">

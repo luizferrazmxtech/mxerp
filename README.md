@@ -42,8 +42,8 @@ npm test
 ## Roadmap até 01/01/2027
 
 1. ✅ Estoque com localização + OS com reserva
-2. Vendas / PDV (mesmo motor de reserva)
-3. Financeiro (contas a pagar/receber, caixa, bancos) e DRE gerencial
-4. NF-e / NFC-e (SEFAZ-SP) e NFS-e (padrão nacional), primeiro em homologação
+2. ✅ Vendas / PDV (mesmo motor de reserva)
+3. ✅ Financeiro (contas a pagar/receber, caixa, bancos) e DRE gerencial
+4. NF-e / NFC-e direto na SEFAZ-SP (✅ ver `docs/notas-fiscais.md`) e NFS-e padrão nacional
 5. Importação de dados do Gestão Click e conferência de inventário
 6. Login e permissões por usuário

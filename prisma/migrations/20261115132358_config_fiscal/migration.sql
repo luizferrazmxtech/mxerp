@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "Empresa" ADD COLUMN     "cnae" TEXT,
+ADD COLUMN     "cscId" TEXT,
+ADD COLUMN     "cscToken" TEXT,
+ADD COLUMN     "ibsCbsAtivo" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "serieNfce" INTEGER NOT NULL DEFAULT 1,
+ADD COLUMN     "serieNfe" INTEGER NOT NULL DEFAULT 1;

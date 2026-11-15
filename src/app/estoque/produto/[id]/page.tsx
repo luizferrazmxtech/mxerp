@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { disponivelPorLocal, resumoProduto } from "@/lib/estoque/estoque";
 import { brl, dataHora, qtd } from "@/lib/ui/format";
-import { darEntrada, darSaida, definirLocalPadrao, fazerTransferencia } from "../../actions";
+import { darEntrada, darSaida, definirLocalPadrao, fazerTransferencia, salvarFiscalProduto } from "../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -122,6 +122,17 @@ export default async function ProdutoEstoque({ params }: { params: Promise<{ id:
           </form>
         </div>
       </div>
+
+      <form action={salvarFiscalProduto} className="cartao grid gap-2 p-4 md:grid-cols-8">
+        <h2 className="font-semibold md:col-span-8">Dados fiscais</h2>
+        <input type="hidden" name="produtoId" value={id} />
+        {[["ncm", "NCM", produto.ncm], ["cest", "CEST", produto.cest], ["gtin", "Código de barras (GTIN)", produto.gtin],
+          ["cfopInterno", "CFOP dentro de SP", produto.cfopInterno ?? "5102"], ["cfopExterno", "CFOP fora de SP", produto.cfopExterno ?? "6102"],
+          ["csosn", "CSOSN", produto.csosn ?? "102"], ["origem", "Origem", String(produto.origem)]].map(([n, r, v]) => (
+          <label key={n} className="text-xs text-slate-500">{r}<input name={n!} defaultValue={v ?? ""} className="campo mt-1" /></label>
+        ))}
+        <div className="flex items-end"><button className="btn w-full">Salvar</button></div>
+      </form>
 
       <section className="cartao">
         <h2 className="border-b px-4 py-3 font-semibold">Últimas movimentações</h2>
