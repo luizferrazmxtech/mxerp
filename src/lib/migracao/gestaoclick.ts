@@ -1,7 +1,7 @@
 import JSZip from "jszip";
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db";
-import { reservarItem } from "@/lib/estoque/estoque";
+import { entrada, reservarItem } from "@/lib/estoque/estoque";
 import { alterarSituacaoTx, recalcularTotais } from "@/lib/os/os";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
 import { lerPlanilha, normalizar, numeroBr, type Linha } from "./planilha";
@@ -193,6 +193,14 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
       await recalcularTotais(tx, os.id);
       const sit = SITUACAO_GC[chaveNome(atuais.get(o["n da os"]))];
       if (sit !== "ABERTA") await alterarSituacaoTx(tx, os.id, sit, { permitirNegativo: true });
+      if (sit === "CONCLUIDA") {
+        // No Gestão Click, "CONCLUIDA - FATURAR" já tirou as peças do estoque, e o "Estoque atual" do backup
+        // já vem descontado. A baixa da OS fica registrada aqui (para estornar certo se a OS for reaberta),
+        // e uma entrada de implantação no mesmo local devolve a quantidade, para o saldo bater com o backup.
+        const saidas = await tx.movimentoEstoque.findMany({ where: { origemTipo: "OS", origemId: os.id, tipo: "SAIDA" } });
+        for (const m of saidas)
+          await entrada(tx, { produtoId: m.produtoId, localId: m.localId, quantidade: Number(m.quantidade), origemTipo: "IMPLANTACAO", observacao: `OS ${numero}: peça já baixada no Gestão Click` });
+      }
     }, { timeout: 30000 });
     r.criados++;
   }

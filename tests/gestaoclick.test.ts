@@ -67,6 +67,7 @@ async function backup() {
     ["7002", "ELE - BATERIA 12V 7AH", "2", "Varejo", "144,90", null, "289,80", "MXTECH"],
     ["7002", "PRODUTO APAGADO", "1", "Varejo", "10,00", null, "10,00", "MXTECH"],
     ["7003", "ELE - BATERIA 12V 7AH", "1", "Varejo", "144,90", null, "144,90", "MXTECH"],
+    ["7004", "CABO UTP CAT5E", "3", "Varejo", "2,50", null, "7,50", "MXTECH"],
   ]));
   z.file("ordens_servicos/ordens_servicos_servicos.xlsx", await planilha([
     ["Nº da OS", "Serviço", "Quantidade", "Valor unitário", "Desconto", "Valor total", "Loja"],
@@ -136,6 +137,11 @@ describe("backup do Gestão Click", () => {
     expect(o4.situacao).toBe("CONCLUIDA");
     expect(o4.cliente.nome).toBe("CLIENTE AVULSO");
     expect(por("os").avisos.join(" ")).toMatch(/PRODUTO APAGADO/);
+
+    // OS "CONCLUIDA - FATURAR" já baixou as peças no Gestão Click: o saldo continua o do backup (0), sem baixar de novo
+    const cabo = await prisma.produto.findUniqueOrThrow({ where: { codigo: "CABO" } });
+    expect((await prisma.$transaction((tx) => est.resumoProduto(tx, cabo.id))).fisico).toBe(0);
+    expect(await prisma.movimentoEstoque.count({ where: { produtoId: cabo.id, origemTipo: "OS", tipo: "SAIDA" } })).toBe(1);
 
     // estoque 3: 2 reservadas na 7001, 1 na 7002 e 1 em falta
     const r = await prisma.$transaction((tx) => est.resumoProduto(tx, bat.id));
