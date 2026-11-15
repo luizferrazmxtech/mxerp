@@ -73,3 +73,16 @@ export async function criarLocal(form: FormData) {
   });
   revalidatePath("/estoque/locais");
 }
+
+export async function salvarFiscalProduto(form: FormData) {
+  const produtoId = String(form.get("produtoId"));
+  const s = (k: string) => String(form.get(k) ?? "").trim() || null;
+  await prisma.produto.update({
+    where: { id: produtoId },
+    data: {
+      ncm: s("ncm")?.replace(/\D/g, "") ?? null, cest: s("cest")?.replace(/\D/g, "") ?? null, gtin: s("gtin"),
+      cfopInterno: s("cfopInterno"), cfopExterno: s("cfopExterno"), csosn: s("csosn"), origem: Number(form.get("origem") || 0),
+    },
+  });
+  revalidatePath(`/estoque/produto/${produtoId}`);
+}

@@ -15,6 +15,7 @@ const menu = [
   { href: "/estoque", rotulo: "Estoque" },
   { href: "/financeiro", rotulo: "Financeiro" },
   { href: "/financeiro/dre", rotulo: "DRE" },
+  { href: "/fiscal", rotulo: "Notas fiscais" },
   { href: "/estoque/locais", rotulo: "Locais (prateleiras)" },
   { href: "/clientes", rotulo: "Clientes" },
 ];

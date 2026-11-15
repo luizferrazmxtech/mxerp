@@ -7,6 +7,7 @@ import { adicionarProduto, adicionarServico, alterarQuantidade, removerProduto, 
 import AdicionarProduto from "@/components/AdicionarProduto";
 import MudarSituacao from "./MudarSituacao";
 import Faturar from "./Faturar";
+import NotasDoDocumento from "@/components/NotasDoDocumento";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
 
 export const dynamic = "force-dynamic";
@@ -175,6 +176,11 @@ export default async function DetalheOs({ params }: { params: Promise<{ id: stri
             <Faturar osId={id} total={Number(os.total)} formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo }))} />
           )}
         </section>
+        {os.produtos.length > 0 && (
+          <div className="md:col-span-2">
+            <NotasDoDocumento origemTipo="OS" origemId={id} podeEmitir={os.situacao === "CONCLUIDA" || os.situacao === "FATURADA"} />
+          </div>
+        )}
         <section className="cartao p-4 md:col-span-2">
           <h2 className="mb-2 font-semibold">Histórico</h2>
           <ul className="space-y-1 text-sm">

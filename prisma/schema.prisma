@@ -30,6 +30,12 @@ model Empresa {
   telefone          String?
   email             String?
   ambienteFiscal    AmbienteFiscal @default(HOMOLOGACAO)
+  cnae              String?
+  serieNfe          Int      @default(1)
+  serieNfce         Int      @default(1)
+  cscId             String?  // identificador do CSC da NFC-e (ex.: 000001)
+  cscToken          String?  // CSC gerado no portal da SEFAZ
+  ibsCbsAtivo       Boolean  @default(false) // emitir grupo IBS/CBS (reforma tributária)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }

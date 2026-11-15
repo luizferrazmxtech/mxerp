@@ -1,0 +1,88 @@
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { execFileSync, execSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pfxDeTeste } from "./helpers/certificado-teste";
+
+const URL = "postgresql://mxerp:mxerp@localhost:5432/mxerp_test?schema=public";
+process.env.DATABASE_URL = URL;
+
+const { prisma } = await import("@/lib/db");
+const est = await import("@/lib/estoque/estoque");
+const vendas = await import("@/lib/vendas/vendas");
+const { garantirPadroes } = await import("@/lib/financeiro/padroes");
+const { lerCertificado } = await import("@/lib/fiscal/certificado");
+const fiscal = await import("@/lib/fiscal/emissao");
+type Transporte = import("@/lib/fiscal/sefaz").Transporte;
+
+const { pfx, senha } = pfxDeTeste();
+const cert = lerCertificado(pfx, senha);
+
+const autoriza: Transporte = async (_u, acao, corpo) => {
+  if (acao.endsWith("nfeRecepcaoEvento"))
+    return `<E><retEvento><infEvento><cStat>135</cStat><xMotivo>Evento registrado</xMotivo><nProt>2</nProt></infEvento></retEvento></E>`;
+  const chave = corpo.match(/Id="NFe(\d{44})"/)![1];
+  return `<E><B><retEnviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><cStat>104</cStat><xMotivo>Lote processado</xMotivo><protNFe versao="4.00"><infProt><tpAmb>2</tpAmb><verAplic>T</verAplic><chNFe>${chave}</chNFe><dhRecbto>2027-01-04T10:00:01-03:00</dhRecbto><nProt>135270000000001</nProt><digVal>abc=</digVal><cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe></retEnviNFe></B></E>`;
+};
+
+function xsdProc(xml: string) {
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "proc-")), "p.xml");
+  fs.writeFileSync(f, xml);
+  try { execFileSync("xmllint", ["--noout", "--schema", path.resolve("fiscal-schemas/nfe/procNFe_v4.00.xsd"), f], { stdio: "pipe" }); return "ok"; }
+  catch (e) { return String((e as { stderr?: Buffer }).stderr); }
+}
+
+let prod: string, dinheiro: string;
+
+beforeAll(() => execSync("npx prisma migrate deploy", { env: { ...process.env, DATABASE_URL: URL }, stdio: "ignore" }));
+
+beforeEach(async () => {
+  await prisma.$executeRawUnsafe(`TRUNCATE "NotaEvento","NotaFiscal","Empresa","Lancamento","VendaPagamento","VendaItem","Venda","Reserva","MovimentoEstoque","Saldo","Produto","Local","Deposito","Pessoa","Sequencia","FormaPagamento","CategoriaFinanceira","ContaBancaria" CASCADE`);
+  await prisma.empresa.create({ data: {
+    razaoSocial: "MXTECH TESTE LTDA", cnpj: "12345678000195", inscricaoEstadual: "111111111111", logradouro: "Rua A", numero: "1",
+    bairro: "Centro", cidade: "São Carlos", codigoMunicipio: "3548906", uf: "SP", cep: "13560000", cscId: "000001", cscToken: "CSCTESTE",
+  } });
+  const dep = await prisma.deposito.create({ data: { nome: "Loja" } });
+  const loc = (await prisma.local.create({ data: { depositoId: dep.id, codigo: "A-01" } })).id;
+  prod = (await prisma.produto.create({ data: { codigo: "CB", nome: "Cabo USB-C", precoVenda: 39, ncm: "85444200", localPadraoId: loc } })).id;
+  await prisma.$transaction(async (tx) => { await est.entrada(tx, { produtoId: prod, localId: loc, quantidade: 10, origemTipo: "IMPLANTACAO" }); await garantirPadroes(tx); });
+  dinheiro = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "Dinheiro" } })).id;
+});
+
+describe("emissão a partir da venda", () => {
+  it("NFC-e autorizada guarda o XML de distribuição e numera em sequência", async () => {
+    const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 3 }], desconto: 7, pagamentos: [{ formaPagamentoId: dinheiro, valor: 110 }] });
+    const n = await fiscal.emitirNotaVenda(v.id, 65, { cert, transporte: autoriza });
+    expect(n).toMatchObject({ status: "AUTORIZADA", numero: 1, protocolo: "135270000000001" });
+    expect(Number(n.valorTotal)).toBe(110);
+    expect(xsdProc(n.xml!)).toBe("ok");
+    expect(n.xml).toContain("<qrCode>");
+    await expect(fiscal.emitirNotaVenda(v.id, 65, { cert, transporte: autoriza })).rejects.toThrow(/Já existe nota autorizada/);
+    const v2 = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
+    expect((await fiscal.emitirNotaVenda(v2.id, 65, { cert, transporte: autoriza })).numero).toBe(2);
+  });
+
+  it("rejeição fica registrada com o motivo", async () => {
+    const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
+    const rejeita: Transporte = async () => `<E><retEnviNFe><cStat>104</cStat><protNFe><infProt><cStat>778</cStat><xMotivo>Rejeicao: NCM inexistente</xMotivo></infProt></protNFe></retEnviNFe></E>`;
+    const n = await fiscal.emitirNotaVenda(v.id, 65, { cert, transporte: rejeita });
+    expect(n).toMatchObject({ status: "REJEITADA", motivo: "778 - Rejeicao: NCM inexistente" });
+  });
+
+  it("NF-e exige cliente com documento e produto com NCM", async () => {
+    const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
+    await expect(fiscal.emitirNotaVenda(v.id, 55, { cert, transporte: autoriza })).rejects.toThrow(/CPF\/CNPJ/);
+    await prisma.produto.update({ where: { id: prod }, data: { ncm: null } });
+    const v2 = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
+    await expect(fiscal.emitirNotaVenda(v2.id, 65, { cert, transporte: autoriza })).rejects.toThrow(/NCM/);
+  });
+
+  it("cancela nota autorizada", async () => {
+    const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
+    const n = await fiscal.emitirNotaVenda(v.id, 65, { cert, transporte: autoriza });
+    const c = await fiscal.cancelarNota(n.id, "Cliente desistiu da compra", { cert, transporte: autoriza });
+    expect(c.status).toBe("CANCELADA");
+    expect(await prisma.notaEvento.count({ where: { notaId: n.id } })).toBe(1);
+  });
+});
