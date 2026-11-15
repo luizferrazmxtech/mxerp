@@ -13,7 +13,8 @@ const ETAPAS = [
   { nome: "estoque", rotulo: "Quantidade em estoque dos produtos", padrao: true },
   { nome: "os", rotulo: "OS em andamento, com os produtos já reservados", padrao: true },
   { nome: "receber", rotulo: "Contas a receber em aberto", padrao: true },
-  { nome: "pagar", rotulo: "Contas a pagar em aberto", padrao: false },
+  { nome: "pagar", rotulo: "Contas a pagar que vencem a partir de hoje", padrao: true },
+  { nome: "pagarVencidas", rotulo: "Incluir também as contas a pagar já vencidas", padrao: false },
 ];
 
 export default function ImportadorBackup() {

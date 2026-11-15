@@ -31,7 +31,7 @@ export async function lerBackupGestaoClick(zip: Buffer): Promise<Tabelas> {
   return t;
 }
 
-export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; receber?: boolean; pagar?: boolean };
+export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean };
 
 const chaveNome = (s: string | undefined) => normalizar(s ?? "");
 const sim = (s: string) => (/^n[aã]o$/i.test(s.trim()) ? "Não" : "Sim");
@@ -222,15 +222,24 @@ function formaPara(f: string) {
     : /dinheiro/.test(p) ? "Dinheiro" : null;
 }
 
-async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PAGAR", simular: boolean): Promise<Resultado> {
+async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PAGAR", simular: boolean, soAVencer = false): Promise<Resultado> {
   const todas = linhas ?? [];
-  const abertas = todas.filter((l) => !/confirmad/i.test(l.situacao));
+  const hoje = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
+  let abertas = todas.filter((l) => !/confirmad/i.test(l.situacao));
+  const deFora = soAVencer ? abertas.filter((l) => (dataBr(l["data do vencimento"])?.getTime() ?? 0) < hoje.getTime()) : [];
+  if (soAVencer) abertas = abertas.filter((l) => !deFora.includes(l));
   const r: Resultado = { tipo: tipo === "RECEBER" ? "receber" : "pagar", simulado: simular, lidas: todas.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
   const vencidas = abertas.filter((l) => (dataBr(l["data do vencimento"])?.getTime() ?? 0) < Date.now() - 86400000);
   const soma = (ls: Linha[]) => ls.reduce((s, l) => s + numeroBr(l.valor), 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   r.avisos.push(`${abertas.length} contas em aberto (${soma(abertas)}), das quais ${vencidas.length} já vencidas (${soma(vencidas)}). As já pagas/recebidas não entram.`);
+  if (deFora.length) r.avisos.push(`${deFora.length} contas vencidas (${soma(deFora)}) ficaram de fora por já terem sido pagas fora do sistema.`);
 
-  if (!simular) await prisma.$transaction((tx) => garantirPadroes(tx));
+  if (!simular) {
+    await prisma.$transaction((tx) => garantirPadroes(tx));
+    // contas bancárias do Gestão Click (Inter, PagSeguro, Mercado Pago…) para a conciliação do extrato
+    for (const nome of new Set(todas.map((l) => (l["conta bancaria"] ?? "").trim()).filter(Boolean)))
+      await prisma.contaBancaria.upsert({ where: { nome }, create: { nome }, update: {} });
+  }
   const ocorr = new Map<string, number>();
   for (const [i, l] of abertas.entries()) {
     const venc = dataBr(l["data do vencimento"]);
@@ -267,7 +276,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
 
 export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: boolean; etapas?: Etapas } = {}) {
   const simular = opts.simular ?? true;
-  const e: Etapas = opts.etapas ?? { cadastros: true, estoque: true, os: true, receber: true, pagar: false };
+  const e: Etapas = opts.etapas ?? { cadastros: true, estoque: true, os: true, receber: true, pagar: true };
   const res: Resultado[] = [];
   if (e.cadastros) {
     res.push(await importarPessoas(linhasPessoas(t.clientes, t.clientes_enderecos, "tipo de pessoa"), "cliente", simular));
@@ -277,6 +286,6 @@ export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: bo
   if (e.cadastros || e.estoque) res.push(await importarProdutos(linhasProdutos(t.produtos), { simular, importarEstoque: !!e.estoque }));
   if (e.os) res.push(await importarOs(t, simular));
   if (e.receber) res.push(await importarContas(t.contas_receber, "RECEBER", simular));
-  if (e.pagar) res.push(await importarContas(t.contas_pagar, "PAGAR", simular));
+  if (e.pagar) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas));
   return res;
 }

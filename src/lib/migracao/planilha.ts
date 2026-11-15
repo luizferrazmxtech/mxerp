@@ -29,7 +29,9 @@ export async function lerPlanilha(nome: string, conteudo: Buffer): Promise<{ cab
     let texto = conteudo.toString("utf8");
     if (texto.includes("�")) texto = conteudo.toString("latin1"); // exportações em Windows-1252
     const r = Papa.parse<string[]>(texto.replace(/^﻿/, ""), { skipEmptyLines: true, delimiter: "" });
-    const [cab, ...resto] = r.data;
+    // cabeçalho = primeira linha com 3+ células preenchidas (extratos de banco trazem linhas de título antes)
+    const iCab = Math.max(0, r.data.slice(0, 15).findIndex((l) => l.filter((c) => c.trim()).length >= 3));
+    const [cab, ...resto] = r.data.slice(iCab);
     const cabecalhos = cab.map((c) => normalizar(c));
     return { cabecalhos, linhas: resto.map((l) => Object.fromEntries(cabecalhos.map((c, i) => [c, (l[i] ?? "").trim()]))) };
   }

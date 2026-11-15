@@ -158,6 +158,8 @@ describe("backup do Gestão Click", () => {
     expect(lanc[0].pessoa?.id).toBe(folk.id);
     expect(lanc[1].formaPagamento?.nome).toBe("Cartão de crédito");
 
+    expect(await prisma.contaBancaria.findUnique({ where: { nome: "INTER" } })).not.toBeNull();
+
     // repetir não duplica nada nem mexe no estoque já movimentado
     const res2 = await gc.importarBackupGestaoClick(t, { simular: false });
     expect(res2.find((x) => x.tipo === "os")!.criados).toBe(0);
