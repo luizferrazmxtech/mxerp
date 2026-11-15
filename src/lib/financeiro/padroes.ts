@@ -16,7 +16,9 @@ export const CATEGORIAS_PADRAO = [
   { nome: "Receitas financeiras", tipo: "RECEBER", grupoDre: "RECEITA_FINANCEIRA" },
   { nome: "Outras receitas", tipo: "RECEBER", grupoDre: "OUTRAS_RECEITAS" },
   { nome: "Impostos sobre vendas (DAS/ICMS/ISS)", tipo: "PAGAR", grupoDre: "DEDUCOES" },
-  { nome: "Compra de mercadorias", tipo: "PAGAR", grupoDre: "CUSTO" },
+  // compra de mercadoria vira estoque; o custo entra na DRE como CMV quando a peça é vendida
+  { nome: "Compra de mercadorias (estoque)", tipo: "PAGAR", grupoDre: "NAO_OPERACIONAL" },
+  { nome: "Serviços de terceiros", tipo: "PAGAR", grupoDre: "CUSTO" },
   { nome: "Salários e encargos", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },
   { nome: "Aluguel", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },
   { nome: "Energia, água, internet, telefone", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },

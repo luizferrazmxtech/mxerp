@@ -3,6 +3,8 @@ import { prisma, type Tx } from "@/lib/db";
 import { liberarItem, reservarItem, EstoqueError } from "@/lib/estoque/estoque";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { proximoNumero } from "@/lib/sequencia";
+import { cancelarRecebimentos, gerarRecebimentos, type Pagamento } from "@/lib/financeiro/lancamentos";
+import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
 
 /** Em que "estado de estoque" cada situação deixa a OS. */
 export function estadoEstoque(s: SituacaoOs): EstadoEstoque {
@@ -147,27 +149,64 @@ export async function removerServico(osId: string, itemId: string) {
 export async function alterarSituacao(
   osId: string,
   nova: SituacaoOs,
+  opts: { permitirNegativo?: boolean; usuarioId?: string; forcar?: boolean } = {},
+) {
+  if (nova === "FATURADA") throw new EstoqueError("Use \"Faturar\" informando as formas de pagamento");
+  return prisma.$transaction((tx) => alterarSituacaoTx(tx, osId, nova, opts));
+}
+
+async function alterarSituacaoTx(
+  tx: Tx,
+  osId: string,
+  nova: SituacaoOs,
+  opts: { permitirNegativo?: boolean; usuarioId?: string; forcar?: boolean } = {},
+) {
+  const [os] = await tx.$queryRaw<{ id: string; situacao: SituacaoOs }[]>`
+    SELECT id, situacao FROM "OrdemServico" WHERE id = ${osId} FOR NO KEY UPDATE`;
+  if (!os) throw new EstoqueError("OS não encontrada");
+  if (os.situacao === "FATURADA" && nova !== "FATURADA") await cancelarRecebimentos(tx, "OS", osId, opts.forcar);
+  const de = estadoEstoque(os.situacao);
+  const para = estadoEstoque(nova);
+  await transicionarEstoque(tx, "OS", osId, de, para, async () =>
+    (await tx.osItemProduto.findMany({ where: { osId } })).map((i) => ({ id: i.id, produtoId: i.produtoId, quantidade: Number(i.quantidade) })),
+    opts,
+  );
+
+  const rotulo = (s: SituacaoOs) => SITUACOES_OS.find((x) => x.valor === s)?.rotulo ?? s;
+  await tx.osHistorico.create({
+    data: { osId, descricao: `Situação: ${rotulo(os.situacao)} → ${rotulo(nova)}`, usuarioId: opts.usuarioId },
+  });
+  return tx.ordemServico.update({
+    where: { id: osId },
+    data: { situacao: nova, saida: para === "BAIXADO" ? new Date() : para === "RESERVADO" ? null : undefined },
+  });
+}
+
+/** Fatura a OS: baixa o estoque (se ainda não baixou) e gera as contas a receber. */
+export async function faturarOs(
+  osId: string,
+  pagamentos: Pagamento[],
   opts: { permitirNegativo?: boolean; usuarioId?: string } = {},
 ) {
   return prisma.$transaction(async (tx) => {
-    const [os] = await tx.$queryRaw<{ id: string; situacao: SituacaoOs }[]>`
-      SELECT id, situacao FROM "OrdemServico" WHERE id = ${osId} FOR NO KEY UPDATE`;
-    if (!os) throw new EstoqueError("OS não encontrada");
-    const de = estadoEstoque(os.situacao);
-    const para = estadoEstoque(nova);
-    await transicionarEstoque(tx, "OS", osId, de, para, async () =>
-      (await tx.osItemProduto.findMany({ where: { osId } })).map((i) => ({ id: i.id, produtoId: i.produtoId, quantidade: Number(i.quantidade) })),
-      opts,
-    );
-
-    const rotulo = (s: SituacaoOs) => SITUACOES_OS.find((x) => x.valor === s)?.rotulo ?? s;
-    await tx.osHistorico.create({
-      data: { osId, descricao: `Situação: ${rotulo(os.situacao)} → ${rotulo(nova)}`, usuarioId: opts.usuarioId },
-    });
-    return tx.ordemServico.update({
-      where: { id: osId },
-      data: { situacao: nova, saida: para === "BAIXADO" ? new Date() : para === "RESERVADO" ? null : undefined },
-    });
+    const os = await tx.ordemServico.findUniqueOrThrow({ where: { id: osId } });
+    if (os.situacao === "FATURADA") throw new EstoqueError("OS já faturada");
+    if (os.situacao === "CANCELADA" || os.situacao === "DEVOLVIDA_SEM_REPARO") throw new EstoqueError("OS cancelada/devolvida");
+    const total = Number(os.total);
+    const pago = pagamentos.reduce((s, p) => s + p.valor, 0);
+    if (Math.abs(pago - total) > 0.005)
+      throw new EstoqueError(`Pagamentos (${pago.toFixed(2)}) não fecham com o total (${total.toFixed(2)})`);
+    await alterarSituacaoTx(tx, osId, "FATURADA", opts);
+    await garantirPadroes(tx);
+    if (total > 0)
+      await gerarRecebimentos(tx, {
+        origemTipo: "OS",
+        origemId: osId,
+        pessoaId: os.clienteId,
+        descricao: `OS ${os.numero}`,
+        categoriaId: (await categoria(tx, "Prestação de serviços", "RECEBER")).id,
+        pagamentos,
+      });
   });
 }
 

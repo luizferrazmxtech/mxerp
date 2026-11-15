@@ -72,13 +72,30 @@ export async function mudarSituacao(_: Resultado, form: FormData): Promise<Resul
   try {
     await os.alterarSituacao(osId, String(form.get("situacao")) as SituacaoOs, {
       permitirNegativo: form.get("negativo") === "on",
+      forcar: form.get("forcar") === "on",
     });
     revalidatePath(`/os/${osId}`);
     return { ok: true, mensagem: "Situação atualizada." };
   } catch (e) {
-    return { ok: false, mensagem: e instanceof EstoqueError ? e.message : "Erro ao mudar a situação" };
+    return { ok: false, mensagem: erro(e, "Erro ao mudar a situação") };
   }
 }
+
+export async function faturar(_: Resultado, form: FormData): Promise<Resultado> {
+  const osId = String(form.get("osId"));
+  try {
+    await os.faturarOs(osId, JSON.parse(String(form.get("pagamentos") || "[]")), {
+      permitirNegativo: form.get("negativo") === "on",
+    });
+    revalidatePath(`/os/${osId}`);
+    return { ok: true, mensagem: "OS faturada." };
+  } catch (e) {
+    return { ok: false, mensagem: erro(e, "Erro ao faturar") };
+  }
+}
+
+const erro = (e: unknown, padrao: string) =>
+  e instanceof EstoqueError || (e instanceof Error && !(e as { code?: string }).code) ? (e as Error).message : padrao;
 
 export async function marcarSeparado(form: FormData) {
   const osId = String(form.get("osId"));
