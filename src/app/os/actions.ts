@@ -6,10 +6,12 @@ import type { SituacaoOs } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import * as os from "@/lib/os/os";
 import { EstoqueError } from "@/lib/estoque/estoque";
+import { resultadoReserva } from "@/lib/estoque/resultado";
 
 const num = (v: FormDataEntryValue | null) => Number(String(v ?? "").replace(",", "."));
 
-export type Resultado = { ok: boolean; mensagem: string; pegar?: { local: string; quantidade: number }[] } | null;
+import type { Resultado } from "@/components/AdicionarProduto";
+export type { Resultado };
 
 export async function novaOs(form: FormData) {
   const o = await os.criarOs({
@@ -22,7 +24,7 @@ export async function novaOs(form: FormData) {
 }
 
 export async function adicionarProduto(_: Resultado, form: FormData): Promise<Resultado> {
-  const osId = String(form.get("osId"));
+  const osId = String(form.get("docId"));
   try {
     const quantidade = num(form.get("quantidade"));
     if (!(quantidade > 0)) return { ok: false, mensagem: "Informe a quantidade" };
@@ -31,18 +33,8 @@ export async function adicionarProduto(_: Resultado, form: FormData): Promise<Re
       quantidade,
       valorUnit: form.get("valorUnit") ? num(form.get("valorUnit")) : undefined,
     });
-    const locais = await prisma.local.findMany({
-      where: { id: { in: alocacoes.map((a) => a.localId).filter((x): x is string => !!x) } },
-    });
-    const cod = new Map(locais.map((l) => [l.id, l.codigo]));
-    const pegar = alocacoes.map((a) => ({ local: a.localId ? cod.get(a.localId)! : "EM FALTA", quantidade: a.quantidade }));
     revalidatePath(`/os/${osId}`);
-    const falta = alocacoes.find((a) => !a.localId);
-    return {
-      ok: !falta,
-      mensagem: falta ? `Reservado, mas faltam ${falta.quantidade} no estoque.` : "Reservado no estoque.",
-      pegar,
-    };
+    return await resultadoReserva(alocacoes);
   } catch (e) {
     return { ok: false, mensagem: e instanceof EstoqueError ? e.message : "Erro ao adicionar produto" };
   }
