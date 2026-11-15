@@ -8,7 +8,7 @@ import { campo, numeroBr, type Linha } from "./planilha";
  * que seria feito sem gravar nada.
  */
 
-export type Tipo = "clientes" | "fornecedores" | "produtos" | "servicos";
+export type Tipo = "clientes" | "fornecedores" | "produtos" | "servicos" | "os" | "receber" | "pagar";
 
 export type Resultado = {
   tipo: Tipo;
@@ -22,7 +22,7 @@ export type Resultado = {
 
 export const COLUNAS = {
   codigo: ["código", "codigo", "cód", "cod", "id", "código interno", "referência", "referencia"],
-  nome: ["nome", "razão social", "razao social", "nome razão social", "nome/razão social", "descrição", "descricao", "produto", "serviço", "servico"],
+  nome: ["nome", "razão social", "razao social", "nome razão social", "nome/razão social", "produto", "serviço", "servico", "descrição", "descricao"],
   fantasia: ["nome fantasia", "fantasia", "apelido"],
   documento: ["cpf/cnpj", "cnpj/cpf", "cpf cnpj", "cnpj", "cpf", "documento", "cpf ou cnpj"],
   tipoPessoa: ["tipo de pessoa", "tipo pessoa", "tipo"],
@@ -42,15 +42,15 @@ export const COLUNAS = {
   situacao: ["situação", "situacao", "ativo", "status"],
   observacoes: ["observações", "observacoes", "obs"],
   // produtos
-  gtin: ["código de barras", "codigo de barras", "gtin", "ean", "gtin/ean"],
-  unidade: ["unidade", "un", "unid", "sigla da unidade"],
+  gtin: ["código de barras", "codigo de barras", "codigo de barra", "gtin", "ean", "gtin/ean"],
+  unidade: ["unidade", "un", "unid", "sigla da unidade", "unidade de entrada"],
   grupo: ["grupo", "grupo de produtos", "categoria"],
-  preco: ["valor de venda", "preço de venda", "preco de venda", "valor venda", "valor", "preço", "preco", "varejo"],
+  preco: ["valor de venda", "valor varejo", "valor unitário", "valor unitario", "preço de venda", "preco de venda", "valor venda", "valor", "preço", "preco", "varejo"],
   custo: ["valor de custo", "preço de custo", "preco de custo", "custo", "custo médio", "custo medio"],
   estoque: ["estoque", "estoque atual", "quantidade", "saldo", "qtd estoque", "estoque disponível"],
   estoqueMinimo: ["estoque mínimo", "estoque minimo", "mínimo", "minimo"],
   ncm: ["ncm", "código ncm", "codigo ncm"],
-  cest: ["cest"],
+  cest: ["cest", "código cest", "codigo cest"],
   origem: ["origem", "origem da mercadoria"],
   localizacao: ["localização", "localizacao", "local", "prateleira", "endereço no estoque"],
   cTribNac: ["código de tributação nacional", "codigo tributacao nacional", "ctribnac", "item lista de serviço", "item da lista de servico", "lc 116"],
@@ -102,7 +102,9 @@ export async function importarPessoas(linhas: Linha[], papel: "cliente" | "forne
     });
     if (simular) { if (existente) r.atualizados++; else r.criados++; continue; }
     if (existente) {
-      await prisma.pessoa.update({ where: { id: existente.id }, data: { ...dados, [papel]: true } });
+      // campos vazios na planilha não apagam o que já existe (ex.: fornecedor sem endereço que já era cliente)
+      const preenchidos = Object.fromEntries(Object.entries(dados).filter(([, v]) => v !== null && v !== ""));
+      await prisma.pessoa.update({ where: { id: existente.id }, data: { ...preenchidos, [papel]: true } });
       r.atualizados++;
     } else {
       await prisma.pessoa.create({ data: { ...dados, idLegado: legado, cliente: papel === "cliente", fornecedor: papel === "fornecedor" } });
@@ -128,6 +130,7 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
   }
   const negativos: string[] = [];
   const semNcm: string[] = [];
+  const movimentados: string[] = [];
   const vistos = new Set<string>();
 
   for (const [i, l] of linhas.entries()) {
@@ -172,7 +175,10 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
       : await prisma.produto.create({ data: { ...dados, codigo, grupoId, localPadraoId: locTxt ? local.id : null } });
     if (existente) r.atualizados++; else r.criados++;
 
-    if (opts.importarEstoque !== false) {
+    // o saldo só é ajustado enquanto o produto não teve movimento real no ERP (OS, venda, compra…)
+    const jaMovimentou = existente && (await prisma.movimentoEstoque.count({ where: { produtoId: prod.id, NOT: { origemTipo: "IMPLANTACAO" } } })) > 0;
+    if (jaMovimentou && opts.importarEstoque !== false) movimentados.push(codigo);
+    if (opts.importarEstoque !== false && !jaMovimentou) {
       // ajusta o saldo físico do produto para o valor da planilha (nunca negativo)
       await prisma.$transaction(async (tx) => {
         const atual = (await resumoProduto(tx, prod.id)).fisico;
@@ -184,6 +190,7 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
     }
   }
   if (negativos.length) r.avisos.push(`${negativos.length} produtos com estoque negativo no sistema antigo ${simular ? "entrarão" : "entraram"} com 0 — conte-os no inventário: ${negativos.slice(0, 30).join(", ")}${negativos.length > 30 ? "…" : ""}`);
+  if (movimentados.length) r.avisos.push(`${movimentados.length} produtos já movimentados no ERP mantiveram o estoque atual: ${movimentados.slice(0, 30).join(", ")}${movimentados.length > 30 ? "…" : ""}`);
   if (semNcm.length) r.avisos.push(`${semNcm.length} produtos sem NCM válido (necessário para nota fiscal): ${semNcm.slice(0, 30).join(", ")}${semNcm.length > 30 ? "…" : ""}`);
   return r;
 }

@@ -10,12 +10,14 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "migrar:gestaoclick": "tsx scripts/importar-backup.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "exceljs": "^4.4.0",
     "fast-xml-parser": "^5.12.1",
+    "jszip": "^3.10.2",
     "next": "15.5.29",
     "node-forge": "^1.4.3",
     "papaparse": "^5.7.1",
