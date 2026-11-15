@@ -1,6 +1,6 @@
-# Notas fiscais (NF-e e NFC-e) direto na SEFAZ-SP
+# Notas fiscais direto na SEFAZ-SP e na NFS-e Nacional
 
-O MXERP fala direto com os web services da SEFAZ-SP, sem provedor intermediário.
+O MXERP fala direto com os web services da SEFAZ-SP (NF-e/NFC-e) e com a API da NFS-e Nacional (Sefin/ADN), sem provedor intermediário.
 
 ## O que já funciona
 
@@ -10,6 +10,15 @@ O MXERP fala direto com os web services da SEFAZ-SP, sem provedor intermediário
 - QR Code da NFC-e (versão 2, com CSC) e DANFCE para impressão em bobina 80 mm.
 - Cancelamento (evento 110111) e consulta de status do serviço.
 - Simples Nacional (CSOSN 102/103/300/400/500) e regime normal básico (ICMS 00/40/41/50/60, PIS/COFINS cumulativo).
+
+## NFS-e (padrão nacional)
+
+- DPS 1.00 montada e **validada contra o schema oficial** (`fiscal-schemas/nfse`), assinada, compactada (gzip+base64) e enviada para a Sefin Nacional com o certificado A1 (mTLS).
+- Emissão pelos serviços da OS concluída/faturada; cancelamento (evento 101101) e link para o DANFSe oficial.
+- Cada serviço precisa do **código de tributação nacional** (6 dígitos) em **Serviços**. Uma nota por código.
+- Simples Nacional ME/EPP: o ISS vai no DAS, a alíquota não é informada (exceto retenção).
+- Assinatura em RSA-SHA1 por padrão; defina `NFSE_ASSINATURA_SHA256=1` se a Sefin exigir SHA-256.
+- **Antes de produção, confirmar que São Carlos emite pelo padrão nacional.** Se a prefeitura ainda usar sistema próprio, a API devolve erro de município não conveniado.
 
 ## Configuração no servidor
 
@@ -31,7 +40,6 @@ Os endereços da SEFAZ-SP estão em `src/lib/fiscal/sefaz.ts` e podem ser trocad
 
 ## Ainda falta
 
-- NFS-e (padrão nacional) para os serviços da OS.
 - Inutilização de numeração, carta de correção, contingência offline da NFC-e.
 - DANFE A4 completo da NF-e (hoje há um DANFE simplificado).
 - Grupo IBS/CBS da reforma tributária: os campos já existem no cadastro (`cClassTrib`, `ibsCbsAtivo`), a geração do grupo depende de validar as regras de 2027 com o contador.

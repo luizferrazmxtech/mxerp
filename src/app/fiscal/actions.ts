@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { RegimeTributario, AmbienteFiscal } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { cancelarNota, emitirNotaOs, emitirNotaVenda, empresa } from "@/lib/fiscal/emissao";
+import { cancelarNfse, cancelarNota, emitirNfseOs, emitirNotaOs, emitirNotaVenda, empresa } from "@/lib/fiscal/emissao";
 import { certificadoDoAmbiente } from "@/lib/fiscal/certificado";
 import { ClienteSefaz } from "@/lib/fiscal/sefaz";
 
@@ -77,6 +77,28 @@ export async function cancelar(_: Res, form: FormData): Promise<Res> {
     await cancelarNota(s(form.get("notaId")), s(form.get("justificativa")));
     revalidatePath("/fiscal");
     return { ok: true, mensagem: "Nota cancelada." };
+  } catch (e) {
+    return { ok: false, mensagem: msg(e) };
+  }
+}
+
+export async function emitirNfse(_: Res, form: FormData): Promise<Res> {
+  const osId = s(form.get("osId"));
+  try {
+    const n = await emitirNfseOs(osId);
+    revalidatePath(`/os/${osId}`);
+    return { ok: n.status === "AUTORIZADA", mensagem: n.status === "AUTORIZADA" ? "NFS-e autorizada." : `NFS-e ${n.status.toLowerCase()}: ${n.motivo}`, notaId: n.id };
+  } catch (e) {
+    revalidatePath(`/os/${osId}`);
+    return { ok: false, mensagem: msg(e) };
+  }
+}
+
+export async function cancelarServico(_: Res, form: FormData): Promise<Res> {
+  try {
+    await cancelarNfse(s(form.get("notaId")), Number(form.get("cMotivo")) as 1 | 2 | 9, s(form.get("justificativa")));
+    revalidatePath("/fiscal");
+    return { ok: true, mensagem: "NFS-e cancelada." };
   } catch (e) {
     return { ok: false, mensagem: msg(e) };
   }

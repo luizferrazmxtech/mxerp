@@ -18,6 +18,7 @@ const menu = [
   { href: "/fiscal", rotulo: "Notas fiscais" },
   { href: "/estoque/locais", rotulo: "Locais (prateleiras)" },
   { href: "/clientes", rotulo: "Clientes" },
+  { href: "/servicos", rotulo: "Serviços" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
