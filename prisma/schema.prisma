@@ -13,31 +13,31 @@ datasource db {
 // ───────────────────────── Empresa e usuários ─────────────────────────
 
 model Empresa {
-  id                String   @id @default(cuid())
-  razaoSocial       String
-  nomeFantasia      String?
-  cnpj              String   @unique
-  inscricaoEstadual String?
+  id                 String           @id @default(cuid())
+  razaoSocial        String
+  nomeFantasia       String?
+  cnpj               String           @unique
+  inscricaoEstadual  String?
   inscricaoMunicipal String?
-  regimeTributario  RegimeTributario @default(SIMPLES_NACIONAL)
-  logradouro        String?
-  numero            String?
-  bairro            String?
-  cidade            String?
-  codigoMunicipio   String?  // IBGE
-  uf                String?  @db.Char(2)
-  cep               String?
-  telefone          String?
-  email             String?
-  ambienteFiscal    AmbienteFiscal @default(HOMOLOGACAO)
-  cnae              String?
-  serieNfe          Int      @default(1)
-  serieNfce         Int      @default(1)
-  cscId             String?  // identificador do CSC da NFC-e (ex.: 000001)
-  cscToken          String?  // CSC gerado no portal da SEFAZ
-  ibsCbsAtivo       Boolean  @default(false) // emitir grupo IBS/CBS (reforma tributária)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  regimeTributario   RegimeTributario @default(SIMPLES_NACIONAL)
+  logradouro         String?
+  numero             String?
+  bairro             String?
+  cidade             String?
+  codigoMunicipio    String? // IBGE
+  uf                 String?          @db.Char(2)
+  cep                String?
+  telefone           String?
+  email              String?
+  ambienteFiscal     AmbienteFiscal   @default(HOMOLOGACAO)
+  cnae               String?
+  serieNfe           Int              @default(1)
+  serieNfce          Int              @default(1)
+  cscId              String? // identificador do CSC da NFC-e (ex.: 000001)
+  cscToken           String? // CSC gerado no portal da SEFAZ
+  ibsCbsAtivo        Boolean          @default(false) // emitir grupo IBS/CBS (reforma tributária)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 }
 
 enum RegimeTributario {
@@ -52,26 +52,65 @@ enum AmbienteFiscal {
   HOMOLOGACAO
 }
 
+/**
+ * Usuário do sistema = funcionário do Gestão Click (só entra quem tem acessoSistema e senha).
+ */
 model Usuario {
-  id        String   @id @default(cuid())
-  nome      String
-  email     String   @unique
-  senhaHash String
-  papel     PapelUsuario @default(OPERADOR)
-  ativo     Boolean  @default(true)
-  tecnico   Boolean  @default(false)
-  vendedor  Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id                String            @id @default(cuid())
+  nome              String
+  email             String?           @unique
+  senhaHash         String?
+  papel             PapelUsuario      @default(OPERADOR)
+  ativo             Boolean           @default(true)
+  acessoSistema     Boolean           @default(true)
+  tecnico           Boolean           @default(false)
+  vendedor          Boolean           @default(false)
+  cpf               String?
+  rg                String?
+  nascimento        DateTime?         @db.Date
+  sexo              String? // M / F
+  observacoes       String?
+  comissao          Decimal?          @db.Decimal(6, 2)
+  liberacaoComissao LiberacaoComissao @default(PARCIAL)
+  telefone          String?
+  celular           String?
+  celular2          String?
+  cep               String?
+  logradouro        String?
+  numero            String?
+  complemento       String?
+  bairro            String?
+  cidade            String?
+  codigoMunicipio   String?
+  uf                String?           @db.Char(2)
+  foto              Bytes?
+  fotoTipo          String?
+  lojas             String[] // ids de Empresa com acesso
+  preferencias      Json? // colunas escolhidas nas listagens etc.
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @default(now()) @updatedAt
 
-  osComoTecnico  OrdemServico[] @relation("OsTecnico")
-  osComoVendedor OrdemServico[] @relation("OsVendedor")
-  vendas         Venda[]
-  movimentos     MovimentoEstoque[]
-  sessoes        Sessao[]
-  caixas         CaixaPdv[]
+  osComoTecnico    OrdemServico[]     @relation("OsTecnico")
+  osComoVendedor   OrdemServico[]     @relation("OsVendedor")
+  vendas           Venda[]
+  movimentos       MovimentoEstoque[]
+  sessoes          Sessao[]
+  caixas           CaixaPdv[]
+  clientesVendedor Pessoa[]           @relation("PessoaVendedor")
+  pessoasCriadas   Pessoa[]           @relation("PessoaCriadoPor")
+  anotacoes        PessoaAnotacao[]
 }
 
-/** Sessão de login: o cookie guarda um token aleatório; aqui fica só o hash dele. */
+enum LiberacaoComissao {
+  GERADO_FINANCEIRO // integral, assim que for gerado financeiro
+  PRIMEIRA_PARCELA // integral, quando o cliente pagar a 1ª parcela
+  ULTIMA_PARCELA // integral, quando o cliente pagar a última parcela
+  PARCIAL // parcial, conforme o recebimento das parcelas
+}
+
+/**
+ * Sessão de login: o cookie guarda um token aleatório; aqui fica só o hash dele.
+ */
 model Sessao {
   id        String   @id @default(cuid())
   tokenHash String   @unique
@@ -94,33 +133,63 @@ enum PapelUsuario {
 
 // ───────────────────────── Cadastros ─────────────────────────
 
+/**
+ * Cliente, fornecedor e transportadora (uma pessoa pode ter os três papéis).
+ */
 model Pessoa {
-  id                String   @id @default(cuid())
-  tipoPessoa        TipoPessoa @default(JURIDICA)
-  nome              String   // razão social ou nome completo
-  fantasia          String?
-  documento         String?  @unique // CPF/CNPJ só dígitos
-  inscricaoEstadual String?
-  contribuinteIcms  ContribuinteIcms @default(NAO_CONTRIBUINTE)
-  email             String?
-  telefone          String?
-  celular           String?
-  logradouro        String?
-  numero            String?
-  complemento       String?
-  bairro            String?
-  cidade            String?
-  codigoMunicipio   String?
-  uf                String?  @db.Char(2)
-  cep               String?
-  cliente           Boolean  @default(true)
-  fornecedor        Boolean  @default(false)
-  ativo             Boolean  @default(true)
-  observacoes       String?
-  idLegado          String?  @unique // id no sistema anterior (migração)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                   String           @id @default(cuid())
+  codigoCliente        Int?             @unique // nº mostrado como "Cliente #237"
+  codigoFornecedor     Int?             @unique
+  codigoTransportadora Int?             @unique
+  tipoPessoa           TipoPessoa       @default(JURIDICA)
+  nome                 String // razão social ou nome completo
+  fantasia             String?
+  nomeSocial           String?
+  documento            String?          @unique // CPF/CNPJ só dígitos
+  rg                   String?
+  nascimento           DateTime?        @db.Date
+  inscricaoEstadual    String? // "ISENTO" quando marcado isento
+  inscricaoMunicipal   String?
+  suframa              String?
+  responsavel          String?
+  contribuinteIcms     ContribuinteIcms @default(NAO_CONTRIBUINTE)
+  email                String?
+  telefone             String?
+  celular              String?
+  fax                  String?
+  site                 String?
+  pais                 String           @default("Brasil")
+  // endereço principal (usado nas notas); a lista completa fica em enderecos
+  logradouro           String?
+  numero               String?
+  complemento          String?
+  bairro               String?
+  cidade               String?
+  codigoMunicipio      String?
+  uf                   String?          @db.Char(2)
+  cep                  String?
+  cliente              Boolean          @default(true)
+  fornecedor           Boolean          @default(false)
+  transportadora       Boolean          @default(false)
+  ativo                Boolean          @default(true)
+  observacoes          String?
+  vendedorId           String?
+  vendedor             Usuario?         @relation("PessoaVendedor", fields: [vendedorId], references: [id])
+  limiteCredito        Decimal?         @db.Decimal(14, 2) // vazio = sem limite
+  excederLimite        Boolean          @default(false)
+  areaCliente          Boolean          @default(false)
+  foto                 Bytes?
+  fotoTipo             String?
+  camposExtras         Json? // { [CampoExtra.id]: valor }
+  idLegado             String?          @unique // id no sistema anterior (migração)
+  criadoPorId          String?
+  criadoPor            Usuario?         @relation("PessoaCriadoPor", fields: [criadoPorId], references: [id])
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 
+  enderecos     PessoaEndereco[]
+  contatos      PessoaContato[]
+  anotacoes     PessoaAnotacao[]
   ordensServico OrdemServico[]
   vendas        Venda[]
   lancamentos   Lancamento[]
@@ -132,6 +201,102 @@ model Pessoa {
 enum TipoPessoa {
   FISICA
   JURIDICA
+  ESTRANGEIRO
+}
+
+model PessoaEndereco {
+  id              String  @id @default(cuid())
+  pessoaId        String
+  pessoa          Pessoa  @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+  ordem           Int     @default(0)
+  tipo            String? // Comercial / Residencial / Entrega (Tipos de endereços)
+  cep             String?
+  logradouro      String?
+  numero          String?
+  complemento     String?
+  bairro          String?
+  cidade          String?
+  codigoMunicipio String?
+  uf              String? @db.Char(2)
+
+  @@index([pessoaId])
+}
+
+model PessoaContato {
+  id         String  @id @default(cuid())
+  pessoaId   String
+  pessoa     Pessoa  @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+  ordem      Int     @default(0)
+  tipo       String? // Telefone / E-mail / WhatsApp… (Tipos de contatos)
+  nome       String?
+  contato    String?
+  cargo      String?
+  observacao String?
+
+  @@index([pessoaId])
+}
+
+model PessoaAnotacao {
+  id        String   @id @default(cuid())
+  pessoaId  String
+  pessoa    Pessoa   @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+  texto     String
+  usuarioId String?
+  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([pessoaId])
+}
+
+/**
+ * Arquivo anexado a qualquer cadastro ou documento (cliente, funcionário, OS…).
+ */
+model Anexo {
+  id         String   @id @default(cuid())
+  entidade   String // PESSOA, USUARIO, OS…
+  entidadeId String
+  nome       String
+  tipo       String
+  tamanho    Int
+  dados      Bytes
+  usuarioId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entidade, entidadeId])
+}
+
+model TipoContato {
+  id   String @id @default(cuid())
+  nome String @unique
+}
+
+model TipoEndereco {
+  id   String @id @default(cuid())
+  nome String @unique
+}
+
+enum TipoCampoExtra {
+  TEXTO
+  NUMEROS
+  DATA
+  CPF
+  CNPJ
+  SELECAO_UNICA
+  MULTIPLA_SELECAO
+}
+
+/**
+ * Campo extra do cadastro (ex.: campos extras de clientes).
+ */
+model CampoExtra {
+  id          String         @id @default(cuid())
+  entidade    String         @default("CLIENTE")
+  nome        String
+  tipo        TipoCampoExtra @default(TEXTO)
+  opcoes      String[]
+  obrigatorio Boolean        @default(false)
+  ordem       Int            @default(0)
+  createdAt   DateTime       @default(now())
 }
 
 enum ContribuinteIcms {
@@ -147,58 +312,58 @@ model GrupoProduto {
 }
 
 model Produto {
-  id              String   @id @default(cuid())
-  codigo          String   @unique
+  id              String        @id @default(cuid())
+  codigo          String        @unique
   gtin            String?
   nome            String
-  unidade         String   @default("UN")
+  unidade         String        @default("UN")
   grupoId         String?
   grupo           GrupoProduto? @relation(fields: [grupoId], references: [id])
-  precoVenda      Decimal  @default(0) @db.Decimal(14, 2)
-  custo           Decimal  @default(0) @db.Decimal(14, 4)
-  controlaEstoque Boolean  @default(true)
-  estoqueMinimo   Decimal  @default(0) @db.Decimal(14, 4)
-  localPadraoId   String?  // onde o item "mora"; usado para entradas
-  localPadrao     Local?   @relation("LocalPadrao", fields: [localPadraoId], references: [id])
+  precoVenda      Decimal       @default(0) @db.Decimal(14, 2)
+  custo           Decimal       @default(0) @db.Decimal(14, 4)
+  controlaEstoque Boolean       @default(true)
+  estoqueMinimo   Decimal       @default(0) @db.Decimal(14, 4)
+  localPadraoId   String? // onde o item "mora"; usado para entradas
+  localPadrao     Local?        @relation("LocalPadrao", fields: [localPadraoId], references: [id])
   // fiscal
   ncm             String?
   cest            String?
-  origem          Int      @default(0)
+  origem          Int           @default(0)
   cfopInterno     String?
   cfopExterno     String?
   csosn           String?
   cstIcms         String?
-  aliquotaIcms    Decimal? @db.Decimal(7, 4)
+  aliquotaIcms    Decimal?      @db.Decimal(7, 4)
   cstPis          String?
   cstCofins       String?
-  cClassTrib      String?  // IBS/CBS (reforma tributária)
-  ativo           Boolean  @default(true)
-  idLegado        String?  @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  cClassTrib      String? // IBS/CBS (reforma tributária)
+  ativo           Boolean       @default(true)
+  idLegado        String?       @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  saldos     Saldo[]
-  reservas   Reserva[]
-  movimentos MovimentoEstoque[]
-  itensOs    OsItemProduto[]
-  itensVenda VendaItem[]
+  saldos      Saldo[]
+  reservas    Reserva[]
+  movimentos  MovimentoEstoque[]
+  itensOs     OsItemProduto[]
+  itensVenda  VendaItem[]
   itensCompra CompraItem[]
 
   @@index([nome])
 }
 
 model Servico {
-  id          String   @id @default(cuid())
-  codigo      String   @unique
-  nome        String
-  preco       Decimal  @default(0) @db.Decimal(14, 2)
+  id                       String   @id @default(cuid())
+  codigo                   String   @unique
+  nome                     String
+  preco                    Decimal  @default(0) @db.Decimal(14, 2)
   // NFS-e
   codigoTributacaoNacional String? // cTribNac
-  codigoNbs   String?
-  aliquotaIss Decimal? @db.Decimal(7, 4)
-  ativo       Boolean  @default(true)
-  idLegado    String?  @unique
-  createdAt   DateTime @default(now())
+  codigoNbs                String?
+  aliquotaIss              Decimal? @db.Decimal(7, 4)
+  ativo                    Boolean  @default(true)
+  idLegado                 String?  @unique
+  createdAt                DateTime @default(now())
 
   itensOs    OsItemServico[]
   itensVenda VendaItemServico[]
@@ -225,19 +390,19 @@ model Local {
   descricao  String?
   ativo      Boolean  @default(true)
 
-  saldos          Saldo[]
-  reservas        Reserva[]
-  movimentos      MovimentoEstoque[]
-  produtosPadrao  Produto[] @relation("LocalPadrao")
+  saldos         Saldo[]
+  reservas       Reserva[]
+  movimentos     MovimentoEstoque[]
+  produtosPadrao Produto[]          @relation("LocalPadrao")
 }
 
 /// Quantidade física de um produto em um local.
 model Saldo {
   produtoId  String
-  produto    Produto @relation(fields: [produtoId], references: [id])
+  produto    Produto  @relation(fields: [produtoId], references: [id])
   localId    String
-  local      Local   @relation(fields: [localId], references: [id])
-  quantidade Decimal @default(0) @db.Decimal(14, 4)
+  local      Local    @relation(fields: [localId], references: [id])
+  quantidade Decimal  @default(0) @db.Decimal(14, 4)
   updatedAt  DateTime @updatedAt
 
   @@id([produtoId, localId])
@@ -256,8 +421,8 @@ enum OrigemDocumento {
 
 enum StatusReserva {
   ATIVA
-  BAIXADA   // virou saída de estoque
-  LIBERADA  // cancelada / item removido
+  BAIXADA // virou saída de estoque
+  LIBERADA // cancelada / item removido
 }
 
 /// Reserva de um item de documento (OS/venda). Cada linha diz DE ONDE
@@ -270,8 +435,8 @@ model Reserva {
   local        Local?          @relation(fields: [localId], references: [id])
   quantidade   Decimal         @db.Decimal(14, 4)
   origemTipo   OrigemDocumento
-  origemId     String          // id do documento (OS, venda)
-  origemItemId String          // id do item do documento
+  origemId     String // id do documento (OS, venda)
+  origemItemId String // id do item do documento
   status       StatusReserva   @default(ATIVA)
   separado     Boolean         @default(false) // já foi pego na prateleira
   createdAt    DateTime        @default(now())
@@ -315,9 +480,9 @@ enum SituacaoOs {
   EM_ANDAMENTO
   AGUARDANDO_PECA
   AGUARDANDO_APROVACAO
-  CONCLUIDA      // serviço feito: baixa estoque
-  FATURADA       // gerou financeiro/nota
-  CANCELADA      // libera reservas
+  CONCLUIDA // serviço feito: baixa estoque
+  FATURADA // gerou financeiro/nota
+  CANCELADA // libera reservas
   DEVOLVIDA_SEM_REPARO
 }
 
@@ -329,7 +494,9 @@ enum PrioridadeOs {
   MUITO_URGENTE
 }
 
-/** Equipamentos da OS (uma OS pode ter vários, como no Gestão Click). */
+/**
+ * Equipamentos da OS (uma OS pode ter vários, como no Gestão Click).
+ */
 model OsEquipamento {
   id          String       @id @default(cuid())
   osId        String
@@ -350,36 +517,36 @@ model OsEquipamento {
 }
 
 model OrdemServico {
-  id            String     @id @default(cuid())
-  numero        Int        @unique
-  clienteId     String
-  cliente       Pessoa     @relation(fields: [clienteId], references: [id])
-  tecnicoId     String?
-  tecnico       Usuario?   @relation("OsTecnico", fields: [tecnicoId], references: [id])
-  vendedorId    String?
-  vendedor      Usuario?   @relation("OsVendedor", fields: [vendedorId], references: [id])
-  situacao      SituacaoOs @default(ABERTA)
-  entrada       DateTime   @default(now())
-  previsao      DateTime?
-  saida         DateTime?
-  prioridade    PrioridadeOs?
-  canal         String     @default("Presencial")
-  observacoes   String?
+  id                String        @id @default(cuid())
+  numero            Int           @unique
+  clienteId         String
+  cliente           Pessoa        @relation(fields: [clienteId], references: [id])
+  tecnicoId         String?
+  tecnico           Usuario?      @relation("OsTecnico", fields: [tecnicoId], references: [id])
+  vendedorId        String?
+  vendedor          Usuario?      @relation("OsVendedor", fields: [vendedorId], references: [id])
+  situacao          SituacaoOs    @default(ABERTA)
+  entrada           DateTime      @default(now())
+  previsao          DateTime?
+  saida             DateTime?
+  prioridade        PrioridadeOs?
+  canal             String        @default("Presencial")
+  observacoes       String?
   observacaoInterna String?
-  desconto      Decimal    @default(0) @db.Decimal(14, 2)
-  frete         Decimal    @default(0) @db.Decimal(14, 2)
-  outros        Decimal    @default(0) @db.Decimal(14, 2)
-  totalProdutos Decimal    @default(0) @db.Decimal(14, 2)
-  totalServicos Decimal    @default(0) @db.Decimal(14, 2)
-  total         Decimal    @default(0) @db.Decimal(14, 2)
-  idLegado      String?    @unique
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  desconto          Decimal       @default(0) @db.Decimal(14, 2)
+  frete             Decimal       @default(0) @db.Decimal(14, 2)
+  outros            Decimal       @default(0) @db.Decimal(14, 2)
+  totalProdutos     Decimal       @default(0) @db.Decimal(14, 2)
+  totalServicos     Decimal       @default(0) @db.Decimal(14, 2)
+  total             Decimal       @default(0) @db.Decimal(14, 2)
+  idLegado          String?       @unique
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   equipamentos OsEquipamento[]
-  produtos OsItemProduto[]
-  servicos OsItemServico[]
-  historico OsHistorico[]
+  produtos     OsItemProduto[]
+  servicos     OsItemServico[]
+  historico    OsHistorico[]
 
   @@index([situacao])
   @@index([clienteId])
@@ -425,17 +592,19 @@ model OsHistorico {
 
 enum TipoVenda {
   PEDIDO
-  BALCAO  // PDV
+  BALCAO // PDV
 }
 
 enum SituacaoVenda {
-  ORCAMENTO   // não reserva
-  ABERTA      // reserva
-  CONCLUIDA   // baixa estoque + financeiro
+  ORCAMENTO // não reserva
+  ABERTA // reserva
+  CONCLUIDA // baixa estoque + financeiro
   CANCELADA
 }
 
-/** Caixa do PDV: aberto com um valor em dinheiro, as vendas de balcão ficam ligadas a ele até o fechamento. */
+/**
+ * Caixa do PDV: aberto com um valor em dinheiro, as vendas de balcão ficam ligadas a ele até o fechamento.
+ */
 model CaixaPdv {
   id              String    @id @default(cuid())
   usuarioId       String
@@ -451,28 +620,28 @@ model CaixaPdv {
 }
 
 model Venda {
-  id         String        @id @default(cuid())
-  numero     Int           @unique
-  tipo       TipoVenda     @default(PEDIDO)
-  clienteId  String?
-  cliente    Pessoa?       @relation(fields: [clienteId], references: [id])
-  vendedorId String?
-  vendedor   Usuario?      @relation(fields: [vendedorId], references: [id])
-  situacao   SituacaoVenda @default(ABERTA)
-  data       DateTime      @default(now())
-  desconto   Decimal       @default(0) @db.Decimal(14, 2)
-  frete      Decimal       @default(0) @db.Decimal(14, 2)
-  total      Decimal       @default(0) @db.Decimal(14, 2)
+  id          String        @id @default(cuid())
+  numero      Int           @unique
+  tipo        TipoVenda     @default(PEDIDO)
+  clienteId   String?
+  cliente     Pessoa?       @relation(fields: [clienteId], references: [id])
+  vendedorId  String?
+  vendedor    Usuario?      @relation(fields: [vendedorId], references: [id])
+  situacao    SituacaoVenda @default(ABERTA)
+  data        DateTime      @default(now())
+  desconto    Decimal       @default(0) @db.Decimal(14, 2)
+  frete       Decimal       @default(0) @db.Decimal(14, 2)
+  total       Decimal       @default(0) @db.Decimal(14, 2)
   observacoes String?
-  idLegado   String?       @unique
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  idLegado    String?       @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
-  caixaId    String?
-  caixa      CaixaPdv?     @relation(fields: [caixaId], references: [id])
+  caixaId String?
+  caixa   CaixaPdv? @relation(fields: [caixaId], references: [id])
 
-  itens     VendaItem[]
-  servicos  VendaItemServico[]
+  itens      VendaItem[]
+  servicos   VendaItemServico[]
   pagamentos VendaPagamento[]
 }
 
@@ -513,15 +682,15 @@ model VendaPagamento {
 // ───────────────────────── Compras ─────────────────────────
 
 model Compra {
-  id           String   @id @default(cuid())
-  numero       Int      @unique
+  id           String       @id @default(cuid())
+  numero       Int          @unique
   fornecedorId String
-  fornecedor   Pessoa   @relation(fields: [fornecedorId], references: [id])
-  data         DateTime @default(now())
-  recebida     Boolean  @default(false)
+  fornecedor   Pessoa       @relation(fields: [fornecedorId], references: [id])
+  data         DateTime     @default(now())
+  recebida     Boolean      @default(false)
   chaveNfe     String?
-  total        Decimal  @default(0) @db.Decimal(14, 2)
-  createdAt    DateTime @default(now())
+  total        Decimal      @default(0) @db.Decimal(14, 2)
+  createdAt    DateTime     @default(now())
   itens        CompraItem[]
 }
 
@@ -539,24 +708,24 @@ model CompraItem {
 // ───────────────────────── Financeiro ─────────────────────────
 
 model ContaBancaria {
-  id           String   @id @default(cuid())
-  nome         String   @unique
+  id           String              @id @default(cuid())
+  nome         String              @unique
   banco        String?
   agencia      String?
   conta        String?
-  saldoInicial Decimal  @default(0) @db.Decimal(14, 2)
-  ativa        Boolean  @default(true)
+  saldoInicial Decimal             @default(0) @db.Decimal(14, 2)
+  ativa        Boolean             @default(true)
   lancamentos  Lancamento[]
   transacoes   TransacaoBancaria[]
 }
 
 model FormaPagamento {
-  id          String  @id @default(cuid())
-  nome        String  @unique
-  tPag        String  // código do meio de pagamento na NF-e (01 dinheiro, 03 crédito, 17 PIX...)
-  taxa        Decimal @default(0) @db.Decimal(7, 4)
-  diasPrazo   Int     @default(0)
-  ativa       Boolean @default(true)
+  id          String           @id @default(cuid())
+  nome        String           @unique
+  tPag        String // código do meio de pagamento na NF-e (01 dinheiro, 03 crédito, 17 PIX...)
+  taxa        Decimal          @default(0) @db.Decimal(7, 4)
+  diasPrazo   Int              @default(0)
+  ativa       Boolean          @default(true)
   pagamentos  VendaPagamento[]
   lancamentos Lancamento[]
 }
@@ -564,8 +733,8 @@ model FormaPagamento {
 /// Grupo da DRE gerencial para onde a categoria soma.
 enum GrupoDre {
   RECEITA_BRUTA
-  DEDUCOES        // impostos sobre venda, devoluções
-  CUSTO           // CMV / CSP
+  DEDUCOES // impostos sobre venda, devoluções
+  CUSTO // CMV / CSP
   DESPESA_OPERACIONAL
   DESPESA_FINANCEIRA
   RECEITA_FINANCEIRA
@@ -580,7 +749,7 @@ enum TipoLancamento {
 }
 
 model CategoriaFinanceira {
-  id          String         @id @default(cuid())
+  id          String                @id @default(cuid())
   nome        String
   tipo        TipoLancamento
   grupoDre    GrupoDre
@@ -593,34 +762,34 @@ model CategoriaFinanceira {
 }
 
 model Lancamento {
-  id               String          @id @default(cuid())
+  id               String              @id @default(cuid())
   tipo             TipoLancamento
   descricao        String
   pessoaId         String?
-  pessoa           Pessoa?         @relation(fields: [pessoaId], references: [id])
+  pessoa           Pessoa?             @relation(fields: [pessoaId], references: [id])
   categoriaId      String
   categoria        CategoriaFinanceira @relation(fields: [categoriaId], references: [id])
   contaBancariaId  String?
-  contaBancaria    ContaBancaria?  @relation(fields: [contaBancariaId], references: [id])
+  contaBancaria    ContaBancaria?      @relation(fields: [contaBancariaId], references: [id])
   formaPagamentoId String?
-  formaPagamento   FormaPagamento? @relation(fields: [formaPagamentoId], references: [id])
-  valor            Decimal         @db.Decimal(14, 2)
-  vencimento       DateTime        @db.Date
-  competencia      DateTime        @db.Date // mês da DRE
-  pagoEm           DateTime?       @db.Date
-  valorPago        Decimal?        @db.Decimal(14, 2)
-  juros            Decimal         @default(0) @db.Decimal(14, 2)
-  desconto         Decimal         @default(0) @db.Decimal(14, 2)
-  parcela          Int             @default(1)
-  totalParcelas    Int             @default(1)
+  formaPagamento   FormaPagamento?     @relation(fields: [formaPagamentoId], references: [id])
+  valor            Decimal             @db.Decimal(14, 2)
+  vencimento       DateTime            @db.Date
+  competencia      DateTime            @db.Date // mês da DRE
+  pagoEm           DateTime?           @db.Date
+  valorPago        Decimal?            @db.Decimal(14, 2)
+  juros            Decimal             @default(0) @db.Decimal(14, 2)
+  desconto         Decimal             @default(0) @db.Decimal(14, 2)
+  parcela          Int                 @default(1)
+  totalParcelas    Int                 @default(1)
   origemTipo       OrigemDocumento?
   origemId         String?
-  idLegado         String?         @unique
+  idLegado         String?             @unique
   // baixa feita pela conciliação do extrato
   transacaoId      String?
-  transacao        TransacaoBancaria? @relation(fields: [transacaoId], references: [id])
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  transacao        TransacaoBancaria?  @relation(fields: [transacaoId], references: [id])
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
   @@index([tipo, vencimento])
   @@index([competencia])
@@ -630,9 +799,9 @@ model Lancamento {
 // ───────────────────────── Fiscal ─────────────────────────
 
 enum ModeloNota {
-  NFE   // 55
-  NFCE  // 65
-  NFSE  // padrão nacional
+  NFE // 55
+  NFCE // 65
+  NFSE // padrão nacional
 }
 
 enum StatusNota {
@@ -647,23 +816,23 @@ enum StatusNota {
 }
 
 model NotaFiscal {
-  id          String     @id @default(cuid())
-  modelo      ModeloNota
-  serie       Int
-  numero      Int
-  chave       String?    @unique
-  status      StatusNota @default(RASCUNHO)
-  ambiente    AmbienteFiscal
-  origemTipo  OrigemDocumento?
-  origemId    String?
-  valorTotal  Decimal    @db.Decimal(14, 2)
-  xml         String?    // XML assinado / autorizado (procNFe)
-  protocolo   String?
-  motivo      String?    // cStat + xMotivo da última resposta
-  emitidaEm   DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  eventos     NotaEvento[]
+  id         String           @id @default(cuid())
+  modelo     ModeloNota
+  serie      Int
+  numero     Int
+  chave      String?          @unique
+  status     StatusNota       @default(RASCUNHO)
+  ambiente   AmbienteFiscal
+  origemTipo OrigemDocumento?
+  origemId   String?
+  valorTotal Decimal          @db.Decimal(14, 2)
+  xml        String? // XML assinado / autorizado (procNFe)
+  protocolo  String?
+  motivo     String? // cStat + xMotivo da última resposta
+  emitidaEm  DateTime?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  eventos    NotaEvento[]
 
   @@unique([modelo, serie, numero, ambiente])
   @@index([origemTipo, origemId])
@@ -673,7 +842,7 @@ model NotaEvento {
   id        String     @id @default(cuid())
   notaId    String
   nota      NotaFiscal @relation(fields: [notaId], references: [id], onDelete: Cascade)
-  tipo      String     // 110111 cancelamento, 110110 CC-e...
+  tipo      String // 110111 cancelamento, 110110 CC-e...
   sequencia Int        @default(1)
   xml       String?
   protocolo String?
@@ -686,19 +855,21 @@ model Sequencia {
   valor Int    @default(0)
 }
 
-/** Linha do extrato bancário importado (OFX/CSV), casada com um lançamento na conciliação. */
+/**
+ * Linha do extrato bancário importado (OFX/CSV), casada com um lançamento na conciliação.
+ */
 model TransacaoBancaria {
-  id              String         @id @default(cuid())
+  id              String              @id @default(cuid())
   contaBancariaId String
-  contaBancaria   ContaBancaria  @relation(fields: [contaBancariaId], references: [id])
-  data            DateTime       @db.Date
-  valor           Decimal        @db.Decimal(14, 2) // positivo = entrada, negativo = saída
+  contaBancaria   ContaBancaria       @relation(fields: [contaBancariaId], references: [id])
+  data            DateTime            @db.Date
+  valor           Decimal             @db.Decimal(14, 2) // positivo = entrada, negativo = saída
   descricao       String
   documento       String?
-  chave           String         // FITID do OFX ou hash da linha do CSV
+  chave           String // FITID do OFX ou hash da linha do CSV
   situacao        SituacaoConciliacao @default(PENDENTE)
   lancamentos     Lancamento[]
-  createdAt       DateTime       @default(now())
+  createdAt       DateTime            @default(now())
 
   @@unique([contaBancariaId, chave])
   @@index([situacao])

@@ -16,8 +16,8 @@ export async function criarSessao(usuarioId: string, ip?: string | null) {
 /** Usuário da sessão, ou null se o token não existe, expirou ou o usuário foi desativado. Renova a validade depois da metade. */
 export async function usuarioDoToken(token: string | undefined | null) {
   if (!token) return null;
-  const s = await prisma.sessao.findUnique({ where: { tokenHash: hash(token) }, include: { usuario: true } });
-  if (!s || s.expira < new Date() || !s.usuario.ativo) return null;
+  const s = await prisma.sessao.findUnique({ where: { tokenHash: hash(token) }, include: { usuario: { omit: { foto: true, senhaHash: false } } } });
+  if (!s || s.expira < new Date() || !s.usuario.ativo || !s.usuario.acessoSistema) return null;
   if (s.expira.getTime() - Date.now() < DURACAO_MS / 2)
     await prisma.sessao.update({ where: { id: s.id }, data: { expira: new Date(Date.now() + DURACAO_MS) } });
   return s.usuario;
@@ -35,7 +35,7 @@ export async function autenticar(email: string, senha: string, ip: string) {
   const f = falhas.get(chave);
   if (f && f.n >= 5 && f.ate > Date.now()) throw new Error("Muitas tentativas. Espere 15 minutos e tente de novo.");
   const u = await prisma.usuario.findUnique({ where: { email: email.toLowerCase().trim() } });
-  const ok = !!u && u.ativo && (await conferirSenha(senha, u.senhaHash));
+  const ok = !!u && u.ativo && u.acessoSistema && !!u.senhaHash && (await conferirSenha(senha, u.senhaHash));
   if (!ok) {
     const n = (f && f.ate > Date.now() ? f.n : 0) + 1;
     falhas.set(chave, { n, ate: Date.now() + 15 * 60000 });

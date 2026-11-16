@@ -10,7 +10,7 @@ export async function trocarSenha(_: Estado, form: FormData): Promise<Estado> {
   const u = await exigirUsuario();
   const nova = String(form.get("nova") ?? "");
   if (nova !== String(form.get("confirma") ?? "")) return { ok: false, mensagem: "A confirmação não bate com a nova senha" };
-  if (!(await conferirSenha(String(form.get("atual") ?? ""), u.senhaHash))) return { ok: false, mensagem: "Senha atual incorreta" };
+  if (!u.senhaHash || !(await conferirSenha(String(form.get("atual") ?? ""), u.senhaHash))) return { ok: false, mensagem: "Senha atual incorreta" };
   try {
     await prisma.usuario.update({ where: { id: u.id }, data: { senhaHash: await hashSenha(nova) } });
     return { ok: true, mensagem: "Senha trocada" };
