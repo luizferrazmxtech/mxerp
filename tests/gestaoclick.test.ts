@@ -109,12 +109,12 @@ describe("backup do Gestão Click", () => {
 
   it("simulação não grava", async () => {
     const res = await gc.importarBackupGestaoClick(await gc.lerBackupGestaoClick(await backup()), { simular: true });
-    expect(res.find((r) => r.tipo === "os")!.criados).toBe(3);
+    expect(res.find((r) => r.tipo === "os")!.criados).toBe(4);
     expect(await prisma.produto.count()).toBe(0);
     expect(await prisma.ordemServico.count()).toBe(0);
   });
 
-  it("importa cadastros, estoque, OS abertas com reserva e contas em aberto, sem duplicar ao repetir", async () => {
+  it("importa cadastros, estoque, todas as OS (abertas com reserva) e contas em aberto, sem duplicar ao repetir", async () => {
     const t = await gc.lerBackupGestaoClick(await backup());
     const res = await gc.importarBackupGestaoClick(t, { simular: false });
     const por = (tipo: string) => res.find((r) => r.tipo === tipo)!;
@@ -137,26 +137,29 @@ describe("backup do Gestão Click", () => {
     expect((await prisma.produto.findUniqueOrThrow({ where: { codigo: "FONTE" } })).ativo).toBe(false);
     expect((await prisma.produto.findUniqueOrThrow({ where: { codigo: "CABO" } })).unidade).toBe("MT");
 
-    // OS: 7001 aberta, 7002 em andamento, 7003 concretizada (fica de fora), 7004 concluída-faturar (cliente criado)
-    expect(por("os").criados).toBe(3);
+    // OS: 7001 aberta, 7002 em andamento, 7003 concretizada, 7004 concluída-faturar (cliente criado)
+    expect(por("os").criados).toBe(4);
     const o1 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 }, include: { cliente: true, servicos: true, equipamentos: true } });
     expect(o1).toMatchObject({ situacao: "ABERTA" });
     expect(o1.equipamentos[0]).toMatchObject({ equipamento: "NOBREAK", marca: "SMS" });
     expect(o1.cliente.nome).toBe("LAZARO");
     expect(Number(o1.total)).toBeCloseTo(369.8);
     expect((await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7002 } })).situacao).toBe("EM_ANDAMENTO");
-    expect(await prisma.ordemServico.findUnique({ where: { numero: 7003 } })).toBeNull();
+    const o3 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7003 } });
+    expect(o3).toMatchObject({ situacao: "FATURADA", situacaoId: "so_concretizada" });
+    expect(o3.saida?.toISOString()).toBe("2026-11-04T12:00:00.000Z");
+    expect(await prisma.osHistorico.count({ where: { osId: o3.id } })).toBe(3);
     const o4 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7004 }, include: { cliente: true } });
-    expect(o4.situacao).toBe("CONCLUIDA");
+    expect(o4).toMatchObject({ situacao: "CONCLUIDA", situacaoId: "so_faturar" });
     expect(o4.cliente.nome).toBe("CLIENTE AVULSO");
     expect(por("os").avisos.join(" ")).toMatch(/PRODUTO APAGADO/);
 
-    // OS "CONCLUIDA - FATURAR" já baixou as peças no Gestão Click: o saldo continua o do backup (0), sem baixar de novo
+    // OS concluídas já baixaram as peças no Gestão Click: o saldo continua o do backup, sem movimento aqui
     const cabo = await prisma.produto.findUniqueOrThrow({ where: { codigo: "CABO" } });
     expect((await prisma.$transaction((tx) => est.resumoProduto(tx, cabo.id))).fisico).toBe(0);
-    expect(await prisma.movimentoEstoque.count({ where: { produtoId: cabo.id, origemTipo: "OS", tipo: "SAIDA" } })).toBe(1);
+    expect(await prisma.movimentoEstoque.count({ where: { origemTipo: "OS" } })).toBe(0);
 
-    // estoque 3: 2 reservadas na 7001, 1 na 7002 e 1 em falta
+    // estoque 3: 2 reservadas na 7001, 1 na 7002 e 1 em falta (a 7003 concretizada não reserva)
     const r = await prisma.$transaction((tx) => est.resumoProduto(tx, bat.id));
     expect(r.fisico).toBe(3);
     const reservas = await prisma.reserva.findMany({ where: { produtoId: bat.id } });
@@ -182,7 +185,7 @@ describe("backup do Gestão Click", () => {
     // repetir não duplica nada nem mexe no estoque já movimentado
     const res2 = await gc.importarBackupGestaoClick(t, { simular: false });
     expect(res2.find((x) => x.tipo === "os")!.criados).toBe(0);
-    expect(await prisma.ordemServico.count()).toBe(3);
+    expect(await prisma.ordemServico.count()).toBe(4);
     expect(await prisma.lancamento.count()).toBe(2);
     expect(await prisma.pessoa.count()).toBe(3);
     expect((await prisma.$transaction((tx) => est.resumoProduto(tx, bat.id))).fisico).toBe(3);

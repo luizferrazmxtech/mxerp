@@ -79,10 +79,16 @@ function cabecalhoData(d: CabecalhoOs) {
   };
 }
 
+/** Situação configurável que corresponde ao estado antigo (o formulário novo usa as situações configuráveis). */
+const CFG_OS: Record<SituacaoOs, string> = { ABERTA: "so_aberto", EM_ANDAMENTO: "so_andamento", AGUARDANDO_PECA: "so_andamento", AGUARDANDO_APROVACAO: "so_andamento", CONCLUIDA: "so_faturar", FATURADA: "so_concretizada", CANCELADA: "so_cancelada", DEVOLVIDA_SEM_REPARO: "so_devolvido" };
+async function cfgOs(tx: Tx, s: SituacaoOs) {
+  return (await tx.situacaoOsConfig.findUnique({ where: { id: CFG_OS[s] }, select: { id: true } }))?.id ?? null;
+}
+
 export async function criarOsTx(tx: Tx, dados: CabecalhoOs) {
   const numero = await proximoNumero(tx, "OS");
   const os = await tx.ordemServico.create({
-    data: { numero, ...cabecalhoData(dados), equipamentos: { create: equipamentosData(dados.equipamentos) } },
+    data: { numero, situacaoId: await cfgOs(tx, "ABERTA"), ...cabecalhoData(dados), equipamentos: { create: equipamentosData(dados.equipamentos) } },
   });
   await recalcularTotais(tx, os.id);
   return os;
@@ -308,7 +314,7 @@ export async function alterarSituacaoTx(
   });
   return tx.ordemServico.update({
     where: { id: osId },
-    data: { situacao: nova, saida: para === "BAIXADO" ? new Date() : para === "RESERVADO" ? null : undefined },
+    data: { situacao: nova, situacaoId: await cfgOs(tx, nova), saida: para === "BAIXADO" ? new Date() : para === "RESERVADO" ? null : undefined },
   });
 }
 

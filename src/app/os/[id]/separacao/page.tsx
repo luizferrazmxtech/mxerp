@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { listaSeparacao } from "@/lib/os/os";
 import { qtd } from "@/lib/ui/format";
-import { marcarSeparado } from "../../actions";
+import { marcarSeparadoAcao } from "@/lib/os/acoes";
 import BotaoImprimir from "./BotaoImprimir";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +33,7 @@ export default async function Separacao({ params }: { params: Promise<{ id: stri
               <td className="text-right text-base">{qtd(r.quantidade)} {r.produto.unidade}</td>
               <td className="text-center">
                 {r.local && (
-                  <form action={marcarSeparado}>
+                  <form action={marcarSeparadoAcao}>
                     <input type="hidden" name="osId" value={id} />
                     <input type="hidden" name="reservaId" value={r.id} />
                     <input type="hidden" name="separado" value={r.separado ? "0" : "1"} />

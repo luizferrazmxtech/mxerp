@@ -6,6 +6,7 @@ import { mesesRecentes, rotuloMesCurto } from "@/lib/datas";
 import { brl, num2 } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
 import Icone from "@/components/Icone";
+import TelaCheia from "@/components/os/TelaCheia";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Painel de ordens de serviços" };
@@ -82,6 +83,7 @@ export default async function PainelOs() {
     <Pagina titulo="Painel de ordens de serviços" icone="painel" trilha={[{ rotulo: "Ordens de serviços", href: "/os" }, { rotulo: "Painel" }]}>
       <div className="mb-4 flex gap-2">
         <Link href="/os/painel" className="btn"><Icone nome="atualizar" size={14} /> Atualizar</Link>
+        <TelaCheia />
         <Link href="/os?s=abertas" className="btn-sec"><Icone nome="gerenciar" size={14} /> Ver OS em aberto ({abertas.length})</Link>
       </div>
 
