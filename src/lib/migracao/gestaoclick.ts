@@ -32,7 +32,7 @@ export async function lerBackupGestaoClick(zip: Buffer): Promise<Tabelas> {
   return t;
 }
 
-export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean };
+export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean };
 
 const chaveNome = (s: string | undefined) => normalizar(s ?? "");
 const sim = (s: string) => (/^n[aã]o$/i.test(s.trim()) ? "Não" : "Sim");
@@ -273,6 +273,115 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
   return r;
 }
 
+// ---------- orçamentos (todos: são o histórico comercial e continuam a numeração)
+
+async function importarOrcamentos(t: Tabelas, simular: boolean): Promise<Resultado> {
+  const todos = t.orcamentos ?? [];
+  const r: Resultado = { tipo: "orcamentos", simulado: simular, lidas: todos.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
+  const N = "n do orcamento";
+  const agrupa = (ls: Linha[] | undefined) => {
+    const m = new Map<string, Linha[]>();
+    for (const l of ls ?? []) m.set(l[N], [...(m.get(l[N]) ?? []), l]);
+    return m;
+  };
+  const prods = agrupa(t.orcamentos_produtos), servs = agrupa(t.orcamentos_servicos), parcs = agrupa(t.orcamentos_pagamentos), hist = agrupa(t.orcamentos_historicos);
+
+  const codProduto = new Map<string, string>();
+  for (const p of t.produtos ?? []) if (!codProduto.has(chaveNome(p.produto))) codProduto.set(chaveNome(p.produto), p.codigo);
+  const codServico = new Map<string, string>();
+  for (const s of t.servicos ?? []) codServico.set(chaveNome(s.servico), s["codigo interno"] || s.servico.slice(0, 20).toUpperCase());
+  const codCliente = new Map<string, string>();
+  for (const c of t.clientes ?? []) for (const n of [c.nome, c["razao social"]]) if (n && !codCliente.has(chaveNome(n))) codCliente.set(chaveNome(n), c.codigo);
+
+  const situacoes = await prisma.situacaoOrcamento.findMany({ orderBy: { ordem: "asc" } });
+  const sitPorNome = new Map(situacoes.map((s) => [chaveNome(s.nome), s.id]));
+  const formas = await prisma.formaPagamento.findMany({ select: { id: true, nome: true } });
+  const formaPorNome = (n: string | undefined) => {
+    if (!n) return null;
+    const k = chaveNome(n);
+    return formas.find((f) => chaveNome(f.nome) === k)?.id ?? formas.find((f) => chaveNome(f.nome) === chaveNome(formaPara(n) ?? ""))?.id ?? null;
+  };
+  const usuarios = await prisma.usuario.findMany({ select: { id: true, nome: true } });
+  const usuarioPorNome = (n: string | undefined) => (n ? usuarios.find((u) => chaveNome(u.nome) === chaveNome(n))?.id ?? null : null);
+
+  const semProduto = new Set<string>(), semCliente = new Set<string>(), semSituacao = new Set<string>(), totalDiferente: number[] = [];
+  let maior = 0;
+  for (const o of todos) {
+    const numero = Number(o[N]);
+    if (!numero) { r.ignorados.push({ linha: 0, motivo: "Orçamento sem número" }); continue; }
+    maior = Math.max(maior, numero);
+    const ps = prods.get(o[N]) ?? [], ss = servs.get(o[N]) ?? [], hs = hist.get(o[N]) ?? [];
+    for (const p of ps) if (!codProduto.has(chaveNome(p.produto))) semProduto.add(p.produto);
+    if (!codCliente.has(chaveNome(o.cliente))) semCliente.add(o.cliente);
+    const nomeSit = hs.length ? hs[hs.length - 1].situacao : "Em aberto";
+    const situacaoId = sitPorNome.get(chaveNome(nomeSit)) ?? situacoes[0]?.id;
+    if (!sitPorNome.has(chaveNome(nomeSit))) semSituacao.add(nomeSit);
+    const itensGc = [...ps, ...ss].reduce((a, x) => a + numeroBr(x["valor total"] ?? ""), 0) + numeroBr(o["valor frete"] ?? "") - numeroBr(o["desconto valor"] ?? "");
+    if (o["total do pedido"] && Math.abs(itensGc - numeroBr(o["total do pedido"])) > 0.01) totalDiferente.push(numero);
+    const existe = await prisma.orcamento.findFirst({ where: { OR: [{ idLegado: `orcamento:${numero}` }, { numero }] }, select: { id: true } });
+    if (existe) { r.ignorados.push({ linha: numero, motivo: `Orçamento ${numero} já existe no ERP` }); continue; }
+    if (simular) { r.criados++; continue; }
+    if (!situacaoId) throw new Error("Cadastre ao menos uma situação de orçamento antes de importar");
+
+    await prisma.$transaction(async (tx) => {
+      const codCli = codCliente.get(chaveNome(o.cliente));
+      const cliente =
+        (codCli && (await tx.pessoa.findUnique({ where: { idLegado: `cliente:${codCli}` } }))) ||
+        (await tx.pessoa.findFirst({ where: { OR: [{ nome: { equals: o.cliente, mode: "insensitive" } }, { fantasia: { equals: o.cliente, mode: "insensitive" } }] } })) ||
+        (await tx.pessoa.create({ data: { nome: o.cliente || "Cliente não informado", idLegado: `cliente-orc:${o.cliente}`, observacoes: "Criado na migração a partir de um orçamento", codigoCliente: await proximoNumero(tx, "CLIENTE") } }));
+      const itens = [];
+      for (const [i, p] of ps.entries()) {
+        const cod = codProduto.get(chaveNome(p.produto));
+        const q = numeroBr(p.quantidade) || 1, v = numeroBr(p["valor unitario"]), d = numeroBr(p.desconto ?? "");
+        // produto que já foi excluído no Gestão Click: entra inativo e sem estoque, para o orçamento ficar completo
+        const produto = (cod ? await tx.produto.findUnique({ where: { codigo: cod }, select: { id: true } }) : null) ?? (p.produto ? await tx.produto.upsert({
+          where: { idLegado: `produto-orc:${chaveNome(p.produto)}` }, update: {}, select: { id: true },
+          create: { codigo: "GC-" + createHash("sha1").update(chaveNome(p.produto)).digest("hex").slice(0, 8).toUpperCase(), nome: p.produto.slice(0, 200), precoVenda: v.toFixed(2), ativo: false, controlaEstoque: false, idLegado: `produto-orc:${chaveNome(p.produto)}` },
+        }) : null);
+        if (!produto) continue;
+        itens.push({ ordem: i + 1, produtoId: produto.id, quantidade: q, valorUnit: v.toFixed(2), desconto: d.toFixed(2), subtotal: (numeroBr(p["valor total"] ?? "") || v * q - d).toFixed(2) });
+      }
+      const servicos = [];
+      for (const [i, s] of ss.entries()) {
+        const codigo = codServico.get(chaveNome(s.servico)) ?? s.servico.slice(0, 20).toUpperCase();
+        const servico = await tx.servico.upsert({ where: { codigo }, create: { codigo, nome: s.servico, preco: numeroBr(s["valor unitario"]), idLegado: `servico:${codigo}` }, update: {}, select: { id: true } });
+        const q = numeroBr(s.quantidade) || 1, v = numeroBr(s["valor unitario"]), d = numeroBr(s.desconto ?? "");
+        servicos.push({ ordem: i + 1, servicoId: servico.id, quantidade: q, valorUnit: v.toFixed(2), desconto: d.toFixed(2), subtotal: (numeroBr(s["valor total"] ?? "") || v * q - d).toFixed(2) });
+      }
+      const pg = parcs.get(o[N]) ?? [];
+      const totalProdutos = itens.reduce((a, x) => a + Number(x.subtotal), 0);
+      const totalServicos = servicos.reduce((a, x) => a + Number(x.subtotal), 0);
+      const data = dataBr(o.data) ?? new Date();
+      const orc = await tx.orcamento.create({
+        data: {
+          numero, idLegado: `orcamento:${numero}`, tipo: itens.length === 0 && servicos.length > 0 ? "SERVICO" : "PRODUTO",
+          clienteId: cliente.id, vendedorId: usuarioPorNome(o.vendedor), data, prazoEntrega: dataBr(o["prazo de entrega"]),
+          validade: o["validade da proposta"] || null, aosCuidados: o["aos cuidados de"] || null, canal: o["canal de venda"] || "Presencial",
+          centroCusto: o["centro de custo"] || null, introducao: o.introducao || null, observacoes: o.observacoes || null, observacaoInterna: o["observacoes interna"] || null,
+          situacaoId, frete: numeroBr(o["valor frete"] ?? "").toFixed(2), desconto: numeroBr(o["desconto valor"] ?? "").toFixed(2),
+          totalProdutos: totalProdutos.toFixed(2), totalServicos: totalServicos.toFixed(2), total: (numeroBr(o["total do pedido"] ?? "") || totalProdutos + totalServicos).toFixed(2),
+          gerarCondicoes: pg.length > 0, condicao: pg.length > 1 ? "PARCELADO" : "AVISTA", formaPagamentoId: formaPorNome(pg[0]?.["forma de pagamento"]),
+          criadoPorId: usuarioPorNome(o["cadastrado por"]),
+          createdAt: dataHoraBr(o["cadastrado em"]) ?? data, updatedAt: dataHoraBr(o["modificado em"]) ?? dataHoraBr(o["cadastrado em"]) ?? data,
+          produtos: { create: itens }, servicos: { create: servicos },
+          parcelas: { create: pg.map((x, i) => ({ numero: i + 1, vencimento: dataBr(x.vencimento) ?? data, valor: numeroBr(x["valor da parcela"]).toFixed(2), formaPagamentoId: formaPorNome(x["forma de pagamento"]), observacao: x.observacao || null })) },
+          historico: { create: hs.map((h) => ({ descricao: h.observacao || "Situação alterada", situacao: h.situacao || null, usuarioNome: h.funcionario || null, createdAt: dataHoraBr(h.data) ?? data })) },
+        },
+      });
+      await tx.orcamentoHistorico.create({ data: { orcamentoId: orc.id, descricao: "Migrado do Gestão Click", situacao: nomeSit } });
+    }, { timeout: 30000 });
+    r.criados++;
+  }
+  if (!simular && maior > 0)
+    await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('ORCAMENTO', ${maior}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${maior})`;
+  r.avisos.push(`A numeração continua do Gestão Click: próximo orçamento nº ${maior + 1}.`);
+  if (semProduto.size) r.avisos.push(`${semProduto.size} produtos citados em orçamentos não existem mais no cadastro e ${simular ? "serão criados" : "foram criados"} como inativos (código GC-…), sem estoque: ${[...semProduto].slice(0, 20).join("; ")}${semProduto.size > 20 ? "…" : ""}`);
+  if (semCliente.size) r.avisos.push(`${semCliente.size} clientes de orçamentos não estão no cadastro e ${simular ? "serão criados" : "foram criados"} só com o nome: ${[...semCliente].slice(0, 20).join("; ")}${semCliente.size > 20 ? "…" : ""}`);
+  if (totalDiferente.length) r.avisos.push(`${totalDiferente.length} orçamentos têm no backup um total diferente da soma dos itens (o backup não trouxe algum item). Mantivemos o total do Gestão Click: ${totalDiferente.slice(0, 30).join(", ")}${totalDiferente.length > 30 ? "…" : ""}`);
+  if (semSituacao.size) r.avisos.push(`Situações sem correspondente no ERP (entraram na primeira situação): ${[...semSituacao].join(", ")}`);
+  return r;
+}
+
 // ---------- contas a receber / a pagar em aberto
 
 function categoriaPara(plano: string, tipo: "RECEBER" | "PAGAR") {
@@ -340,7 +449,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
 
 export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: boolean; etapas?: Etapas } = {}) {
   const simular = opts.simular ?? true;
-  const e: Etapas = opts.etapas ?? { cadastros: true, estoque: true, os: true, receber: true, pagar: true };
+  const e: Etapas = opts.etapas ?? { cadastros: true, estoque: true, os: true, orcamentos: true, receber: true, pagar: true };
   const res: Resultado[] = [];
   if (e.cadastros) {
     res.push(await importarPessoas(linhasPessoas(t.clientes, t.clientes_enderecos, "tipo de pessoa"), "cliente", simular));
@@ -354,6 +463,7 @@ export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: bo
     res.push(r);
   }
   if (e.os) res.push(await importarOs(t, simular));
+  if (e.orcamentos && t.orcamentos) res.push(await importarOrcamentos(t, simular));
   if (e.receber) res.push(await importarContas(t.contas_receber, "RECEBER", simular));
   if (e.pagar) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas));
   return res;

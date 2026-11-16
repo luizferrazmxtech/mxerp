@@ -21,7 +21,8 @@ const ativoSub = (f: SubItem, caminho: string, busca: string): boolean => (f.fil
 function ativo(href: string, caminho: string, busca: string) {
   const [p, q] = href.split("?");
   if (q) return caminho.startsWith(p) && busca.includes(q);
-  if (busca.includes("entidade=PRODUTO") && p === "/campos-extras") return false; // campos extras de produtos ficam no menu Itens
+  if (busca.includes("entidade=") && p === "/campos-extras") return false; // campos extras de produtos ficam no menu Itens
+  if (p === "/orcamentos") return caminho === p || (caminho.startsWith(p + "/") && !/^\/orcamentos\/(servicos|situacoes|mensagens|configuracoes)/.test(caminho));
   if (p === "/estoque" || p === "/vendas" || p === "/os" || p === "/financeiro") return caminho === p || (caminho.startsWith(p + "/") && !/\/(locais|balcao|painel|conciliacao|dre)/.test(caminho));
   return caminho === p || caminho.startsWith(p + "/");
 }

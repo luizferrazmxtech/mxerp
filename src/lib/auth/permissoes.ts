@@ -9,6 +9,9 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/grupos-produtos", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/unidades", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/grades", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/orcamentos/situacoes", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/orcamentos/mensagens", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/orcamentos/configuracoes", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/migracao", papeis: ["ADMIN"] },
   { prefixo: "/financeiro", papeis: ["ADMIN", "GERENTE"] },
   // ver/imprimir uma nota (DANFCE) é de quem vende; a configuração fiscal e a lista ficam com a gerência

@@ -1,6 +1,6 @@
 import {
   AlarmClock, ArrowLeftRight, BadgeDollarSign, Banknote, BarChart3, Box, Boxes, Calculator, CalendarClock, CalendarDays,
-  ChartNoAxesColumn, ChevronDown, ChevronRight, CircleAlert, ClipboardList, Copy, CreditCard, Eye, FileText, Gauge,
+  ChartNoAxesColumn, ChevronDown, ChevronRight, ChevronUp, GripVertical, CircleAlert, ClipboardList, Copy, CreditCard, Eye, FileText, Gauge,
   HandCoins, House, IdCard, KeyRound, Landmark, LayoutGrid, List, LogOut, MapPin, Menu, MonitorSmartphone, MoreVertical,
   Package, Pencil, Plus, Printer, ReceiptText, RefreshCw, Search, Settings, Settings2, Share2, ShoppingBasket, ShoppingCart,
   SlidersHorizontal, Store, Factory, Paperclip, StickyNote, MessageCircle, Send, ShieldCheck, Info, Camera, Contact, Percent, Download, Mail, Check, Megaphone, ListChecks, Phone, UserRound, Upload as Enviar, FileSpreadsheet, Tag, Trash2, Truck, Upload, User, Users, Wallet, Wrench, X, Zap,
@@ -21,7 +21,7 @@ const ICONES = {
   ajustes: Settings2, fornecedores: Factory, anexos: Paperclip, anotacoes: StickyNote, whatsapp: MessageCircle, envios: Send,
   serasa: ShieldCheck, detalhes: Info, foto: Camera, contatos: Contact, percentual: Percent, exportar: Download, importar: Enviar,
   email: Mail, ok: Check, auxiliares: Megaphone, colunas: ListChecks, telefone: Phone, pessoa: UserRound, eventos: CalendarDays,
-  planilha: FileSpreadsheet, chave: KeyRound, endereco: MapPin, lojas: Store, transportadoras: Truck,
+  cima: ChevronUp, arrastar: GripVertical, planilha: FileSpreadsheet, chave: KeyRound, endereco: MapPin, lojas: Store, transportadoras: Truck,
 } as const;
 
 export type NomeIcone = keyof typeof ICONES;

@@ -38,6 +38,20 @@ export const MENU: ItemMenu[] = [
     ],
   },
   {
+    rotulo: "Orçamentos", icone: "notas", filhos: [
+      { rotulo: "Produtos", href: "/orcamentos", icone: "produtos" },
+      { rotulo: "Serviços", href: "/orcamentos/servicos", icone: "servicos" },
+      {
+        rotulo: "Opções auxiliares", href: "/orcamentos/situacoes", icone: "auxiliares", filhos: [
+          { rotulo: "Situações", href: "/orcamentos/situacoes", icone: "lista" },
+          { rotulo: "Campos extras", href: "/campos-extras?entidade=ORCAMENTO", icone: "ajustes" },
+          { rotulo: "Mensagens", href: "/orcamentos/mensagens", icone: "email" },
+          { rotulo: "Configurações", href: "/orcamentos/configuracoes", icone: "configuracoes" },
+        ],
+      },
+    ],
+  },
+  {
     rotulo: "Vendas", icone: "vendas", filhos: [
       { rotulo: "Produtos", href: "/vendas", icone: "produtos" },
       { rotulo: "Balcão", href: "/vendas/balcao", icone: "balcao" },
@@ -79,6 +93,7 @@ export const MENU: ItemMenu[] = [
 
 /** Módulo mostrado no botão colorido da barra superior, pelo caminho. */
 export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: string }[] = [
+  { prefixo: "/orcamentos", rotulo: "Orçamentos", cor: "#0f8a8a", icone: "notas" },
   { prefixo: "/os", rotulo: "Ordens de serviços", cor: "#e8730c", icone: "os" },
   { prefixo: "/vendas", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/pdv", rotulo: "PDV", cor: "#2e9d4f", icone: "balcao" },

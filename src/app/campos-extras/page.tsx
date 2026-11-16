@@ -5,6 +5,7 @@ import { Pagina } from "@/components/ui/Pagina";
 import BarraCadastro, { AcoesLinha } from "@/components/ui/BarraCadastro";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import Icone from "@/components/Icone";
+import { entidadeCampo, baseCampos, ROTULO_CAMPOS } from "@/lib/cadastros/tipos";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Campos extras" };
@@ -13,19 +14,19 @@ const ROT: Record<string, string> = { TEXTO: "Texto", NUMEROS: "Números", DATA:
 
 export default async function CamposExtras({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
-  const ent = sp.entidade === "PRODUTO" ? "PRODUTO" : "CLIENTE";
+  const ent = entidadeCampo(sp.entidade);
   const prod = ent === "PRODUTO";
-  const base = prod ? "/campos-extras?entidade=PRODUTO" : "/campos-extras";
-  const novo = prod ? "/campos-extras/adicionar?entidade=PRODUTO" : "/campos-extras/adicionar";
+  const base = baseCampos(ent);
+  const novo = ent === "CLIENTE" ? "/campos-extras/adicionar" : `/campos-extras/adicionar?entidade=${ent}`;
   const lista = await prisma.campoExtra.findMany({ where: { entidade: ent, ...(sp.q ? { nome: { contains: sp.q, mode: "insensitive" } } : {}) }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] });
   const total = await prisma.campoExtra.count({ where: { entidade: ent } });
   return (
-    <Pagina titulo={prod ? "Campos extras de produtos" : "Campos extras de clientes"} icone="ajustes" trilha={[{ rotulo: "Campos extras", href: base }, { rotulo: "Listar" }]}>
+    <Pagina titulo={ROTULO_CAMPOS[ent]} icone="ajustes" trilha={[{ rotulo: "Campos extras", href: base }, { rotulo: "Listar" }]}>
       {total === 0 ? (
         <div className="cartao flex flex-col items-center px-4 py-12 text-center">
           <span className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-slate-600"><Icone nome="ajustes" size={30} /></span>
           <h2 className="text-[20px] font-semibold">Nenhum campo extra cadastrado</h2>
-          <p className="mt-1 max-w-lg text-[13px] text-slate-500">{prod ? "Crie campos próprios para produtos e serviços, como Marca, Modelo ou Voltagem, e use-os para filtrar a lista de produtos." : "Crie campos próprios para o cadastro de clientes, como \"Como nos conheceu\" ou \"Segmento\", e use-os para filtrar e organizar seus clientes."}</p>
+          <p className="mt-1 max-w-lg text-[13px] text-slate-500">{ent === "ORCAMENTO" ? "Crie campos próprios para orçamentos, como \"Origem do pedido\" ou \"Número da licitação\". Eles aparecem no formulário e na aba Campos extras do orçamento." : prod ? "Crie campos próprios para produtos e serviços, como Marca, Modelo ou Voltagem, e use-os para filtrar a lista de produtos." : "Crie campos próprios para o cadastro de clientes, como \"Como nos conheceu\" ou \"Segmento\", e use-os para filtrar e organizar seus clientes."}</p>
           <Link href={novo} className="btn mt-4"><Icone nome="mais" size={15} /> Adicionar campo extra</Link>
           <div className="mt-8 grid w-full max-w-3xl gap-3 sm:grid-cols-3">
             {[["editar", "Formulário", "O campo aparece no cadastro do cliente, com máscara e validação conforme o tipo."], ["filtro", "Busca avançada", "Cada campo extra vira um filtro na busca avançada de clientes."], ["planilha", "Relatórios", "Os valores acompanham o cliente na visualização e nas exportações."]].map(([i, t, d]) => (

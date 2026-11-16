@@ -5,13 +5,14 @@ import { importarBackup, type EstadoBackup } from "./actions";
 
 const NOMES: Record<string, string> = {
   clientes: "Clientes", fornecedores: "Fornecedores", servicos: "Serviços", produtos: "Produtos e estoque",
-  os: "OS em andamento", receber: "Contas a receber em aberto", pagar: "Contas a pagar em aberto",
+  os: "OS em andamento", orcamentos: "Orçamentos", receber: "Contas a receber em aberto", pagar: "Contas a pagar em aberto",
 };
 
 const ETAPAS = [
   { nome: "cadastros", rotulo: "Cadastros (clientes, fornecedores, produtos, serviços)", padrao: true },
   { nome: "estoque", rotulo: "Quantidade em estoque dos produtos", padrao: true },
   { nome: "os", rotulo: "OS em andamento, com os produtos já reservados", padrao: true },
+  { nome: "orcamentos", rotulo: "Orçamentos (todos, com itens, parcelas e histórico)", padrao: true },
   { nome: "receber", rotulo: "Contas a receber em aberto", padrao: true },
   { nome: "pagar", rotulo: "Contas a pagar que vencem a partir de hoje", padrao: true },
   { nome: "pagarVencidas", rotulo: "Incluir também as contas a pagar já vencidas", padrao: false },

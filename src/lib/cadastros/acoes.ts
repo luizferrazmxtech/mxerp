@@ -74,7 +74,7 @@ export async function excluirVariasAcao(_: Resultado, form: FormData): Promise<R
 export async function anexarAcao(_: Resultado, form: FormData): Promise<Resultado> {
   const u = await exigirUsuario();
   const entidade = String(form.get("entidade")), entidadeId = String(form.get("entidadeId"));
-  if (!["PESSOA", "USUARIO"].includes(entidade)) return { ok: false, mensagem: "Inválido" };
+  if (!["PESSOA", "USUARIO", "ORCAMENTO"].includes(entidade)) return { ok: false, mensagem: "Inválido" };
   try {
     const arqs = form.getAll("arquivo").filter((a) => a instanceof File && a.size > 0);
     if (!arqs.length) return { ok: false, mensagem: "Escolha um arquivo" };

@@ -92,6 +92,7 @@ model Usuario {
 
   osComoTecnico    OrdemServico[]     @relation("OsTecnico")
   osComoVendedor   OrdemServico[]     @relation("OsVendedor")
+  orcamentos       Orcamento[]        @relation("OrcamentoVendedor")
   vendas           Venda[]
   movimentos       MovimentoEstoque[]
   sessoes          Sessao[]
@@ -192,6 +193,8 @@ model Pessoa {
   contatos        PessoaContato[]
   anotacoes       PessoaAnotacao[]
   ordensServico   OrdemServico[]
+  orcamentos      Orcamento[]      @relation("OrcamentoCliente")
+  orcamentosFrete Orcamento[]      @relation("OrcamentoTransportadora")
   vendas          Venda[]
   lancamentos     Lancamento[]
   compras         Compra[]
@@ -507,6 +510,7 @@ model Produto {
   movimentos   MovimentoEstoque[]
   itensOs      OsItemProduto[]
   itensVenda   VendaItem[]
+  itensOrc     OrcamentoItem[]
   itensCompra  CompraItem[]
   valores      ProdutoValor[]
   componentes  ProdutoComponente[] @relation("Kit")
@@ -553,6 +557,7 @@ model Servico {
 
   itensOs      OsItemServico[]
   itensVenda   VendaItemServico[]
+  itensOrc     OrcamentoServico[]
   fornecedores ItemFornecedor[]
 }
 
@@ -907,14 +912,16 @@ model ContaBancaria {
 }
 
 model FormaPagamento {
-  id          String           @id @default(cuid())
-  nome        String           @unique
+  id          String             @id @default(cuid())
+  nome        String             @unique
   tPag        String // código do meio de pagamento na NF-e (01 dinheiro, 03 crédito, 17 PIX...)
-  taxa        Decimal          @default(0) @db.Decimal(7, 4)
-  diasPrazo   Int              @default(0)
-  ativa       Boolean          @default(true)
+  taxa        Decimal            @default(0) @db.Decimal(7, 4)
+  diasPrazo   Int                @default(0)
+  ativa       Boolean            @default(true)
   pagamentos  VendaPagamento[]
   lancamentos Lancamento[]
+  orcamentos  Orcamento[]
+  parcelasOrc OrcamentoParcela[]
 }
 
 /// Grupo da DRE gerencial para onde a categoria soma.
@@ -1066,4 +1073,159 @@ enum SituacaoConciliacao {
   PENDENTE
   CONCILIADA
   IGNORADA
+}
+
+// ───────────────────────── Orçamentos ─────────────────────────
+
+enum TipoOrcamento {
+  PRODUTO
+  SERVICO
+}
+
+/// Situações configuráveis (Em aberto, Em andamento, Concretizado, Cancelado…), na ordem da lista.
+model SituacaoOrcamento {
+  id               String         @id @default(cuid())
+  nome             String         @unique
+  cor              String         @default("cinza")
+  exibir           Boolean        @default(true) // aparece na listagem
+  ordem            Int            @default(0)
+  geraVenda        Boolean        @default(false) // sugere gerar venda ao entrar nesta situação
+  enviarMensagem   Boolean        @default(false)
+  modeloMensagemId String?
+  gerarAssinatura  Boolean        @default(false)
+  bloqueados       PapelUsuario[] // grupos que não podem trocar a situação
+  orcamentos       Orcamento[]
+}
+
+model Orcamento {
+  id                 String            @id @default(cuid())
+  numero             Int               @unique
+  tipo               TipoOrcamento     @default(PRODUTO)
+  clienteId          String
+  cliente            Pessoa            @relation("OrcamentoCliente", fields: [clienteId], references: [id])
+  vendedorId         String?
+  vendedor           Usuario?          @relation("OrcamentoVendedor", fields: [vendedorId], references: [id])
+  data               DateTime          @db.Date
+  validade           String?
+  prazoEntrega       DateTime?         @db.Date
+  aosCuidados        String?
+  canal              String            @default("Presencial")
+  centroCusto        String?
+  introducao         String?
+  situacaoId         String
+  situacao           SituacaoOrcamento @relation(fields: [situacaoId], references: [id])
+  transportadoraId   String?
+  transportadora     Pessoa?           @relation("OrcamentoTransportadora", fields: [transportadoraId], references: [id])
+  frete              Decimal           @default(0) @db.Decimal(14, 2)
+  mostrarEntrega     Boolean           @default(false)
+  enderecoEntregaId  String?
+  totalProdutos      Decimal           @default(0) @db.Decimal(14, 2)
+  totalServicos      Decimal           @default(0) @db.Decimal(14, 2)
+  desconto           Decimal           @default(0) @db.Decimal(14, 2)
+  descontoPercentual Decimal?          @db.Decimal(7, 4)
+  total              Decimal           @default(0) @db.Decimal(14, 2)
+  exibirTotal        Boolean           @default(true)
+  gerarCondicoes     Boolean           @default(true)
+  condicao           String            @default("AVISTA") // AVISTA | PARCELADO
+  formaPagamentoId   String?
+  formaPagamento     FormaPagamento?   @relation(fields: [formaPagamentoId], references: [id])
+  intervaloDias      Int               @default(30)
+  observacoes        String?
+  observacaoInterna  String?
+  camposExtras       Json?
+  token              String            @unique @default(cuid()) // link público da proposta
+  empresaId          String?
+  vendaId            String?
+  osId               String?
+  criadoPorId        String?
+  idLegado           String?           @unique
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now()) @updatedAt
+
+  produtos  OrcamentoItem[]
+  servicos  OrcamentoServico[]
+  parcelas  OrcamentoParcela[]
+  historico OrcamentoHistorico[]
+
+  @@index([data])
+  @@index([clienteId])
+}
+
+model OrcamentoItem {
+  id          String    @id @default(cuid())
+  orcamentoId String
+  orcamento   Orcamento @relation(fields: [orcamentoId], references: [id], onDelete: Cascade)
+  ordem       Int       @default(0)
+  produtoId   String
+  produto     Produto   @relation(fields: [produtoId], references: [id])
+  detalhes    String?
+  quantidade  Decimal   @db.Decimal(14, 4)
+  tipoValorId String?
+  valorUnit   Decimal   @db.Decimal(14, 2)
+  desconto    Decimal   @default(0) @db.Decimal(14, 2)
+  subtotal    Decimal   @db.Decimal(14, 2)
+}
+
+model OrcamentoServico {
+  id          String    @id @default(cuid())
+  orcamentoId String
+  orcamento   Orcamento @relation(fields: [orcamentoId], references: [id], onDelete: Cascade)
+  ordem       Int       @default(0)
+  servicoId   String
+  servico     Servico   @relation(fields: [servicoId], references: [id])
+  detalhes    String?
+  quantidade  Decimal   @default(1) @db.Decimal(14, 4)
+  valorUnit   Decimal   @db.Decimal(14, 2)
+  desconto    Decimal   @default(0) @db.Decimal(14, 2)
+  subtotal    Decimal   @db.Decimal(14, 2)
+}
+
+model OrcamentoParcela {
+  id               String          @id @default(cuid())
+  orcamentoId      String
+  orcamento        Orcamento       @relation(fields: [orcamentoId], references: [id], onDelete: Cascade)
+  numero           Int
+  vencimento       DateTime        @db.Date
+  valor            Decimal         @db.Decimal(14, 2)
+  formaPagamentoId String?
+  formaPagamento   FormaPagamento? @relation(fields: [formaPagamentoId], references: [id])
+  observacao       String?
+}
+
+model OrcamentoHistorico {
+  id          String    @id @default(cuid())
+  orcamentoId String
+  orcamento   Orcamento @relation(fields: [orcamentoId], references: [id], onDelete: Cascade)
+  descricao   String
+  situacao    String?
+  usuarioNome String?
+  createdAt   DateTime  @default(now())
+}
+
+/// Anotações de qualquer registro (orçamento, venda, OS…).
+model Anotacao {
+  id         String   @id @default(cuid())
+  entidade   String
+  entidadeId String
+  texto      String
+  usuarioId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entidade, entidadeId])
+}
+
+/// Modelos de mensagem (e-mail, SMS, WhatsApp) por módulo: OR = orçamento, VE = venda, OS.
+model ModeloMensagem {
+  id      String  @id @default(cuid())
+  tipo    String
+  assunto String
+  padrao  Boolean @default(false)
+  email   String
+  sms     String?
+}
+
+/// Configurações gerais por chave (textos padrão, formato de impressão, o que aparece nos documentos).
+model Configuracao {
+  chave String @id
+  valor Json
 }

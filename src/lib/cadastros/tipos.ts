@@ -18,3 +18,10 @@ export type DadosPessoa = {
   camposExtras: Record<string, string | string[]>;
 };
 
+
+/** Entidades que têm campos extras próprios (cada uma na sua lista de /campos-extras). */
+export const ENTIDADES_CAMPO = ["CLIENTE", "PRODUTO", "ORCAMENTO"] as const;
+export type EntidadeCampo = (typeof ENTIDADES_CAMPO)[number];
+export const entidadeCampo = (x: unknown): EntidadeCampo => (ENTIDADES_CAMPO.includes(x as EntidadeCampo) ? (x as EntidadeCampo) : "CLIENTE");
+export const baseCampos = (e: EntidadeCampo) => (e === "CLIENTE" ? "/campos-extras" : `/campos-extras?entidade=${e}`);
+export const ROTULO_CAMPOS: Record<EntidadeCampo, string> = { CLIENTE: "Campos extras de clientes", PRODUTO: "Campos extras de produtos", ORCAMENTO: "Campos extras de orçamentos" };

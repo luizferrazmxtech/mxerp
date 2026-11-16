@@ -37,7 +37,7 @@ export async function importarBackup(_: EstadoBackup, form: FormData): Promise<E
     const tabelas = await lerBackupGestaoClick(Buffer.from(await arquivo.arrayBuffer()));
     const resultados = await importarBackupGestaoClick(tabelas, {
       simular,
-      etapas: { cadastros: on("cadastros"), estoque: on("estoque"), os: on("os"), receber: on("receber"), pagar: on("pagar"), pagarVencidas: on("pagarVencidas") },
+      etapas: { cadastros: on("cadastros"), estoque: on("estoque"), os: on("os"), orcamentos: on("orcamentos"), receber: on("receber"), pagar: on("pagar"), pagarVencidas: on("pagarVencidas") },
     });
     return { ok: true, mensagem: simular ? "Simulação concluída, nada foi gravado" : "Backup importado", resultados };
   } catch (e) {
