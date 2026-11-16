@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { prisma, type Tx } from "@/lib/db";
 import { reservarItem } from "@/lib/estoque/estoque";
 import { enumDe } from "@/lib/os/ordens";
+import { lancaEstoque, lancaFinanceiro } from "@/lib/compras/tipos";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
 import { lerPlanilha, normalizar, numeroBr, type Linha } from "./planilha";
@@ -31,7 +32,7 @@ export async function lerBackupGestaoClick(zip: Buffer): Promise<Tabelas> {
   return t;
 }
 
-export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; vendas?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean };
+export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; vendas?: boolean; compras?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean };
 
 const chaveNome = (s: string | undefined) => normalizar(s ?? "");
 const sim = (s: string) => (/^n[aã]o$/i.test(s.trim()) ? "Não" : "Sim");
@@ -563,11 +564,143 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
   return r;
 }
 
+// ---------- compras e ajustes de estoque
+
+/**
+ * Compras de produtos com itens, parcelas e histórico, na situação atual do Gestão Click.
+ * O estoque e as contas já estão no backup, então as compras em situação que lança entram marcadas como
+ * recebidas e com o financeiro "já lançado lá", sem movimento nem conta nova. As que estão em aberto
+ * entram sem nada e, ao serem confirmadas no MXERP, dão entrada e geram as contas a pagar normalmente.
+ */
+async function importarCompras(t: Tabelas, simular: boolean): Promise<Resultado> {
+  const todas = t.compras ?? [];
+  const r: Resultado = { tipo: "compras", simulado: simular, lidas: todas.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
+  const N = "n da compra";
+  const agrupa = agruparPor("codigo");
+  const prods = agrupa(t.compras_produtos), parcs = agrupa(t.compras_pagamentos), hist = agrupa(t.compras_historicos);
+  const situacoes = await prisma.situacaoCompraConfig.findMany({ orderBy: { ordem: "asc" } });
+  const sitPorNome = new Map(situacoes.map((s) => [chaveNome(s.nome), s]));
+  const padrao = situacoes.find((s) => s.padrao) ?? situacoes[0];
+  const ctx = await contextoComercial(t);
+  const transportadoras = new Map<string, string | null>();
+  const situacaoDe = (hs: Linha[]) => {
+    let ult: Linha | undefined, q = -Infinity;
+    for (const [i, h] of hs.entries()) { const v = (dataHoraBr(h.data)?.getTime() ?? 0) + i / 1000; if (v >= q) { q = v; ult = h; } }
+    return ult?.situacao ?? padrao?.nome ?? "";
+  };
+  // o CNPJ do emitente está dentro da chave da NF-e (posições 7 a 20): acha o fornecedor mesmo com outro nome
+  const cnpjDaChave = (chave: string | undefined) => { const d = (chave ?? "").replace(/\D/g, ""); return d.length === 44 ? d.slice(6, 20) : null; };
+  const buscarFornecedor = (db: Tx | typeof prisma, nome: string, cnpj: string | null) =>
+    db.pessoa.findFirst({ where: { OR: [...(cnpj ? [{ documento: cnpj }] : []), { nome: { equals: nome, mode: "insensitive" } }, { fantasia: { equals: nome, mode: "insensitive" } }] }, orderBy: { fornecedor: "desc" }, select: { id: true, fornecedor: true, documento: true } });
+  const fornecedor = async (tx: Tx, nome: string, cnpj: string | null) => {
+    const f = (cnpj ? await tx.pessoa.findUnique({ where: { documento: cnpj }, select: { id: true, fornecedor: true } }) : null) ?? (await buscarFornecedor(tx, nome, null));
+    if (f) { if (!f.fornecedor) await tx.pessoa.update({ where: { id: f.id }, data: { fornecedor: true } }); return f.id; }
+    const legado = `fornecedor-compra:${cnpj ?? chaveNome(nome)}`;
+    return (await tx.pessoa.findUnique({ where: { idLegado: legado }, select: { id: true } }))?.id ?? (await tx.pessoa.create({ data: { nome: nome || "Fornecedor não informado", fornecedor: true, documento: cnpj, idLegado: legado, observacoes: "Criado na migração a partir de uma compra", codigoFornecedor: await proximoNumero(tx, "FORNECEDOR") } })).id;
+  };
+  const semSituacao = new Set<string>(), semFornecedor = new Set<string>();
+  const porSituacao = new Map<string, number>();
+  let maior = 0;
+  for (const c of todas) {
+    const numero = Number(c[N]);
+    if (!numero) { r.ignorados.push({ linha: 0, motivo: "Compra sem número" }); continue; }
+    maior = Math.max(maior, numero);
+    const ps = prods.get(c[N]) ?? [], pg = parcs.get(c[N]) ?? [], hs = hist.get(c[N]) ?? [];
+    const nomeSit = situacaoDe(hs);
+    const sit = sitPorNome.get(chaveNome(nomeSit)) ?? padrao;
+    if (!sitPorNome.has(chaveNome(nomeSit))) semSituacao.add(nomeSit);
+    if (await prisma.compra.findFirst({ where: { OR: [{ idLegado: `compra:${numero}` }, { numero }] }, select: { id: true } })) { r.ignorados.push({ linha: numero, motivo: `Compra ${numero} já existe no ERP` }); continue; }
+    if (!(await buscarFornecedor(prisma, c.fornecedor, cnpjDaChave(c["chave nf e"])))) semFornecedor.add(c.fornecedor);
+    porSituacao.set(sit?.nome ?? nomeSit, (porSituacao.get(sit?.nome ?? nomeSit) ?? 0) + 1);
+    if (simular) { r.criados++; continue; }
+    if (!sit) throw new Error("Cadastre ao menos uma situação de compra antes de importar");
+    const data = dataBr(c["data de emissao"]) ?? dataBr(c["cadastrado em"]) ?? new Date();
+    const cadastro = dataHoraBr(c["cadastrado em"]) ?? data;
+    const lanca = lancaEstoque(sit.lancamento), financeiro = lancaFinanceiro(sit.lancamento);
+    await prisma.$transaction(async (tx) => {
+      const fornecedorId = await fornecedor(tx, c.fornecedor, cnpjDaChave(c["chave nf e"]));
+      const tnome = c.transportadora?.trim();
+      if (tnome && !transportadoras.has(tnome)) transportadoras.set(tnome, (await tx.pessoa.findFirst({ where: { transportadora: true, OR: [{ nome: { equals: tnome, mode: "insensitive" } }, { fantasia: { equals: tnome, mode: "insensitive" } }] }, select: { id: true } }))?.id ?? null);
+      const itens = [];
+      for (const [i, p] of ps.entries()) {
+        const q = numeroBr(p.quantidade) || 1, cu = numeroBr(p["custo unitario"]);
+        const produto = await ctx.produto(tx, p.produto, cu);
+        if (!produto) continue;
+        itens.push({ ordem: i, produtoId: produto.id, quantidade: q, custoUnit: cu.toFixed(4), desconto: "0", subtotal: (numeroBr(p["custo total"] ?? "") || cu * q).toFixed(2) });
+      }
+      const totalProdutos = numeroBr(c["total dos produtos"] ?? "") || itens.reduce((a, x) => a + Number(x.subtotal), 0);
+      const frete = numeroBr(c["valor frete"] ?? ""), desconto = numeroBr(c["desconto valor"] ?? "");
+      await tx.compra.create({
+        data: {
+          numero, idLegado: `compra:${numero}`, tipo: "PRODUTO", fornecedorId, data, situacaoId: sit.id,
+          numeroNfe: (c["numero da nf e"] ?? "").replace(/\D/g, "") || null, chaveNfe: (c["chave nf e"] ?? "").replace(/^NFe/, "") || null,
+          transportadoraId: tnome ? transportadoras.get(tnome) ?? null : null,
+          frete: frete.toFixed(2), freteNoTotal: !/^n[aã]o$/i.test(c["pagar frete"] ?? ""), desconto: desconto.toFixed(2),
+          totalProdutos: totalProdutos.toFixed(2), total: (numeroBr(c["total da compra"] ?? "") || totalProdutos + frete - desconto).toFixed(2),
+          condicao: pg.length > 1 ? "PARCELADO" : "AVISTA", formaPagamentoId: ctx.formaPorNome(pg[0]?.["forma de pagamento"]),
+          observacoes: c.observacoes || null, criadoPorId: ctx.usuarioPorNome(c["cadastrado por"]),
+          recebida: lanca, financeiroNoLegado: financeiro,
+          createdAt: cadastro, updatedAt: dataHoraBr(c["modificado em"]) ?? cadastro,
+          itens: { create: itens },
+          parcelas: { create: pg.map((x, i) => ({ numero: i + 1, vencimento: dataBr(x.vencimento) ?? data, valor: numeroBr(x["valor da parcela"]).toFixed(2), formaPagamentoId: ctx.formaPorNome(x["forma de pagamento"]), observacao: x.observacao || null })) },
+          historico: { create: [...hs.map((h) => ({ descricao: h.observacao || "Situação alterada", situacao: h.situacao || null, usuarioNome: h.funcionario || null, createdAt: dataHoraBr(h.data) ?? cadastro })), { descricao: lanca ? "Migrada do Gestão Click (estoque e contas já lançados lá)" : "Migrada do Gestão Click", situacao: sit.nome }] },
+        },
+      });
+    }, { timeout: 30000 });
+    r.criados++;
+  }
+  if (!simular && maior > 0) await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('COMPRA', ${maior}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${maior})`;
+  r.avisos.push(`A numeração continua do Gestão Click: próxima compra nº ${maior + 1}.`);
+  if (porSituacao.size) r.avisos.push(`Compras novas por situação: ${[...porSituacao].map(([k, v]) => `${k} ${v}`).join(", ")}. As confirmadas entram sem mexer no estoque nem no financeiro (o backup já traz o saldo e as contas); as em aberto lançam quando forem confirmadas no MXERP.`);
+  if (semFornecedor.size) r.avisos.push(`${semFornecedor.size} fornecedores de compras não estão no cadastro e ${simular ? "serão criados" : "foram criados"} com o nome e o CNPJ da NF-e: ${[...semFornecedor].slice(0, 20).join("; ")}${semFornecedor.size > 20 ? "…" : ""}`);
+  if (semSituacao.size) r.avisos.push(`Situações de compra sem correspondente no ERP (entraram na situação padrão): ${[...semSituacao].join(", ")}`);
+  return r;
+}
+
+/** Ajustes de estoque como histórico: o saldo atual já vem do backup, então entram sem movimento. */
+async function importarAjustes(t: Tabelas, simular: boolean): Promise<Resultado> {
+  const todos = t.ajustes_estoques ?? [];
+  const r: Resultado = { tipo: "ajustes", simulado: simular, lidas: todos.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
+  const prods = agruparPor("codigo")(t.ajustes_estoques_produtos);
+  const ctx = await contextoComercial(t);
+  let maior = 0;
+  for (const a of todos) {
+    const numero = Number(a.codigo);
+    if (!numero) { r.ignorados.push({ linha: 0, motivo: "Ajuste sem código" }); continue; }
+    maior = Math.max(maior, numero);
+    if (await prisma.ajusteEstoque.findFirst({ where: { OR: [{ idLegado: `ajuste:${numero}` }, { numero }] }, select: { id: true } })) { r.ignorados.push({ linha: numero, motivo: `Ajuste ${numero} já existe no ERP` }); continue; }
+    if (simular) { r.criados++; continue; }
+    const ps = prods.get(a.codigo) ?? [];
+    await prisma.$transaction(async (tx) => {
+      const itens = [];
+      for (const [i, p] of ps.entries()) {
+        const produto = await ctx.produto(tx, p.produto, 0);
+        if (!produto) continue;
+        const q = numeroBr(p.quantidade), cu = Number(produto.custo);
+        itens.push({ ordem: i, produtoId: produto.id, quantidade: q, custoUnit: cu.toFixed(4), total: (q * cu).toFixed(2) });
+      }
+      const frete = numeroBr(a["valor frete"] ?? "");
+      await tx.ajusteEstoque.create({
+        data: {
+          numero, idLegado: `ajuste:${numero}`, tipo: /sa[ií]da/i.test(a.movimentacao) ? "SAIDA" : "ENTRADA", frete: frete.toFixed(2),
+          total: (itens.reduce((s, x) => s + Number(x.total), 0) + frete).toFixed(2), observacoes: a.observacoes || null,
+          criadoPorId: ctx.usuarioPorNome(a["cadastrado por"]), criadoPorNome: a["cadastrado por"] || null, createdAt: dataHoraBr(a["cadastrado em"]) ?? new Date(),
+          itens: { create: itens },
+        },
+      });
+    });
+    r.criados++;
+  }
+  if (!simular && maior > 0) await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('AJUSTE', ${maior}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${maior})`;
+  r.avisos.push(`Os ajustes entram como histórico, sem mexer no saldo (o estoque atual já vem do backup). Próximo ajuste nº ${maior + 1}.`);
+  return r;
+}
+
 // ---------- orquestração
 
 export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: boolean; etapas?: Etapas } = {}) {
   const simular = opts.simular ?? true;
-  const e: Etapas = opts.etapas ?? { cadastros: true, estoque: true, os: true, orcamentos: true, vendas: true, receber: true, pagar: true };
+  const e: Etapas = opts.etapas ?? { cadastros: true, estoque: true, os: true, orcamentos: true, vendas: true, compras: true, receber: true, pagar: true };
   const res: Resultado[] = [];
   if (e.cadastros) {
     res.push(await importarPessoas(linhasPessoas(t.clientes, t.clientes_enderecos, "tipo de pessoa"), "cliente", simular));
@@ -583,6 +716,8 @@ export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: bo
   if (e.os) res.push(await importarOs(t, simular));
   if (e.orcamentos && t.orcamentos) res.push(await importarOrcamentos(t, simular));
   if (e.vendas && t.vendas) res.push(await importarVendas(t, simular));
+  if (e.compras && t.compras) res.push(await importarCompras(t, simular));
+  if (e.compras && t.ajustes_estoques) res.push(await importarAjustes(t, simular));
   if (e.receber) res.push(await importarContas(t.contas_receber, "RECEBER", simular));
   if (e.pagar) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas));
   return res;

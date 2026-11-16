@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   const dig = q.replace(/\D/g, "");
   const lista = await prisma.pessoa.findMany({
     where: { [papel!]: true, ativo: true, OR: [{ nome: { contains: q, mode: "insensitive" } }, { fantasia: { contains: q, mode: "insensitive" } }, ...(dig.length >= 3 ? [{ documento: { contains: dig } }] : [])] },
-    select: { id: true, nome: true, fantasia: true, documento: true, cidade: true }, orderBy: { nome: "asc" }, take: 15,
+    select: { id: true, nome: true, fantasia: true, documento: true, cidade: true, email: true, celular: true, telefone: true }, orderBy: { nome: "asc" }, take: 15,
   });
   return NextResponse.json(lista);
 }

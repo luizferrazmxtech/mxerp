@@ -25,7 +25,10 @@ function ativo(href: string, caminho: string, busca: string) {
   if (p === "/orcamentos") return caminho === p || (caminho.startsWith(p + "/") && !/^\/orcamentos\/(servicos|situacoes|mensagens|configuracoes)/.test(caminho));
   if (p === "/vendas") return caminho === p || (caminho.startsWith(p + "/") && !/^\/vendas\/(servicos|balcao|devolucoes|vales|situacoes|canais|mensagens|balancas|configuracoes)/.test(caminho));
   if (p === "/os") return caminho === p || (caminho.startsWith(p + "/") && !/^\/os\/(painel|situacoes|mensagens|configuracoes)/.test(caminho));
-  if (p === "/estoque" || p === "/financeiro") return caminho === p || (caminho.startsWith(p + "/") && !/\/(locais|balcao|painel|conciliacao|dre)/.test(caminho));
+  if (p === "/estoque") return caminho === p || caminho.startsWith("/estoque/produto");
+  if (p === "/estoque/ajustes") return /^\/estoque\/(ajustes|zerar|inventarios)/.test(caminho);
+  if (p === "/compras") return caminho === p || (caminho.startsWith(p + "/") && !/^\/compras\/(servicos|cotacoes|situacoes|mensagens)/.test(caminho));
+  if (p === "/financeiro") return caminho === p || (caminho.startsWith(p + "/") && !/\/(conciliacao|dre)/.test(caminho));
   return caminho === p || caminho.startsWith(p + "/");
 }
 

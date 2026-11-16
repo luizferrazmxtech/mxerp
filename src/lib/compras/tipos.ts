@@ -1,0 +1,48 @@
+import { lerNumero } from "@/lib/itens/tipos";
+import { descontoLinha, subtotalProduto, type LinhaServico, type Parcela } from "@/lib/orcamentos/tipos";
+
+/** Tipos e cálculos das compras que o formulário (cliente) também usa. */
+
+export type LinhaCompra = { produtoId: string; nome: string; codigo: string; unidade: string; detalhes: string; quantidade: string; valorUnit: string; desconto: string; descontoPct: boolean };
+
+export type DadosCompra = {
+  tipo: "PRODUTO" | "SERVICO"; numero: string; fornecedorId: string; fornecedorNome: string; data: string; situacaoId: string;
+  numeroNfe: string; chaveNfe: string; centroCusto: string;
+  produtos: LinhaCompra[]; servicos: LinhaServico[];
+  transportadoraId: string; transportadoraNome: string; frete: string; freteNoTotal: boolean; impostos: string; impostosNoTotal: boolean;
+  desconto: string; descontoPct: boolean;
+  condicao: "AVISTA" | "PARCELADO"; formaPagamentoId: string; vencimento: string; intervaloDias: string; numParcelas: string; primeiraParcela: string; parcelas: Parcela[];
+  observacoes: string; observacaoInterna: string; camposExtras: Record<string, string>;
+  cotacaoId?: string;
+};
+
+const n = (s: string) => lerNumero(s) ?? 0;
+const arred = (v: number) => Math.round(v * 100) / 100;
+
+export const subtotalCompra = subtotalProduto;
+
+/** Totais: produtos e serviços − desconto, mais frete e impostos quando marcados para somar. */
+export function totaisCompra(d: Pick<DadosCompra, "produtos" | "servicos" | "desconto" | "descontoPct" | "frete" | "freteNoTotal" | "impostos" | "impostosNoTotal">) {
+  const produtos = arred(d.produtos.reduce((s, l) => s + subtotalCompra(l), 0));
+  const servicos = arred(d.servicos.reduce((s, l) => s + subtotalCompra(l), 0));
+  const desconto = descontoLinha(produtos + servicos, d.desconto, d.descontoPct);
+  const frete = n(d.frete), impostos = n(d.impostos);
+  return { produtos, servicos, desconto, frete, impostos, total: arred(produtos + servicos - desconto + (d.freteNoTotal ? frete : 0) + (d.impostosNoTotal ? impostos : 0)) };
+}
+
+/** O que a situação lança, como no Gestão Click. */
+export const LANCAMENTOS_COMPRA: [string, string][] = [
+  ["NAO", "Não lança"], ["AMBOS", "Lança estoque e financeiro"], ["ESTOQUE", "Lança somente estoque"], ["FINANCEIRO", "Lança somente financeiro"],
+];
+export const rotuloLancamento = (l: string) => LANCAMENTOS_COMPRA.find(([v]) => v === l)?.[1] ?? l;
+export const lancaEstoque = (l: string) => l === "AMBOS" || l === "ESTOQUE";
+export const lancaFinanceiro = (l: string) => l === "AMBOS" || l === "FINANCEIRO";
+
+export const TAGS_COMPRA = ["[nome_fornecedor]", "[numero]", "[valor_total]", "[data]", "[link]", "[nome_empresa]"];
+
+/** Situações da cotação: rótulo e cor da pílula. */
+export const SIT_COTACAO: Record<string, [string, string]> = {
+  ABERTA: ["Em aberto", "border-orange-300 bg-orange-50 text-orange-700"],
+  FINALIZADA: ["Virou compra", "border-emerald-300 bg-emerald-50 text-emerald-700"],
+  CANCELADA: ["Cancelada", "border-slate-300 bg-slate-50 text-slate-600"],
+};

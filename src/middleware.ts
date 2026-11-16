@@ -7,7 +7,7 @@ const LIVRES = ["/login", "/api/inter/sincronizar"];
 
 export async function middleware(req: NextRequest) {
   const caminho = req.nextUrl.pathname;
-  if (LIVRES.includes(caminho) || caminho.startsWith("/proposta/") || caminho.startsWith("/cobranca/")) return NextResponse.next(); // links públicos (proposta e cobrança)
+  if (LIVRES.includes(caminho) || ["/proposta/", "/cobranca/", "/compra/", "/cotacao/"].some((p) => caminho.startsWith(p))) return NextResponse.next(); // links públicos (proposta, cobrança, compra e cotação)
   const usuario = await usuarioDoToken(req.cookies.get(COOKIE)?.value);
   const api = caminho.startsWith("/api/");
   if (!usuario) {
