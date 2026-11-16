@@ -46,16 +46,17 @@ export async function salvarCampoExtraAcao(_: Resultado, form: FormData): Promis
   if (!TIPOS.includes(tipo)) return { ok: false, mensagem: "Selecione o tipo" };
   const opcoes = String(form.get("opcoes") ?? "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
   if ((tipo === "SELECAO_UNICA" || tipo === "MULTIPLA_SELECAO") && opcoes.length < 2) return { ok: false, mensagem: "Informe ao menos duas opções (uma por linha)" };
-  const dados = { nome, tipo, obrigatorio: form.get("obrigatorio") === "1", opcoes: tipo === "SELECAO_UNICA" || tipo === "MULTIPLA_SELECAO" ? opcoes : [], entidade: "CLIENTE" };
+  const entidade = form.get("entidade") === "PRODUTO" ? "PRODUTO" : "CLIENTE";
+  const dados = { nome, tipo, obrigatorio: form.get("obrigatorio") === "1", opcoes: tipo === "SELECAO_UNICA" || tipo === "MULTIPLA_SELECAO" ? opcoes : [], entidade };
   if (id) await prisma.campoExtra.update({ where: { id }, data: dados });
-  else await prisma.campoExtra.create({ data: { ...dados, ordem: await prisma.campoExtra.count() } });
+  else await prisma.campoExtra.create({ data: { ...dados, ordem: await prisma.campoExtra.count({ where: { entidade } }) } });
   revalidatePath("/campos-extras");
-  redirect("/campos-extras");
+  redirect(entidade === "PRODUTO" ? "/campos-extras?entidade=PRODUTO" : "/campos-extras");
 }
 
 export async function excluirCampoExtraAcao(id: string) {
   await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.campoExtra.delete({ where: { id } });
   revalidatePath("/campos-extras");
-  return { ok: true, mensagem: "Campo excluído (os valores já gravados nos clientes ficam guardados)" };
+  return { ok: true, mensagem: "Campo excluído (os valores já gravados ficam guardados)" };
 }

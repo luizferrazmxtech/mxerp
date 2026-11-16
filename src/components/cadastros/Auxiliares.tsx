@@ -37,16 +37,18 @@ const TIPOS = [
   ["TEXTO", "Texto"], ["NUMEROS", "Números"], ["DATA", "Data"], ["CPF", "CPF"], ["CNPJ", "CNPJ"], ["SELECAO_UNICA", "Seleção única"], ["MULTIPLA_SELECAO", "Múltipla seleção"],
 ] as const;
 
-export function FormCampoExtra({ c }: { c?: { id: string; nome: string; tipo: string; opcoes: string[]; obrigatorio: boolean } }) {
+export function FormCampoExtra({ c, entidade = "CLIENTE" }: { c?: { id: string; nome: string; tipo: string; opcoes: string[]; obrigatorio: boolean }; entidade?: string }) {
+  const voltar = entidade === "PRODUTO" ? "/campos-extras?entidade=PRODUTO" : "/campos-extras";
   const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarCampoExtraAcao, null);
   const [tipo, setTipo] = useState(c?.tipo ?? "");
   const selecao = tipo === "SELECAO_UNICA" || tipo === "MULTIPLA_SELECAO";
   return (
     <form action={acao}>
       {c && <input type="hidden" name="id" value={c.id} />}
+      <input type="hidden" name="entidade" value={entidade} />
       <section className="cartao mb-3">
         <div className="rounded-t-md border-b border-slate-200 bg-[#f7f7f7] px-4 py-3">
-          <h2 className="flex items-center gap-1.5 text-[17px] font-light [&_b]:font-semibold"><Icone nome="editar" size={15} /> Informe o <b>campo extra</b> do cliente</h2>
+          <h2 className="flex items-center gap-1.5 text-[17px] font-light [&_b]:font-semibold"><Icone nome="editar" size={15} /> Informe o <b>campo extra</b> {entidade === "PRODUTO" ? "dos produtos e serviços" : "do cliente"}</h2>
         </div>
         <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
           <label className="lg:col-span-2"><span className="rotulo obrig">Nome</span><input name="nome" defaultValue={c?.nome} required autoFocus className="campo" /></label>
@@ -65,7 +67,7 @@ export function FormCampoExtra({ c }: { c?: { id: string; nome: string; tipo: st
       </section>
       <div className="sticky bottom-0 -mx-4 border-t bg-white px-4 py-3 md:-mx-5 md:px-5">
         {r && !r.ok && <div className="mb-2 rounded bg-red-50 px-3 py-2 text-[13px] text-red-700">{r.mensagem}</div>}
-        <div className="flex"><Link href="/campos-extras" className="btn-sec">Cancelar</Link><button className="btn ml-auto px-5" disabled={pendente}>{c ? "Salvar" : "Cadastrar"}</button></div>
+        <div className="flex"><Link href={voltar} className="btn-sec">Cancelar</Link><button className="btn ml-auto px-5" disabled={pendente}>{c ? "Salvar" : "Cadastrar"}</button></div>
       </div>
     </form>
   );

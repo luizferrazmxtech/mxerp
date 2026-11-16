@@ -242,6 +242,16 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
       custosCorrigidos.push(`${codigo} (${Number(antigo).toFixed(2)} → ${dados.custo.toFixed(4)}${n ? `, ${n} lançamentos` : ""})`);
     }
     if (existente) r.atualizados++; else r.criados++;
+    // valor de venda padrão (tabela Valores de venda) acompanha o preço importado
+    const padrao = await prisma.tipoValor.findFirst({ where: { padrao: true } });
+    if (padrao) {
+      const lucro = dados.custo > 0 ? Math.min(9999999, Math.round(((dados.precoVenda - dados.custo) / dados.custo) * 10000) / 100) : 0;
+      await prisma.produtoValor.upsert({
+        where: { produtoId_tipoValorId: { produtoId: prod.id, tipoValorId: padrao.id } },
+        create: { produtoId: prod.id, tipoValorId: padrao.id, valor: dados.precoVenda, lucroUtilizado: lucro },
+        update: { valor: dados.precoVenda, lucroUtilizado: lucro },
+      });
+    }
 
     // o saldo só é ajustado enquanto o produto não teve movimento real no ERP (OS, venda, compra…)
     const jaMovimentou = existente && (await prisma.movimentoEstoque.count({ where: { produtoId: prod.id, NOT: { origemTipo: "IMPLANTACAO" } } })) > 0;
@@ -272,7 +282,7 @@ export async function importarServicos(linhas: Linha[], simular = true): Promise
     if (!nome) { r.ignorados.push({ linha: i + 2, motivo: "sem nome" }); continue; }
     const cTrib = digitos(c(l, "cTribNac"));
     const dados = {
-      nome: nome.slice(0, 200), preco: numeroBr(c(l, "preco")),
+      nome: nome.slice(0, 200), preco: numeroBr(c(l, "preco")), custo: numeroBr(c(l, "custo")),
       codigoTributacaoNacional: cTrib.length === 6 ? cTrib : null, ativo: !inativo(c(l, "situacao")), idLegado: `servico:${codigo}`,
     };
     const existente = await prisma.servico.findUnique({ where: { codigo } });

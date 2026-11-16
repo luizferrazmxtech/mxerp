@@ -23,8 +23,18 @@ export const MENU: ItemMenu[] = [
   },
   {
     rotulo: "Itens", icone: "itens", filhos: [
-      { rotulo: "Produtos", href: "/estoque", icone: "produtos" },
+      { rotulo: "Produtos", href: "/produtos", icone: "produtos" },
       { rotulo: "Serviços", href: "/servicos", icone: "servicos" },
+      {
+        rotulo: "Opções auxiliares", href: "/etiquetas", icone: "auxiliares", filhos: [
+          { rotulo: "Etiquetas", href: "/etiquetas", icone: "etiqueta" },
+          { rotulo: "Valores de venda", href: "/valores-venda", icone: "valor" },
+          { rotulo: "Grupos", href: "/grupos-produtos", icone: "lista" },
+          { rotulo: "Unidades", href: "/unidades", icone: "ajustes" },
+          { rotulo: "Grades", href: "/grades", icone: "cards" },
+          { rotulo: "Campos extras", href: "/campos-extras?entidade=PRODUTO", icone: "ajustes" },
+        ],
+      },
     ],
   },
   {
@@ -83,6 +93,12 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/transportadoras", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
   { prefixo: "/fornecedores", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
   { prefixo: "/servicos", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
+  { prefixo: "/produtos", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
+  { prefixo: "/etiquetas", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
+  { prefixo: "/valores-venda", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
+  { prefixo: "/grupos-produtos", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
+  { prefixo: "/unidades", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
+  { prefixo: "/grades", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
   { prefixo: "/usuarios", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/migracao", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/conta", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
