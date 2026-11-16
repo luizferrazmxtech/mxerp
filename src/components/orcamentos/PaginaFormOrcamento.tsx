@@ -11,11 +11,13 @@ import { CAMPOS_DADOS, COLUNAS_ITENS } from "@/lib/orcamentos/tipos";
 const n2 = (v: unknown) => Number(v ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const qt = (v: unknown) => Number(v ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 4 });
 const iso = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : "");
+/** Canais cadastrados, mais o do registro se ele não existir mais. */
+export const canalLista = (l: string[], atual: string) => (atual && !l.includes(atual) ? [...l, atual] : l);
 const hoje = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
 
 export default async function PaginaFormOrcamento({ tipo, id }: { tipo?: "PRODUTO" | "SERVICO"; id?: string }) {
   const u = await usuarioAtual();
-  const [vendedores, situacoes, formas, tiposValor, campos, centros, proximo, cfg] = await Promise.all([
+  const [vendedores, situacoes, formas, tiposValor, campos, centros, proximo, cfg, canais] = await Promise.all([
     prisma.usuario.findMany({ where: { ativo: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
     prisma.situacaoOrcamento.findMany({ orderBy: { ordem: "asc" }, select: { id: true, nome: true } }),
     prisma.formaPagamento.findMany({ where: { ativa: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
@@ -24,10 +26,11 @@ export default async function PaginaFormOrcamento({ tipo, id }: { tipo?: "PRODUT
     prisma.orcamento.findMany({ where: { centroCusto: { not: null } }, distinct: ["centroCusto"], select: { centroCusto: true } }),
     proximoNumeroOrcamento(),
     configOrcamento(),
+    prisma.canalVenda.findMany({ orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
   ]);
   let inicial: InicialOrcamento = {
     tipo: tipo ?? "PRODUTO", numero: "", clienteId: "", clienteNome: "", data: hoje(), validade: "", vendedorId: u?.id ?? "", prazoEntrega: "",
-    aosCuidados: "", canal: "Presencial", centroCusto: "", introducao: cfg.introducao, situacaoId: "", produtos: [], servicos: [],
+    aosCuidados: "", canal: canais.find((c) => c.padrao)?.nome ?? canais[0]?.nome ?? "Presencial", centroCusto: "", introducao: cfg.introducao, situacaoId: "", produtos: [], servicos: [],
     transportadoraId: "", transportadoraNome: "", frete: "0,00", mostrarEntrega: false, enderecoEntregaId: "", desconto: "", descontoPct: false, exibirTotal: true,
     gerarCondicoes: true, condicao: "AVISTA", formaPagamentoId: "", vencimento: hoje(), intervaloDias: "30", numParcelas: "2", primeiraParcela: hoje(), parcelas: [],
     observacoes: cfg.observacoes, observacaoInterna: "", camposExtras: {}, proximoNumero: proximo, anexos: [],
@@ -68,7 +71,7 @@ export default async function PaginaFormOrcamento({ tipo, id }: { tipo?: "PRODUT
   return (
     <Pagina titulo={`${acao} orçamento`} trilha={[{ rotulo: t, href: inicial.tipo === "SERVICO" ? "/orcamentos/servicos" : "/orcamentos" }, { rotulo: acao }]}>
       <FormOrcamento inicial={inicial}
-        op={{ vendedores, situacoes, formas, tiposValor, campos, centros: centros.map((c) => c.centroCusto!) }}
+        op={{ vendedores, situacoes, formas, tiposValor, campos, centros: centros.map((c) => c.centroCusto!), canais: canalLista(canais.map((c) => c.nome), inicial.canal) }}
         vis={{
           dados: colunasVisiveis(u?.preferencias, "orcamento-campos", CAMPOS_DADOS, CAMPOS_DADOS.map((c) => c.chave)),
           itens: colunasVisiveis(u?.preferencias, "orcamento-itens", COLUNAS_ITENS, COLUNAS_ITENS.map((c) => c.chave)),

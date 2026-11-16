@@ -1,4 +1,5 @@
-import ListaVendas, { type ParamsVendas } from "../Lista";
+import ListaVendas from "@/components/vendas/ListaVendas";
+import type { ParamsVendas } from "@/lib/vendas/pedidos";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Vendas balcão" };

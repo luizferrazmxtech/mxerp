@@ -26,7 +26,10 @@ export default async function NotasDoDocumento({ origemTipo, origemId, podeEmiti
       </ul>
       {podeEmitir && (
         <div className="flex flex-wrap gap-3">
-          {origemTipo === "VENDA" && !autorizada(["NFE", "NFCE"]) && (
+          {origemTipo === "VENDA" && temServicos && !autorizada(["NFSE"]) && (
+            <BotaoAcao acao={emitirNfse} campos={{ vendaId: origemId }} rotulo="Emitir NFS-e dos serviços" secundario={temProdutos} />
+          )}
+          {origemTipo === "VENDA" && temProdutos && !autorizada(["NFE", "NFCE"]) && (
             <>
               <BotaoAcao acao={emitirVenda} campos={{ vendaId: origemId, modelo: "65" }} rotulo="Emitir NFC-e" />
               <BotaoAcao acao={emitirVenda} campos={{ vendaId: origemId, modelo: "55" }} rotulo="Emitir NF-e" secundario />

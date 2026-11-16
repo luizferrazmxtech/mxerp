@@ -54,7 +54,19 @@ export const MENU: ItemMenu[] = [
   {
     rotulo: "Vendas", icone: "vendas", filhos: [
       { rotulo: "Produtos", href: "/vendas", icone: "produtos" },
+      { rotulo: "Serviços", href: "/vendas/servicos", icone: "servicos" },
       { rotulo: "Balcão", href: "/vendas/balcao", icone: "balcao" },
+      { rotulo: "Trocas e devoluções", href: "/vendas/devolucoes", icone: "atualizar" },
+      {
+        rotulo: "Opções auxiliares", href: "/vendas/situacoes", icone: "auxiliares", filhos: [
+          { rotulo: "Situações", href: "/vendas/situacoes", icone: "lista" },
+          { rotulo: "Canais de venda", href: "/vendas/canais", icone: "lojas" },
+          { rotulo: "Campos extras", href: "/campos-extras?entidade=VENDA", icone: "ajustes" },
+          { rotulo: "Mensagens", href: "/vendas/mensagens", icone: "email" },
+          { rotulo: "Balanças", href: "/vendas/balancas", icone: "balcao" },
+          { rotulo: "Configurações", href: "/vendas/configuracoes", icone: "configuracoes" },
+        ],
+      },
     ],
   },
   {

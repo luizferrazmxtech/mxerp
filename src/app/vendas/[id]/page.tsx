@@ -1,204 +1,295 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { SITUACOES_VENDA } from "@/lib/vendas/vendas";
-import { garantirPadroes } from "@/lib/financeiro/padroes";
-import { brl, data, dataSP, horaSP, num2, qtd } from "@/lib/ui/format";
-import { Pagina, Pilula } from "@/components/ui/Pagina";
+import { cor, aplicarTags } from "@/lib/orcamentos/tipos";
+import { excluirAnotacaoAcao } from "@/lib/orcamentos/acoes";
+import { alterarSituacaoVendaAcao, anotarVendaAcao, clonarVendaAcao, emitirNotaVendaAcao, excluirVendaEVoltarAcao } from "@/lib/vendas/acoes";
+import { excluirAnexoAcao } from "@/lib/cadastros/acoes";
+import { brl, dataSP, horaSP, num2, qtd } from "@/lib/ui/format";
+import { Pagina } from "@/components/ui/Pagina";
 import Suspenso from "@/components/ui/Suspenso";
 import { LinkSuspenso } from "@/components/ui/BarraLista";
+import BotaoExcluir from "@/components/ui/BotaoExcluir";
+import BotaoAcao from "@/components/ui/BotaoAcao";
 import Icone from "@/components/Icone";
 import NotasDoDocumento from "@/components/NotasDoDocumento";
-import { Concluir, SituacaoVenda } from "./Fechamento";
+import { FormAnexo } from "@/components/cadastros/FormsVer";
+import FormSituacao from "@/components/orcamentos/FormSituacao";
+import CopiarLink from "@/components/orcamentos/CopiarLink";
+import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
+import { avisoSituacao, baseVendas, tituloVendas } from "@/components/vendas/ListaVendas";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar venda" };
 
-const ABAS = [
-  { id: "cliente", rotulo: "Cliente", icone: "funcionarios" },
-  { id: "produtos", rotulo: "Produtos", icone: "produtos" },
-  { id: "pagamento", rotulo: "Pagamento", icone: "dinheiro" },
-  { id: "notas", rotulo: "Notas fiscais", icone: "notas" },
-] as const;
-const docFmt = (d: string | null) =>
-  !d ? "" : d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
+const dia = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "UTC" }) : "—");
+const docFmt = (c: string) => (c.length === 14 ? c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4"));
 
-function Linha({ icone, rotulo, children }: { icone: string; rotulo: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2 border-t border-slate-100 py-2.5 text-[13px]">
-      <Icone nome={icone} size={14} className="text-slate-500" /><span className="text-slate-600">{rotulo}</span>
-      <span className="ml-auto text-right font-semibold uppercase">{children}</span>
-    </div>
-  );
+function Vazio({ icone, titulo, texto }: { icone: string; titulo: string; texto?: string }) {
+  return <div className="cartao flex flex-col items-center px-4 py-10 text-center text-slate-500"><Icone nome={icone} size={28} /><b className="mt-2 text-slate-700">{titulo}</b>{texto && <span className="text-[13px]">{texto}</span>}</div>;
 }
 
-export default async function VisualizarVenda({ params, searchParams }: {
-  params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; acao?: string }>;
-}) {
-  const { id } = await params;
-  const sp = await searchParams;
+export default async function VerVenda({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string }> }) {
+  const [{ id }, sp] = await Promise.all([params, searchParams]);
   const v = await prisma.venda.findUnique({
     where: { id },
-    include: { cliente: true, vendedor: { select: { nome: true } }, itens: { include: { produto: true } }, pagamentos: { include: { formaPagamento: true } } },
+    include: {
+      cliente: { include: { enderecos: { orderBy: { ordem: "asc" } } } }, vendedor: { select: { nome: true, comissao: true } }, situacaoCfg: true, transportadora: { select: { nome: true } },
+      formaPagamento: true, parcelas: { orderBy: { numero: "asc" }, include: { formaPagamento: { select: { nome: true } } } },
+      itens: { orderBy: { ordem: "asc" }, include: { produto: { select: { id: true, codigo: true, nome: true, unidade: true } } } },
+      servicos: { orderBy: { ordem: "asc" }, include: { servico: { select: { id: true, codigo: true, nome: true } } } },
+      pagamentos: { include: { formaPagamento: true } }, historico: { orderBy: { createdAt: "desc" } },
+      devolucoes: { orderBy: { createdAt: "desc" }, include: { itens: true, vale: true } },
+    },
   });
   if (!v) notFound();
-  await prisma.$transaction((tx) => garantirPadroes(tx));
-  const [reservas, formas, lancamentos] = await Promise.all([
-    prisma.reserva.findMany({ where: { origemTipo: "VENDA", origemId: id, status: { in: ["ATIVA", "BAIXADA"] } }, include: { local: true } }),
-    prisma.formaPagamento.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } }),
-    prisma.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: id }, include: { formaPagamento: true }, orderBy: [{ vencimento: "asc" }] }),
+  const [situacoes, criador, empresa, anexos, anotacoes, campos, modelo, lancamentos, reservas, orcamento] = await Promise.all([
+    prisma.situacaoVendaConfig.findMany({ orderBy: { ordem: "asc" } }),
+    v.criadoPorId ? prisma.usuario.findUnique({ where: { id: v.criadoPorId }, select: { nome: true } }) : null,
+    prisma.empresa.findFirst(),
+    prisma.anexo.findMany({ where: { entidade: "VENDA", entidadeId: id }, select: { id: true, nome: true, tamanho: true, createdAt: true } }),
+    prisma.anotacao.findMany({ where: { entidade: "VENDA", entidadeId: id }, orderBy: { createdAt: "desc" } }),
+    prisma.campoExtra.findMany({ where: { entidade: "VENDA" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
+    prisma.modeloMensagem.findFirst({ where: { tipo: "VE" }, orderBy: { padrao: "desc" } }),
+    prisma.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: id }, include: { formaPagamento: true, categoria: true }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }] }),
+    prisma.reserva.findMany({ where: { origemTipo: "VENDA", origemId: id, status: { in: ["ATIVA", "BAIXADA"] } }, include: { local: { select: { codigo: true } } } }),
+    prisma.orcamento.findFirst({ where: { vendaId: id }, select: { id: true, numero: true } }),
   ]);
-  const aba = ABAS.some((a) => a.id === sp.aba) ? sp.aba! : v.cliente ? "cliente" : "produtos";
-  const porItem = new Map<string, typeof reservas>();
-  for (const r of reservas) porItem.set(r.origemItemId, [...(porItem.get(r.origemItemId) ?? []), r]);
-  const sit = SITUACOES_VENDA.find((s) => s.valor === v.situacao)!;
-  const totalProdutos = v.itens.reduce((s, i) => s + Number(i.subtotal), 0);
+  const h = await headers();
+  const link = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}/cobranca/${v.token}`;
+  const nomeEmpresa = empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH";
+  const nomeCliente = v.cliente?.nome ?? "Consumidor";
+  const tags = { nome_cliente: nomeCliente, numero: String(v.numero), valor_total: brl(v.total), data: dataSP(v.data), validade: "", vendedor: v.vendedor?.nome ?? "", link, nome_empresa: nomeEmpresa };
+  const assunto = aplicarTags(modelo?.assunto ?? "Pedido de venda", tags);
+  const corpo = aplicarTags(modelo?.email ?? "Segue o pedido: [link]", tags);
+  const zap = aplicarTags(modelo?.sms ?? "Olá [nome_cliente], segue o pedido [numero]: [link]", tags);
+  const fone = (v.cliente?.celular ?? v.cliente?.telefone ?? "").replace(/\D/g, "");
+  const usuarios = new Map((await prisma.usuario.findMany({ where: { id: { in: anotacoes.map((a) => a.usuarioId).filter((x): x is string => !!x) } }, select: { id: true, nome: true } })).map((u) => [u.id, u.nome]));
+  const ce = (v.camposExtras ?? {}) as Record<string, string>;
+  const c = cor(v.situacaoCfg?.cor ?? "cinza");
+  const base = `/vendas/${id}`;
   const balcao = v.tipo === "BALCAO";
-  const lista = balcao ? { rotulo: "Vendas balcão", href: "/vendas/balcao" } : { rotulo: "Vendas de produtos", href: "/vendas" };
-  const fone = (v.cliente?.celular || v.cliente?.telefone || "").replace(/\D/g, "");
-  const texto = encodeURIComponent(`Olá! Segue a venda nº ${v.numero} da MXTECH. Valor: ${brl(v.total)}.`);
+  const tl = v.tipo === "SERVICO" ? "SERVICO" : balcao ? "BALCAO" : "PEDIDO";
+  const notas = await prisma.notaFiscal.count({ where: { origemTipo: "VENDA", origemId: id } });
+  const ABAS = [
+    { chave: "cliente", rotulo: "Cliente", icone: "pessoa", tem: !!v.cliente }, { chave: "produtos", rotulo: "Produtos", icone: "produtos", tem: v.itens.length > 0 },
+    { chave: "servicos", rotulo: "Serviços", icone: "servicos", tem: v.servicos.length > 0 }, { chave: "pagamento", rotulo: "Pagamento", icone: "dinheiro", tem: true },
+    { chave: "entrega", rotulo: "Entrega", icone: "frete", tem: !!(v.transportadoraId || Number(v.frete) || v.mostrarEntrega || v.prazoEntrega) },
+    { chave: "comissao", rotulo: "Comissão", icone: "percentual", tem: !!v.vendedor }, { chave: "notas", rotulo: "Notas fiscais", icone: "notas", tem: true },
+    { chave: "devolucoes", rotulo: "Trocas e devoluções", icone: "atualizar", tem: v.devolucoes.length > 0 },
+    { chave: "campos", rotulo: "Campos extras", icone: "ajustes", tem: campos.length > 0 }, { chave: "envios", rotulo: "Envios", icone: "envios", tem: true },
+    { chave: "historico", rotulo: "Histórico", icone: "relogio", tem: true }, { chave: "anexos", rotulo: "Anexos", icone: "anexos", tem: true },
+    { chave: "anotacoes", rotulo: "Anotações", icone: "anotacoes", tem: true },
+  ].filter((a) => a.tem);
+  const aba = ABAS.some((a) => a.chave === sp.aba) ? sp.aba! : ABAS[0].chave;
+  const comissaoPct = Number(v.vendedor?.comissao ?? 0);
+  const endEntrega = v.mostrarEntrega && v.cliente ? v.cliente.enderecos.find((e) => e.id === v.enderecoEntregaId) ?? v.cliente.enderecos[0] : null;
+  const ondeItem = (itemId: string) => reservas.filter((r) => r.origemItemId === itemId).map((r) => `${r.local?.codigo ?? "EM FALTA"} (${qtd(r.quantidade)})${r.status === "BAIXADA" ? " · saiu" : ""}`).join(", ");
+  const concluida = v.situacao === "CONCLUIDA";
+  const podeEditar = !balcao && (v.situacaoCfg?.permiteEdicao ?? true);
 
   return (
-    <Pagina titulo="Visualizar venda" trilha={[lista, { rotulo: "Visualizar" }]}>
+    <Pagina titulo="Visualizar venda" trilha={[{ rotulo: tituloVendas(tl), href: baseVendas(tl) }, { rotulo: "Visualizar" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
-          <h2 className="flex items-center gap-2 text-[20px]"><Icone nome={balcao ? "balcao" : "carrinho"} size={18} /> Venda #{v.numero} <Pilula rotulo={sit.rotulo} cor={sit.cor} /></h2>
-          <p className="text-[12px] text-slate-500">{balcao ? "Venda balcão (PDV)" : "Pedido"} · {dataSP(v.data)} {horaSP(v.createdAt)}</p>
+          <h2 className="flex items-center gap-2 text-[18px]"><Icone nome={balcao ? "balcao" : "carrinho"} size={18} /> Venda #{v.numero}
+            <span className={`pilula ${c.pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${c.ponto}`} />{v.situacaoCfg?.nome ?? v.situacao}</span></h2>
+          <p className="text-[12px] text-slate-500">Criado em {v.createdAt.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Sao_Paulo" })}{criador ? ` por ${criador.nome.toUpperCase()}` : ""}{balcao ? " · Balcão (PDV)" : ""}</p>
         </div>
         <div className="no-print ml-auto flex gap-2">
-          <div className="flex">
-            <Link href={`/vendas/${id}/editar`} className="btn-laranja rounded-r-none"><Icone nome="editar" size={14} /> Editar</Link>
-            <Suspenso direita classe="btn-laranja rounded-l-none border-l border-white/30 px-2" botao={<Icone nome="abaixo" size={14} />} titulo="Mais opções">
-              <LinkSuspenso href={`/vendas/${id}/editar`} icone="editar">Editar</LinkSuspenso>
-              <LinkSuspenso href={`/vendas/${id}?aba=${aba}&acao=situacao`} icone="atualizar">Alterar situação</LinkSuspenso>
-              {v.situacao !== "CONCLUIDA" && v.situacao !== "CANCELADA" && <LinkSuspenso href={`/vendas/${id}?aba=pagamento`} icone="dinheiro">Concretizar (pagamento)</LinkSuspenso>}
-              <LinkSuspenso href={`/vendas/${id}?aba=notas`} icone="notas">Emitir NF-e / NFC-e</LinkSuspenso>
-            </Suspenso>
-          </div>
-          {(fone || v.cliente?.email) && (
-            <Suspenso direita classe="btn-verde" botao={<><Icone nome="compartilhar" size={14} /> Compartilhar <Icone nome="abaixo" size={13} /></>}>
-              {fone && <a href={`https://wa.me/55${fone.replace(/^55/, "")}?text=${texto}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="compartilhar" size={15} /> Enviar por WhatsApp</a>}
-              {v.cliente?.email && <a href={`mailto:${v.cliente.email}?subject=${encodeURIComponent(`Venda ${v.numero} - MXTECH`)}`} className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="compartilhar" size={15} /> Enviar por e-mail</a>}
-            </Suspenso>
-          )}
+          <Suspenso direita classe="btn-laranja" botao={<><Icone nome="editar" size={15} /> Editar <Icone nome="abaixo" size={13} /></>}>
+            {podeEditar && <LinkSuspenso href={`${base}/editar`} icone="editar">Editar venda</LinkSuspenso>}
+            <LinkSuspenso href={`${base}?situacao=1`} icone="atualizar">Alterar situação</LinkSuspenso>
+            {!balcao && <BotaoAcao acao={clonarVendaAcao.bind(null, id)} icone="copiar">Gerar cópia</BotaoAcao>}
+            {concluida && v.itens.length > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, id, "NFE")} icone="notas" confirmar={`Emitir a NF-e da venda nº ${v.numero}?`}>Emitir NF-e</BotaoAcao>}
+            {concluida && v.servicos.length > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da venda nº ${v.numero}?`}>Emitir NFS-e</BotaoAcao>}
+            <LinkSuspenso href={`/financeiro?tipo=RECEBER&q=${encodeURIComponent(`Venda de nº ${v.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+            {concluida && v.itens.length > 0 && <LinkSuspenso href={`/vendas/devolucoes/adicionar?venda=${v.numero}`} icone="atualizar">Troca ou devolução</LinkSuspenso>}
+            <BotaoExcluir acao={excluirVendaEVoltarAcao.bind(null, id, baseVendas(tl))} pergunta={`Excluir a venda nº ${v.numero}? O estoque volta e as contas a receber em aberto são apagadas.`} rotulo="Excluir venda" />
+          </Suspenso>
+          <Suspenso direita classe="btn bg-emerald-600 hover:bg-emerald-700" botao={<><Icone nome="compartilhar" size={15} /> Compartilhar <Icone nome="abaixo" size={13} /></>}>
+            <a href={`mailto:${v.cliente?.email ?? ""}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`} className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="email" size={15} /> Por e-mail</a>
+            <a href={`https://wa.me/${fone.length >= 10 ? "55" + fone.replace(/^55/, "") : ""}?text=${encodeURIComponent(zap)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="whatsapp" size={15} /> Por WhatsApp</a>
+            <CopiarLink url={link} menu />
+            <a href={`${base}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> Imprimir</a>
+          </Suspenso>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-        <section className="cartao h-fit p-4">
-          <div className="flex items-start gap-4 pb-3">
-            <div><div className="text-[11px] text-slate-500">Venda</div><div className="text-[13px] font-semibold">Nº {v.numero}</div></div>
-            <div><div className="text-[11px] text-slate-500">Data</div><div className="text-[13px]">{dataSP(v.data)}</div></div>
-            <div className="ml-auto text-right"><span className="align-top text-[13px]">R$</span><span className="text-[28px] font-semibold leading-none">{num2(v.total)}</span></div>
-          </div>
-          <div className="space-y-1.5 border-t border-slate-100 py-3 text-[13px]">
-            <div className="flex justify-between"><span className="text-slate-600">Produtos</span><span>{brl(totalProdutos)}</span></div>
-            {Number(v.frete) > 0 && <div className="flex justify-between"><span className="text-slate-600">Frete</span><span>{brl(v.frete)}</span></div>}
-            {Number(v.desconto) > 0 && <div className="flex justify-between"><span className="text-slate-600">Desconto</span><span>− {brl(v.desconto)}</span></div>}
-          </div>
-          <Linha icone="etiqueta" rotulo="Situação"><span className="normal-case"><Pilula rotulo={sit.rotulo} cor={sit.cor} /></span></Linha>
-          <Linha icone="funcionarios" rotulo="Cliente">{v.cliente?.nome ?? "Consumidor"}</Linha>
-          <Linha icone="carrinho" rotulo="Vendedor">{v.vendedor?.nome ?? "—"}</Linha>
-          <Linha icone="balcao" rotulo="Tipo">{balcao ? "Balcão" : "Pedido"}</Linha>
-          {v.observacoes && <div className="border-t border-slate-100 pt-2 text-[12px] text-slate-600"><b>Observações:</b> {v.observacoes}</div>}
-        </section>
+      {sp.situacao && <FormSituacao id={id} numero={v.numero} atual={v.situacaoId ?? ""} situacoes={situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacao(s) }))} voltar={base} acao={alterarSituacaoVendaAcao} rotulo="da venda" />}
 
-        <div>
-          <nav className="no-print mb-3 flex flex-wrap gap-1">
-            {ABAS.map((a) => (
-              <Link key={a.id} href={`/vendas/${id}?aba=${a.id}`} scroll={false} className={`aba ${aba === a.id ? "aba-ativa" : ""}`}><Icone nome={a.icone} size={14} /> {a.rotulo}</Link>
-            ))}
+      <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+        <aside className="space-y-3">
+          <div className="cartao p-4 text-[13px]">
+            <div className="flex justify-between text-slate-500"><span>Venda Nº {v.numero}</span><span>{dataSP(v.data)}</span></div>
+            <div className="my-2 text-[26px] font-semibold text-marca">{brl(v.total)}</div>
+            <dl className="space-y-1 border-t pt-2">
+              <div><b>Situação:</b> {v.situacaoCfg?.nome ?? v.situacao}</div>
+              <div><b>Cliente:</b> {v.cliente ? <Link href={`/clientes/${v.clienteId}`} className="text-marca hover:underline">{v.cliente.nome}</Link> : "Consumidor"}</div>
+              <div><b>Vendedor:</b> {v.vendedor?.nome ?? "—"}</div>
+              {!balcao && <div><b>Previsão de entrega:</b> {dia(v.prazoEntrega)}</div>}
+              <div><b>Canal de venda:</b> {v.canal}</div>
+              <div><b>Loja:</b> {nomeEmpresa}</div>
+              {orcamento && <div><b>Orçamento:</b> <Link href={`/orcamentos/${orcamento.id}`} className="text-marca hover:underline">nº {orcamento.numero}</Link></div>}
+            </dl>
+            <div className="mt-2 border-t pt-2 text-[11px] text-slate-500">Atualizado em {dataSP(v.updatedAt)} {horaSP(v.updatedAt)}</div>
+          </div>
+          {v.situacaoCfg?.exibirCobranca !== false && (
+            <div className="cartao p-4 text-[13px]">
+              <div className="mb-2 font-semibold">Link de cobrança</div>
+              <CopiarLink url={link} />
+              <a href={`/cobranca/${v.token}`} target="_blank" className="mt-2 inline-block text-[12px] text-marca hover:underline">Abrir como o cliente vê</a>
+            </div>
+          )}
+        </aside>
+
+        <section>
+          <nav className="mb-3 flex flex-wrap gap-1">
+            {ABAS.map((a) => <Link key={a.chave} href={a.chave === ABAS[0].chave ? base : `${base}?aba=${a.chave}`} className={`aba ${aba === a.chave ? "aba-ativa" : ""}`}><Icone nome={a.icone} size={14} /> {a.rotulo}</Link>)}
           </nav>
 
-          {aba === "cliente" && (
-            <section className="cartao p-5">
-              {v.cliente ? (
-                <div className="flex flex-wrap gap-6">
-                  <div className="w-40 text-center">
-                    <div className="flex h-32 items-center justify-center rounded bg-slate-100 text-[22px] text-slate-500">{v.cliente.nome.split(/\s+/).slice(0, 2).map((p) => p[0]).join("")}</div>
-                    <div className="mt-2 text-[13px] font-semibold uppercase">{v.cliente.nome}</div>
-                    <div className="text-[12px] text-slate-500">{docFmt(v.cliente.documento)}</div>
-                  </div>
-                  <dl className="flex-1 space-y-1 text-[13px]">
-                    <div><b>Tipo de cliente:</b> {v.cliente.tipoPessoa === "FISICA" ? "Pessoa física" : "Pessoa jurídica"}</div>
-                    {v.cliente.fantasia && <div><b>Nome fantasia:</b> <span className="uppercase">{v.cliente.fantasia}</span></div>}
-                    {v.cliente.telefone && <div><b>Telefone:</b> {v.cliente.telefone}</div>}
-                    {v.cliente.celular && <div><b>Celular:</b> {v.cliente.celular}</div>}
-                    {v.cliente.email && <div><b>E-mail:</b> {v.cliente.email}</div>}
-                    <div><b>Endereço:</b> <span className="uppercase">{[v.cliente.logradouro, v.cliente.numero, v.cliente.bairro, [v.cliente.cidade, v.cliente.uf].filter(Boolean).join("/")].filter(Boolean).join(", ") || "—"}</span></div>
-                  </dl>
-                </div>
-              ) : <p className="text-[13px] text-slate-500">Venda para consumidor, sem cliente identificado.</p>}
-            </section>
+          {aba === "cliente" && v.cliente && (
+            <div className="cartao p-4 text-[13px]">
+              <div className="mb-2 flex items-center"><b className="text-[15px]">{v.cliente.nome}</b><Link href={`/clientes/${v.clienteId}`} className="btn-sec ml-auto py-1">Visualizar cliente</Link></div>
+              <dl className="grid gap-1 sm:grid-cols-2">
+                {v.cliente.fantasia && <div><b>Nome fantasia:</b> {v.cliente.fantasia}</div>}
+                {v.cliente.documento && <div><b>CPF/CNPJ:</b> {docFmt(v.cliente.documento)}</div>}
+                <div><b>Telefone:</b> {v.cliente.telefone || v.cliente.celular || "—"}</div>
+                <div><b>E-mail:</b> {v.cliente.email || "—"}</div>
+              </dl>
+              {v.cliente.enderecos.map((e) => <p key={e.id} className="mt-2 border-t pt-2"><b>{e.tipo ?? "Endereço"}:</b> {e.logradouro}, {e.numero} · {e.bairro} · {e.cidade}/{e.uf} · CEP {e.cep}</p>)}
+            </div>
           )}
 
           {aba === "produtos" && (
-            <div className="space-y-2">
-              {v.itens.map((i) => (
-                <div key={i.id} className="cartao flex gap-4 p-4">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100"><Icone nome="produtos" size={18} /></span>
-                  <div className="flex-1">
-                    <div className="text-[14px] font-semibold uppercase">{i.produto.nome}</div>
-                    <div className="mt-1 flex flex-wrap gap-x-5 text-[12px] text-slate-600">
-                      <span>{i.produto.codigo}</span><span>Valor: <b>{brl(i.valorUnit)}</b></span><span>Quantidade: <b>{qtd(i.quantidade)} {i.produto.unidade}</b></span>
-                      <span className="font-semibold text-slate-800">Subtotal: {brl(i.subtotal)}</span>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5 text-[12px]">
-                      {(porItem.get(i.id) ?? []).map((r) => (
-                        <span key={r.id} className={`rounded border px-1.5 py-0.5 ${!r.local ? "border-red-300 bg-red-50 font-semibold text-red-700" : r.status === "BAIXADA" ? "border-slate-200 text-slate-500" : "border-marca/40 bg-marca/5 text-marca-escura"}`}>
-                          <Icone nome="locais" size={11} className="mr-1 inline" />{r.local?.codigo ?? "EM FALTA"} · {qtd(r.quantidade)}{r.status === "BAIXADA" ? " · baixado" : r.local ? " · reservado" : ""}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {!v.itens.length && <div className="cartao p-6 text-center text-[13px] text-slate-500">Nenhum produto.</div>}
-              {v.itens.length > 0 && <div className="pt-1 text-right"><div className="text-[11px] text-slate-500">Total dos produtos</div><div className="text-[18px] font-semibold">{brl(totalProdutos)}</div></div>}
+            <div className="cartao overflow-x-auto">
+              <table className="tabela">
+                <thead><tr><th>Produto</th><th>Estoque</th><th className="text-right">Quant.</th><th className="text-right">Valor</th><th className="text-right">Desconto</th><th className="text-right">Subtotal</th></tr></thead>
+                <tbody>{v.itens.map((l) => <tr key={l.id}><td><Link href={`/produtos/${l.produto.id}`} className="hover:underline"><span className="font-mono text-[11px] text-slate-500">{l.produto.codigo}</span> {l.produto.nome}</Link>{l.detalhes && <div className="text-[11px] text-slate-500">{l.detalhes}</div>}</td>
+                  <td className="text-[12px] text-slate-600">{ondeItem(l.id) || "—"}</td>
+                  <td className="text-right">{qtd(l.quantidade)} {l.produto.unidade}</td><td className="text-right">{num2(l.valorUnit)}</td><td className="text-right">{Number(l.desconto) ? num2(l.desconto) : ""}</td><td className="text-right font-semibold">{num2(l.subtotal)}</td></tr>)}</tbody>
+                <tfoot><tr><td colSpan={5} className="text-right">Total de produtos</td><td className="text-right font-semibold">{num2(v.itens.reduce((s, i) => s + Number(i.subtotal), 0))}</td></tr></tfoot>
+              </table>
+            </div>
+          )}
+
+          {aba === "servicos" && (
+            <div className="cartao overflow-x-auto">
+              <table className="tabela">
+                <thead><tr><th>Serviço</th><th className="text-right">Quant.</th><th className="text-right">Valor</th><th className="text-right">Desconto</th><th className="text-right">Subtotal</th></tr></thead>
+                <tbody>{v.servicos.map((l) => <tr key={l.id}><td><Link href={`/servicos/${l.servico.id}`} className="hover:underline"><span className="font-mono text-[11px] text-slate-500">{l.servico.codigo}</span> {l.servico.nome}</Link>{l.detalhes && <div className="text-[11px] text-slate-500">{l.detalhes}</div>}</td>
+                  <td className="text-right">{qtd(l.quantidade)}</td><td className="text-right">{num2(l.valorUnit)}</td><td className="text-right">{Number(l.desconto) ? num2(l.desconto) : ""}</td><td className="text-right font-semibold">{num2(l.subtotal)}</td></tr>)}</tbody>
+                <tfoot><tr><td colSpan={4} className="text-right">Total de serviços</td><td className="text-right font-semibold">{num2(v.servicos.reduce((s, i) => s + Number(i.subtotal), 0))}</td></tr></tfoot>
+              </table>
             </div>
           )}
 
           {aba === "pagamento" && (
-            <section className="cartao p-4">
-              {lancamentos.length > 0 ? (
-                <table className="tabela">
-                  <thead><tr><th>Parcela</th><th>Forma</th><th>Vencimento</th><th className="text-right">Valor</th><th>Situação</th></tr></thead>
-                  <tbody>
-                    {lancamentos.map((l) => (
-                      <tr key={l.id}>
-                        <td>{l.parcela}/{l.totalParcelas}</td><td>{l.formaPagamento?.nome ?? "—"}</td><td>{data(l.vencimento)}</td><td className="text-right">{brl(l.valor)}</td>
-                        <td>{l.pagoEm ? <Pilula rotulo={`Recebido em ${data(l.pagoEm)}`} cor="border-green-400 bg-green-50 text-green-700" /> : <Pilula rotulo="A receber" cor="border-slate-300 text-slate-600" />}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : v.situacao === "CANCELADA" ? <p className="text-[13px] text-slate-500">Venda cancelada.</p> : (
-                <>
-                  <p className="mb-3 text-[13px] text-slate-600">Informe como o cliente vai pagar. Concretizar baixa os produtos do estoque e gera o contas a receber.</p>
-                  <Concluir vendaId={id} total={Number(v.total)} formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo }))} />
-                </>
-              )}
-            </section>
+            <div className="space-y-3">
+              <div className="cartao grid gap-3 p-4 text-[13px] sm:grid-cols-5">
+                {([["Produtos", v.totalProdutos], ["Serviços", v.totalServicos], ["Frete", v.frete], ["Desconto", v.desconto], ["Total", v.total]] as [string, unknown][]).map(([k, x]) => <div key={k}><div className="text-slate-500">{k}</div><div className={`font-semibold ${k === "Total" ? "text-[18px] text-marca" : "text-[15px]"}`}>{brl(Number(x))}</div></div>)}
+              </div>
+              <div className="px-1 text-[13px]"><b>Condição:</b> {balcao ? v.pagamentos.map((p) => `${p.formaPagamento.nome}${p.parcelas > 1 ? ` ${p.parcelas}x` : ""}`).join(" + ") || "—" : v.condicao === "PARCELADO" ? `Parcelado em ${v.parcelas.length}x` : "À vista"}{!balcao && v.formaPagamento ? ` · ${v.formaPagamento.nome}` : ""}</div>
+              {lancamentos.length ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {lancamentos.map((l) => {
+                    const recebida = !!l.pagoEm;
+                    const atrasada = !recebida && l.vencimento < new Date(new Date().toISOString().slice(0, 10));
+                    return (
+                      <div key={l.id} className="cartao p-3 text-[13px]">
+                        <div className="flex items-center gap-2"><b>{l.formaPagamento?.nome ?? "A combinar"}</b>
+                          <span className={`pilula ml-auto ${recebida ? "border-emerald-300 bg-emerald-50 text-emerald-700" : atrasada ? "border-red-300 bg-red-50 text-red-700" : "border-orange-300 bg-orange-50 text-orange-700"}`}>{recebida ? "Recebida" : atrasada ? "Atrasada" : "A receber"}</span></div>
+                        <div className="mt-1 flex text-slate-600"><span>Vencimento {dia(l.vencimento)} · {l.categoria.nome}</span><b className="ml-auto text-slate-800">{brl(l.valor)}</b></div>
+                        <div className="text-[11px] text-slate-500">Parcela {l.parcela}/{l.totalParcelas}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : v.parcelas.length ? (
+                <div className="cartao overflow-x-auto">
+                  <p className="px-4 pt-3 text-[12px] text-slate-500">Esta situação não lança o financeiro: as parcelas viram contas a receber quando a venda for para uma situação que lança.</p>
+                  <table className="tabela"><thead><tr><th>Parcela</th><th>Vencimento</th><th className="text-right">Valor</th><th>Forma</th><th>Observação</th></tr></thead>
+                    <tbody>{v.parcelas.map((p) => <tr key={p.id}><td>{p.numero}</td><td>{dia(p.vencimento)}</td><td className="text-right">{num2(p.valor)}</td><td>{p.formaPagamento?.nome ?? v.formaPagamento?.nome ?? ""}</td><td>{p.observacao}</td></tr>)}</tbody></table>
+                </div>
+              ) : <Vazio icone="dinheiro" titulo="Nenhuma forma de pagamento foi definida" />}
+            </div>
           )}
 
-          {aba === "notas" && <NotasDoDocumento origemTipo="VENDA" origemId={id} podeEmitir={v.situacao === "CONCLUIDA"} />}
-        </div>
-      </div>
+          {aba === "entrega" && (
+            <div className="cartao space-y-1 p-4 text-[13px]">
+              <div><b>Previsão de entrega:</b> {dia(v.prazoEntrega)}</div>
+              <div><b>Transportadora:</b> {v.transportadora?.nome ?? "—"}</div>
+              <div><b>Valor do frete:</b> {brl(v.frete)}</div>
+              {endEntrega && <div><b>Endereço de entrega:</b> {endEntrega.logradouro}, {endEntrega.numero} · {endEntrega.bairro} · {endEntrega.cidade}/{endEntrega.uf}</div>}
+            </div>
+          )}
 
-      {sp.acao === "situacao" && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-24">
-          <div className="cartao w-full max-w-md shadow-xl">
-            <div className="flex items-center border-b px-4 py-3">
-              <h3 className="text-[16px]">Alterar <b>situação</b> da venda #{v.numero}</h3>
-              <Link href={`/vendas/${id}?aba=${aba}`} className="ml-auto text-slate-500 hover:text-black" aria-label="Fechar"><Icone nome="fechar" /></Link>
+          {aba === "comissao" && (
+            <div className="cartao p-4 text-[13px]">
+              <b>{v.vendedor?.nome}</b> · comissão de {num2(comissaoPct)}% sobre {brl(v.total)} = <b>{brl((Number(v.total) * comissaoPct) / 100)}</b>
+              <p className="mt-1 text-[11px] text-slate-500">{concluida ? "Venda concretizada: a comissão entra no relatório do vendedor." : "A comissão entra no relatório quando a venda for concretizada."}</p>
             </div>
-            <div className="p-4">
-              <SituacaoVenda vendaId={id} situacao={v.situacao} />
-              <p className="mt-3 text-[12px] text-slate-500">Em aberto reserva os produtos; orçamento e cancelada liberam. Para concretizar, use a aba Pagamento.</p>
+          )}
+
+          {aba === "notas" && <NotasDoDocumento origemTipo="VENDA" origemId={id} podeEmitir={concluida} temProdutos={v.itens.length > 0} temServicos={v.servicos.length > 0} />}
+          {aba === "notas" && !notas && !concluida && <p className="mt-2 text-[12px] text-slate-500">A nota é emitida quando a venda estiver numa situação que lança o estoque.</p>}
+
+          {aba === "devolucoes" && (
+            <div className="cartao overflow-x-auto">
+              <table className="tabela">
+                <thead><tr><th>Nº</th><th>Tipo</th><th>Data</th><th className="text-right">Itens</th><th className="text-right">Total</th><th>Vale-compras</th></tr></thead>
+                <tbody>{v.devolucoes.map((d) => <tr key={d.id}><td>{d.numero}</td><td>{d.tipo === "TROCA" ? "Troca" : "Devolução"}</td><td>{dataSP(d.createdAt)}</td><td className="text-right">{d.itens.reduce((s, i) => s + Number(i.quantidade), 0)}</td><td className="text-right">{num2(d.total)}</td><td>{d.vale ? `${d.vale.codigo} · saldo ${brl(d.vale.saldo)}` : "—"}</td></tr>)}</tbody>
+              </table>
             </div>
-          </div>
-        </div>
-      )}
+          )}
+
+          {aba === "campos" && <div className="cartao p-4 text-[13px]">{campos.map((x) => <div key={x.id}><b>{x.nome}:</b> {ce[x.id] || "—"}</div>)}</div>}
+
+          {aba === "envios" && <Vazio icone="envios" titulo="Nenhum envio registrado" texto="Use Compartilhar › Por e-mail ou WhatsApp para mandar o pedido e o link de cobrança ao cliente." />}
+
+          {aba === "historico" && (
+            <div className="cartao p-4">
+              <ol className="relative ml-2 border-l border-slate-200">
+                {v.historico.map((x) => (
+                  <li key={x.id} className="mb-4 ml-4 text-[13px]">
+                    <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border-2 border-white bg-marca" />
+                    <div>{x.descricao}{x.situacao && <span className="ml-1 text-slate-500">· {x.situacao}</span>}</div>
+                    <div className="text-[11px] text-slate-500">{x.usuarioNome ? `Por ${x.usuarioNome} · ` : ""}{dataSP(x.createdAt)} • {horaSP(x.createdAt)}</div>
+                  </li>
+                ))}
+                {!v.historico.length && <li className="ml-4 text-[13px] text-slate-500">Sem histórico registrado.</li>}
+              </ol>
+            </div>
+          )}
+
+          {aba === "anexos" && (
+            <div className="cartao p-4">
+              <FormAnexo entidade="VENDA" entidadeId={id} caminho={`${base}?aba=anexos`} />
+              {anexos.length ? (
+                <table className="tabela"><tbody>{anexos.map((a) => <tr key={a.id}><td><a href={`/api/cadastros/anexo/${a.id}`} className="text-marca hover:underline">{a.nome}</a></td><td className="w-36">{dataSP(a.createdAt)}</td>
+                  <td className="w-12 text-right"><BotaoExcluir acao={excluirAnexoAcao.bind(null, a.id)} pergunta={`Excluir o anexo ${a.nome}?`} /></td></tr>)}</tbody></table>
+              ) : <p className="text-[13px] text-slate-500">Nenhum anexo.</p>}
+            </div>
+          )}
+
+          {aba === "anotacoes" && (
+            <div className="cartao p-4">
+              <FormAnotacaoOrc id={id} caminho={`${base}?aba=anotacoes`} acao={anotarVendaAcao} sobre="a venda" />
+              <div className="space-y-2">
+                {anotacoes.map((a) => (
+                  <div key={a.id} className="rounded border border-slate-200 bg-[#fffdf3] p-3">
+                    <div className="mb-1 flex items-center gap-2 text-[11px] text-slate-500"><b>{usuarios.get(a.usuarioId ?? "") ?? "—"}</b> · {dataSP(a.createdAt)} {horaSP(a.createdAt)}
+                      <span className="ml-auto"><BotaoExcluir acao={excluirAnotacaoAcao.bind(null, a.id)} pergunta="Excluir esta anotação?" /></span></div>
+                    <p className="whitespace-pre-wrap text-[13px]">{a.texto}</p>
+                  </div>
+                ))}
+                {!anotacoes.length && <p className="text-[13px] text-slate-500">Nenhuma anotação.</p>}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
     </Pagina>
   );
 }

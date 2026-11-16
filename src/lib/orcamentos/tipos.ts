@@ -19,7 +19,7 @@ export type DadosOrcamento = {
   observacoes: string; observacaoInterna: string; camposExtras: Record<string, string>;
 };
 
-export const CANAIS = ["Presencial", "Internet", "Telemarketing"];
+export const CANAIS = ["Presencial", "Telemarketing", "Internet"];
 
 /** Cores das situações (as mesmas pílulas do Gestão Click). */
 export const CORES: Record<string, { rotulo: string; pilula: string; ponto: string }> = {
@@ -87,3 +87,7 @@ export const CAMPOS_DADOS = [
   { chave: "centro", rotulo: "Centro de custo" }, { chave: "introducao", rotulo: "Introdução da proposta" },
 ];
 export const COLUNAS_ITENS = [{ chave: "detalhes", rotulo: "Detalhes" }, { chave: "desconto", rotulo: "Desconto" }];
+export const CAMPOS_VENDA = [
+  { chave: "numero", rotulo: "Número" }, { chave: "vendedor", rotulo: "Vendedor" }, { chave: "prazo", rotulo: "Prazo de entrega" },
+  { chave: "canal", rotulo: "Canal de venda" }, { chave: "centro", rotulo: "Centro de custo" },
+];

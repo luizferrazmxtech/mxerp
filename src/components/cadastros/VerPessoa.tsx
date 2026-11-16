@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { PAPEIS, SITUACOES_FIN, TIPOS_PESSOA, CONTRIBUINTES, situacoesFinanceiras, type PapelPessoa } from "@/lib/cadastros/pessoas";
 import { excluirAnexoAcao, excluirAnotacaoAcao, excluirPessoaAcao } from "@/lib/cadastros/acoes";
 import { SITUACOES_OS } from "@/lib/os/os";
-import { SITUACOES_VENDA } from "@/lib/vendas/vendas";
+import { cor } from "@/lib/orcamentos/tipos";
 import { brl, data, dataSP, horaSP } from "@/lib/ui/format";
 import { Pagina, Pilula } from "@/components/ui/Pagina";
 import Suspenso from "@/components/ui/Suspenso";
@@ -101,7 +101,7 @@ export default async function VerPessoa({ papel, id, sp }: { papel: PapelPessoa;
           <Link href={`${base}/editar`} className="btn-laranja"><Icone nome="editar" size={15} /> Editar cadastro</Link>
           {papel === "cliente" && <BotaoAreaCliente id={id} habilitada={p.areaCliente} />}
           <Suspenso direita classe="btn-sec px-2" botao={<Icone nome="opcoes" size={15} />}>
-            {papel === "cliente" && <LinkSuspenso href={`/vendas/nova?cliente=${id}`} icone="vendas">Nova venda</LinkSuspenso>}
+            {papel === "cliente" && <LinkSuspenso href={`/vendas/adicionar?cliente=${id}`} icone="vendas">Nova venda</LinkSuspenso>}
             {papel === "cliente" && <LinkSuspenso href={`/os/nova?cliente=${id}`} icone="os">Nova OS</LinkSuspenso>}
             <BotaoExcluir acao={excluirPessoaAcao.bind(null, papel, id)} pergunta={`Excluir ${p.nome}?`} depois={cfg.base} rotulo="Excluir" />
           </Suspenso>
@@ -187,9 +187,8 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
     }));
   } else if (t === "vendas") {
     const n = Number(q);
-    const vs = await prisma.venda.findMany({ where: { clienteId: id, ...(ini ? { data: { gte: ini } } : {}), ...(q && Number.isInteger(n) ? { numero: n } : {}) }, orderBy: { data: "desc" }, take: 100 });
-    const s = new Map(SITUACOES_VENDA.map((x) => [x.valor, x]));
-    lista = vs.map((v) => ({ id: v.id, icone: "notas", titulo: `${v.tipo === "BALCAO" ? "Venda balcão" : "Venda"} de nº ${v.numero}`, href: `/vendas/${v.id}`, pilula: { r: s.get(v.situacao)!.rotulo, c: s.get(v.situacao)!.cor }, data: v.data, valor: Number(v.total) }));
+    const vs = await prisma.venda.findMany({ where: { clienteId: id, ...(ini ? { data: { gte: ini } } : {}), ...(q && Number.isInteger(n) ? { numero: n } : {}) }, orderBy: { data: "desc" }, take: 100, include: { situacaoCfg: { select: { nome: true, cor: true } } } });
+    lista = vs.map((v) => ({ id: v.id, icone: "notas", titulo: `${v.tipo === "BALCAO" ? "Venda balcão" : "Venda"} de nº ${v.numero}`, href: `/vendas/${v.id}`, pilula: { r: v.situacaoCfg?.nome ?? v.situacao, c: cor(v.situacaoCfg?.cor ?? "cinza").pilula }, data: v.data, valor: Number(v.total) }));
   } else if (t === "os") {
     const n = Number(q);
     const os = await prisma.ordemServico.findMany({ where: { clienteId: id, ...(ini ? { entrada: { gte: ini } } : {}), ...(q && Number.isInteger(n) ? { numero: n } : {}) }, orderBy: { entrada: "desc" }, take: 100 });

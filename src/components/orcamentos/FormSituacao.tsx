@@ -6,17 +6,18 @@ import { alterarSituacaoAcao, gerarVendaAcao, type Resultado } from "@/lib/orcam
 import BotaoAcao from "@/components/ui/BotaoAcao";
 
 /** Painel "Alterar situação" (abre pela lista ou pela visualização). */
-export default function FormSituacao({ id, numero, atual, situacoes, voltar }: {
-  id: string; numero: number; atual: string; situacoes: { id: string; nome: string; geraVenda: boolean }[]; voltar: string;
+export default function FormSituacao({ id, numero, atual, situacoes, voltar, acao: acaoServidor, rotulo = "do orçamento" }: {
+  id: string; numero: number; atual: string; situacoes: { id: string; nome: string; geraVenda?: boolean; aviso?: string }[]; voltar: string;
+  acao?: (r: Resultado, f: FormData) => Promise<Resultado>; rotulo?: string;
 }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(alterarSituacaoAcao, null);
+  const [r, acao, pendente] = useActionState<Resultado, FormData>(acaoServidor ?? alterarSituacaoAcao, null);
   return (
     <div className="cartao mb-3 p-4">
       <form action={acao} className="flex flex-wrap items-end gap-3">
         <input type="hidden" name="id" value={id} />
-        <div className="w-full font-semibold">Alterar situação do orçamento nº {numero}</div>
+        <div className="w-full font-semibold">Alterar situação {rotulo} nº {numero}</div>
         <label className="w-64"><span className="rotulo obrig">Situação</span>
-          <select name="situacaoId" defaultValue={atual} className="campo">{situacoes.map((s) => <option key={s.id} value={s.id}>{s.nome}{s.geraVenda ? " (gera venda)" : ""}</option>)}</select></label>
+          <select name="situacaoId" defaultValue={atual} className="campo">{situacoes.map((s) => <option key={s.id} value={s.id}>{s.nome}{s.geraVenda ? " (gera venda)" : ""}{s.aviso ? ` (${s.aviso})` : ""}</option>)}</select></label>
         <label className="min-w-64 flex-1"><span className="rotulo">Observação</span><input name="observacao" className="campo" placeholder="Opcional: vai para o histórico" /></label>
         <Link href={voltar} className="btn-sec">Fechar</Link>
         <button className="btn" disabled={pendente}>{pendente ? "Salvando…" : "Salvar"}</button>
