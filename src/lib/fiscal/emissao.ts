@@ -1,4 +1,4 @@
-import type { Empresa, ModeloNota, OrigemDocumento, Pessoa, RegimeTributario } from "@prisma/client";
+import type { Prisma, Empresa, ModeloNota, OrigemDocumento, Pessoa, RegimeTributario } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
 import { assinarXml } from "./assinatura";
@@ -165,11 +165,15 @@ async function emitir(args: {
 export async function emitirNotaVenda(vendaId: string, modelo: 55 | 65, deps: Dependencias = {}) {
   const v = await prisma.venda.findUniqueOrThrow({
     where: { id: vendaId },
-    include: { cliente: true, itens: { include: { produto: true } }, pagamentos: { include: { formaPagamento: true } } },
+    include: { cliente: true, itens: { include: { produto: true } }, pagamentos: { include: { formaPagamento: true } }, parcelas: { include: { formaPagamento: true } } },
   });
   if (v.situacao !== "CONCLUIDA") throw new FiscalError("Conclua a venda antes de emitir a nota");
   if (!v.itens.length) throw new FiscalError("Venda sem produtos");
-  const pagamentos = v.pagamentos.map((p) => ({ tPag: p.formaPagamento.tPag, valor: Number(p.valor), descricao: p.formaPagamento.nome }));
+  // PDV guarda os pagamentos; o pedido guarda as parcelas. Na NF-e entram só os produtos.
+  const vProd = v.itens.reduce((s, i) => s + Number(i.subtotal), 0) - Number(v.desconto);
+  const pagamentos = v.pagamentos.length
+    ? v.pagamentos.map((p) => ({ tPag: p.formaPagamento.tPag, valor: Number(p.valor), descricao: p.formaPagamento.nome }))
+    : [{ tPag: v.parcelas[0]?.formaPagamento?.tPag ?? "99", valor: Math.round(vProd * 100) / 100, descricao: v.parcelas[0]?.formaPagamento?.nome ?? "A combinar" }];
   return emitir({
     modelo, origemTipo: "VENDA", origemId: v.id, cliente: v.cliente, itens: v.itens, pagamentos,
     desconto: Number(v.desconto), infCpl: `Venda ${v.numero}`, deps,
@@ -222,40 +226,55 @@ export type DependenciasNfse = { cert?: Certificado; transporte?: TransporteRest
 
 /** NFS-e (padrão nacional) dos serviços de uma OS concluída/faturada. */
 export async function emitirNfseOs(osId: string, deps: DependenciasNfse = {}) {
-  const e = await empresa();
-  if (!e.inscricaoMunicipal) throw new FiscalError("Informe a inscrição municipal da empresa");
   const os = await prisma.ordemServico.findUniqueOrThrow({
     where: { id: osId },
     include: { cliente: true, servicos: { include: { servico: true } }, equipamentos: { orderBy: { ordem: "asc" } } },
   });
   if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a NFS-e");
-  if (!os.servicos.length) throw new FiscalError("OS sem serviços");
-  const ja = await prisma.notaFiscal.findFirst({ where: { origemTipo: "OS", origemId: osId, modelo: "NFSE", status: "AUTORIZADA" } });
-  if (ja) throw new FiscalError(`Já existe NFS-e autorizada para esta OS (DPS ${ja.numero})`);
-  const codigos = [...new Set(os.servicos.map((s) => s.servico.codigoTributacaoNacional))];
-  if (codigos.some((c) => !c)) throw new FiscalError(`Informe o código de tributação nacional dos serviços: ${os.servicos.filter((s) => !s.servico.codigoTributacaoNacional).map((s) => s.servico.nome).join(", ")}`);
-  if (codigos.length > 1) throw new FiscalError("A NFS-e aceita um código de serviço por nota: separe os serviços com códigos diferentes em OS distintas");
+  return emitirNfse({
+    origemTipo: "OS", origemId: osId, rotulo: "OS", referencia: `OS ${os.numero}`, cliente: os.cliente, servicos: os.servicos,
+    extras: os.equipamentos.map((q) => `Equipamento: ${[q.equipamento, q.marca, q.modelo, q.serie].filter(Boolean).join(" ")}`),
+    competencia: os.saida ?? undefined,
+  }, deps);
+}
+
+/** NFS-e dos serviços de uma venda concretizada. */
+export async function emitirNfseVenda(vendaId: string, deps: DependenciasNfse = {}) {
+  const v = await prisma.venda.findUniqueOrThrow({ where: { id: vendaId }, include: { cliente: true, servicos: { include: { servico: true } } } });
+  if (v.situacao !== "CONCLUIDA") throw new FiscalError("Concretize a venda antes de emitir a NFS-e");
+  if (!v.cliente) throw new FiscalError("Informe o cliente da venda");
+  return emitirNfse({ origemTipo: "VENDA", origemId: vendaId, rotulo: "venda", referencia: `Venda ${v.numero}`, cliente: v.cliente, servicos: v.servicos, extras: [], competencia: v.data }, deps);
+}
+
+type Tomador = { documento: string | null; nome: string; email: string | null; telefone: string | null; codigoMunicipio: string | null; cep: string | null; logradouro: string | null; numero: string | null; complemento: string | null; bairro: string | null };
+type ServicoNota = { quantidade: Prisma.Decimal; subtotal: Prisma.Decimal; servico: { nome: string; codigoTributacaoNacional: string | null; codigoNbs: string | null; aliquotaIss: Prisma.Decimal | null } };
+
+async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; rotulo: string; referencia: string; cliente: Tomador; servicos: ServicoNota[]; extras: string[]; competencia?: Date }, deps: DependenciasNfse) {
+  const e = await empresa();
+  if (!e.inscricaoMunicipal) throw new FiscalError("Informe a inscrição municipal da empresa");
+  if (!a.servicos.length) throw new FiscalError(`A ${a.rotulo === "OS" ? "OS" : "venda"} não tem serviços`);
+  const ja = await prisma.notaFiscal.findFirst({ where: { origemTipo: a.origemTipo, origemId: a.origemId, modelo: "NFSE", status: "AUTORIZADA" } });
+  if (ja) throw new FiscalError(`Já existe NFS-e autorizada para esta ${a.rotulo} (DPS ${ja.numero})`);
+  const codigos = [...new Set(a.servicos.map((s) => s.servico.codigoTributacaoNacional))];
+  if (codigos.some((c) => !c)) throw new FiscalError(`Informe o código de tributação nacional dos serviços: ${a.servicos.filter((s) => !s.servico.codigoTributacaoNacional).map((s) => s.servico.nome).join(", ")}`);
+  if (codigos.length > 1) throw new FiscalError(`A NFS-e aceita um código de serviço por nota: separe os serviços com códigos diferentes`);
 
   const cert = deps.cert ?? certificadoDoAmbiente();
   const amb: 1 | 2 = e.ambienteFiscal === "PRODUCAO" ? 1 : 2;
   const agora = deps.agora ?? new Date();
-  const valor = os.servicos.reduce((s, i) => s + Number(i.subtotal), 0);
-  const c = os.cliente;
+  const valor = a.servicos.reduce((s, i) => s + Number(i.subtotal), 0);
+  const c = a.cliente;
   const serie = "1";
   const nota = await prisma.$transaction(async (tx) => {
     const numero = await proximoNumero(tx, `DPS-${serie}-${amb === 1 ? "P" : "H"}`);
     return tx.notaFiscal.create({
-      data: { modelo: "NFSE", serie: 1, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: "OS", origemId: osId, valorTotal: valor },
+      data: { modelo: "NFSE", serie: 1, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: a.origemTipo, origemId: a.origemId, valorTotal: valor },
     });
   });
   try {
-    const descricao = [
-      ...os.servicos.map((s) => `${Number(s.quantidade)} x ${s.servico.nome}`),
-      ...os.equipamentos.map((q) => `Equipamento: ${[q.equipamento, q.marca, q.modelo, q.serie].filter(Boolean).join(" ")}`),
-      `OS ${os.numero}`,
-    ].filter(Boolean).join(" | ");
+    const descricao = [...a.servicos.map((s) => `${Number(s.quantidade)} x ${s.servico.nome}`), ...a.extras, a.referencia].filter(Boolean).join(" | ");
     const { xml } = montarDps({
-      tpAmb: amb, emissao: agora, competencia: os.saida ?? agora, serie, numero: nota.numero,
+      tpAmb: amb, emissao: agora, competencia: a.competencia ?? agora, serie, numero: nota.numero,
       prestador: { cnpj: e.cnpj, im: e.inscricaoMunicipal, codigoMunicipio: e.codigoMunicipio!, fone: e.telefone, email: e.email, opSimpNac: OP_SIMPLES[e.regimeTributario] },
       tomador: c.documento ? {
         documento: c.documento, nome: c.nome, email: c.email, fone: c.telefone,
@@ -263,8 +282,8 @@ export async function emitirNfseOs(osId: string, deps: DependenciasNfse = {}) {
           ? { codigoMunicipio: c.codigoMunicipio, cep: c.cep, logradouro: c.logradouro, numero: c.numero ?? "SN", complemento: c.complemento, bairro: c.bairro } : null,
       } : null,
       servico: {
-        codigoMunicipioPrestacao: e.codigoMunicipio!, cTribNac: codigos[0]!, cNBS: os.servicos[0].servico.codigoNbs,
-        descricao, valor, aliquotaIss: os.servicos[0].servico.aliquotaIss == null ? null : Number(os.servicos[0].servico.aliquotaIss),
+        codigoMunicipioPrestacao: e.codigoMunicipio!, cTribNac: codigos[0]!, cNBS: a.servicos[0].servico.codigoNbs,
+        descricao, valor, aliquotaIss: a.servicos[0].servico.aliquotaIss == null ? null : Number(a.servicos[0].servico.aliquotaIss),
       },
     });
     const assinada = assinarDps(xml, cert);

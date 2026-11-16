@@ -1,4 +1,5 @@
 "use server";
+import { entidadeCampo, baseCampos } from "@/lib/cadastros/tipos";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -46,12 +47,12 @@ export async function salvarCampoExtraAcao(_: Resultado, form: FormData): Promis
   if (!TIPOS.includes(tipo)) return { ok: false, mensagem: "Selecione o tipo" };
   const opcoes = String(form.get("opcoes") ?? "").split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
   if ((tipo === "SELECAO_UNICA" || tipo === "MULTIPLA_SELECAO") && opcoes.length < 2) return { ok: false, mensagem: "Informe ao menos duas opções (uma por linha)" };
-  const entidade = form.get("entidade") === "PRODUTO" ? "PRODUTO" : "CLIENTE";
+  const entidade = entidadeCampo(form.get("entidade"));
   const dados = { nome, tipo, obrigatorio: form.get("obrigatorio") === "1", opcoes: tipo === "SELECAO_UNICA" || tipo === "MULTIPLA_SELECAO" ? opcoes : [], entidade };
   if (id) await prisma.campoExtra.update({ where: { id }, data: dados });
   else await prisma.campoExtra.create({ data: { ...dados, ordem: await prisma.campoExtra.count({ where: { entidade } }) } });
   revalidatePath("/campos-extras");
-  redirect(entidade === "PRODUTO" ? "/campos-extras?entidade=PRODUTO" : "/campos-extras");
+  redirect(baseCampos(entidade));
 }
 
 export async function excluirCampoExtraAcao(id: string) {

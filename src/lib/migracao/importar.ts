@@ -11,7 +11,7 @@ import { campo, numeroBr, type Linha } from "./planilha";
  * que seria feito sem gravar nada.
  */
 
-export type Tipo = "clientes" | "fornecedores" | "transportadoras" | "produtos" | "servicos" | "os" | "receber" | "pagar";
+export type Tipo = "clientes" | "fornecedores" | "transportadoras" | "produtos" | "servicos" | "os" | "orcamentos" | "vendas" | "receber" | "pagar";
 
 export type Resultado = {
   tipo: Tipo;

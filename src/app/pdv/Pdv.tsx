@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { LinhaEstoque } from "@/lib/estoque/consultas";
 import Pagamentos, { type Forma, type LinhaPag } from "@/components/Pagamentos";
 import Icone from "@/components/Icone";
-import { fecharBalcao, type ResultadoSimples } from "../vendas/actions";
+import { fecharBalcao, type ResultadoSimples } from "./actions";
 
 type Item = { produtoId: string; codigo: string; nome: string; locais: string | null; quantidade: number; valorUnit: number };
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
