@@ -64,6 +64,14 @@ describe("pedidos de venda (situações configuráveis)", () => {
     expect(l.every((x) => !x.pagoEm)).toBe(true);
     const cat = await prisma.categoriaFinanceira.findUniqueOrThrow({ where: { id: l[0].categoriaId! } });
     expect(cat.nome).toBe("Venda de produtos");
+    // venda única com peças e serviços: uma conta por parcela, rateada entre as duas receitas na DRE
+    const rat = await prisma.lancamentoRateio.findMany({ where: { lancamentoId: l[0].id }, include: { categoria: true } });
+    expect(Object.fromEntries(rat.map((r) => [r.categoria.nome, Number(r.fracao)]))).toEqual({ "Venda de produtos": 0.57142857, "Prestação de serviços": 0.42857143 });
+    const { calcularDre } = await import("@/lib/financeiro/dre");
+    const dre = await calcularDre(2026);
+    const linha = (k: string) => dre.linhas.find((x) => x.chave === k)!;
+    expect(linha("RECEITA_BRUTA:Venda de produtos").meses[10]).toBeCloseTo(200, 2);
+    expect(linha("RECEITA_BRUTA:Prestação de serviços").meses[10]).toBeCloseTo(150, 2);
 
     await ped.alterarSituacaoPedido(v.id, "sv_cancelada", u);
     expect(await estoque()).toMatchObject({ fisico: 5, reservado: 0 });

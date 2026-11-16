@@ -1,9 +1,6 @@
-import PaginaFormVenda from "@/components/vendas/PaginaFormVenda";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-export const metadata = { title: "Adicionar venda" };
-
-export default async function Adicionar({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  const sp = await searchParams;
-  return <PaginaFormVenda tipo="SERVICO" clienteId={sp.cliente} />;
+export default async function Page({ searchParams }: { searchParams: Promise<{ cliente?: string }> }) {
+  const { cliente } = await searchParams;
+  redirect(cliente ? `/vendas/adicionar?cliente=${encodeURIComponent(cliente)}` : "/vendas/adicionar");
 }

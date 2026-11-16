@@ -1407,6 +1407,7 @@ model CategoriaFinanceira {
   pai         CategoriaFinanceira?  @relation("CategoriaPai", fields: [paiId], references: [id])
   filhas      CategoriaFinanceira[] @relation("CategoriaPai")
   lancamentos Lancamento[]
+  rateios     LancamentoRateio[]
 
   @@unique([nome, tipo])
 }
@@ -1438,12 +1439,25 @@ model Lancamento {
   // baixa feita pela conciliação do extrato
   transacaoId      String?
   transacao        TransacaoBancaria?  @relation(fields: [transacaoId], references: [id])
+  rateio           LancamentoRateio[]
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
   @@index([tipo, vencimento])
   @@index([competencia])
   @@index([origemTipo, origemId])
+}
+
+/// Divisão de um lançamento entre categorias (ex.: venda com peças e serviços): a DRE usa as frações; o lançamento continua um só (um boleto).
+model LancamentoRateio {
+  id           String              @id @default(cuid())
+  lancamentoId String
+  lancamento   Lancamento          @relation(fields: [lancamentoId], references: [id], onDelete: Cascade)
+  categoriaId  String
+  categoria    CategoriaFinanceira @relation(fields: [categoriaId], references: [id])
+  fracao       Decimal             @db.Decimal(9, 8)
+
+  @@index([lancamentoId])
 }
 
 // ───────────────────────── Fiscal ─────────────────────────

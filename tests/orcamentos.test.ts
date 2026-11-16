@@ -108,13 +108,22 @@ describe("orçamentos", () => {
     const canc = await prisma.situacaoOrcamento.findFirstOrThrow({ where: { exibir: false } });
     const can = await orc.salvarOrcamento(dados(), u);
     await prisma.orcamento.update({ where: { id: can.id }, data: { situacaoId: canc.id } });
-    const n = async (sp: Record<string, string>) => prisma.orcamento.count({ where: await orc.whereOrcamentos("PRODUTO", sp) });
+    const n = async (sp: Record<string, string>) => prisma.orcamento.count({ where: await orc.whereOrcamentos(sp) });
     expect(await n({ periodo: "2026-11" })).toBe(1);
     expect(await n({ periodo: "todos" })).toBe(2);
     expect(await n({ periodo: "todos", s: canc.id })).toBe(1);
     expect(await n({ periodo: "periodo", pde: "2026-10-01", pate: "2026-10-31" })).toBe(1);
     expect(out.numero).toBeGreaterThan(0);
     expect(periodoDia("todos", "", "")).toBeNull();
+  });
+
+  it("orçamento é um só: o de serviços entra na mesma lista e o tipo segue o conteúdo", async () => {
+    const so = await orc.salvarOrcamento(dados({ tipo: "PRODUTO", produtos: [], condicao: "AVISTA", vencimento: "2026-11-09" }), u);
+    const misto = await orc.salvarOrcamento(dados({ tipo: "SERVICO" }), u);
+    expect(so.tipo).toBe("SERVICO");
+    expect(misto.tipo).toBe("PRODUTO");
+    expect(await prisma.orcamento.count({ where: await orc.whereOrcamentos({ periodo: "todos" }) })).toBe(2);
+    await expect(orc.salvarOrcamento(dados({ produtos: [], servicos: [] }), u)).rejects.toThrow(/produto ou serviço/);
   });
 
   it("importa orçamentos do backup do Gestão Click com itens, parcelas e situação, e continua a numeração", async () => {

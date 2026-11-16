@@ -1,8 +1,5 @@
-import PaginaFormOrcamento from "@/components/orcamentos/PaginaFormOrcamento";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-export const metadata = { title: "Adicionar orçamento" };
-
-export default function Adicionar() {
-  return <PaginaFormOrcamento tipo="SERVICO" />;
+export default function Page() {
+  redirect("/orcamentos/adicionar");
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/auth/atual";
 import { cor } from "@/lib/orcamentos/tipos";
+import { conteudo } from "@/components/orcamentos/ListaOrcamentos";
 import { ordemVendas, whereVendas, type ParamsVendas } from "@/lib/vendas/pedidos";
 import { clonarVendaAcao, emitirNotaVendaAcao, excluirVendaAcao, excluirVendasAcao, alterarSituacaoVendaAcao, situacaoVendasEmMassaAcao } from "@/lib/vendas/acoes";
 import { colunasVisiveis } from "@/lib/ui/colunas";
@@ -22,12 +23,12 @@ import FormSituacao from "@/components/orcamentos/FormSituacao";
 export type TipoLista = "PEDIDO" | "SERVICO" | "BALCAO";
 const COLUNAS = [
   { chave: "numero", rotulo: "Nº" }, { chave: "nfe", rotulo: "NF-e" }, { chave: "cliente", rotulo: "Cliente" }, { chave: "data", rotulo: "Data" },
-  { chave: "entrega", rotulo: "Entrega" }, { chave: "situacao", rotulo: "Situação" }, { chave: "valor", rotulo: "Valor" }, { chave: "loja", rotulo: "Loja" },
+  { chave: "entrega", rotulo: "Entrega" }, { chave: "situacao", rotulo: "Situação" }, { chave: "conteudo", rotulo: "Conteúdo" }, { chave: "valor", rotulo: "Valor" }, { chave: "loja", rotulo: "Loja" },
 ];
 const dataBr = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "");
 const dataUtc = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "UTC" }) : "");
-export const baseVendas = (t: TipoLista) => (t === "SERVICO" ? "/vendas/servicos" : t === "BALCAO" ? "/vendas/balcao" : "/vendas");
-export const tituloVendas = (t: TipoLista) => (t === "SERVICO" ? "Vendas de serviços" : t === "BALCAO" ? "Vendas balcão" : "Vendas de produtos");
+export const baseVendas = (t: TipoLista) => (t === "BALCAO" ? "/vendas/balcao" : "/vendas"); // produtos e serviços ficam na mesma lista
+export const tituloVendas = (t: TipoLista) => (t === "BALCAO" ? "Vendas balcão" : "Vendas");
 /** Aviso no seletor de situação: o que cada uma faz com estoque e financeiro. */
 export const avisoSituacao = (s: { estoque: string; financeiro: boolean }) =>
   s.estoque === "LANCAR" ? (s.financeiro ? "lança estoque e financeiro" : "lança somente estoque") : s.estoque === "RESERVAR" ? "reserva o estoque" : "não lança";
@@ -41,7 +42,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   const where = await whereVendas(tipo, sp);
   const { pagina, porPagina, skip, take } = lerPagina(sp);
   const [lista, total, soma, situacoes, empresas, cliente, produto, servico] = await Promise.all([
-    prisma.venda.findMany({ where, orderBy: ordemVendas(sp.o), skip, take, include: { cliente: { select: { id: true, nome: true, fantasia: true } }, situacaoCfg: true } }),
+    prisma.venda.findMany({ where, orderBy: ordemVendas(sp.o), skip, take, include: { cliente: { select: { id: true, nome: true, fantasia: true } }, situacaoCfg: true, _count: { select: { itens: true, servicos: true } } } }),
     prisma.venda.count({ where }),
     prisma.venda.aggregate({ where, _sum: { total: true } }),
     prisma.situacaoVendaConfig.findMany({ orderBy: { ordem: "asc" } }),
@@ -53,8 +54,8 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "VENDA", origemId: { in: lista.map((v) => v.id) }, modelo: { in: ["NFE", "NFCE"] }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true } });
   const notaDe = new Map(notas.map((n) => [n.origemId, n]));
   const centros = (await prisma.venda.findMany({ where: { centroCusto: { not: null } }, distinct: ["centroCusto"], select: { centroCusto: true } })).map((x) => x.centroCusto!);
-  const cols = balcao ? COLUNAS.filter((c) => !["nfe", "entrega"].includes(c.chave)) : COLUNAS;
-  const vis = colunasVisiveis(u?.preferencias, base, cols, balcao ? ["numero", "cliente", "data", "situacao", "valor"] : ["numero", "nfe", "cliente", "data", "situacao", "valor"]);
+  const cols = balcao ? COLUNAS.filter((c) => !["nfe", "entrega", "conteudo"].includes(c.chave)) : COLUNAS;
+  const vis = colunasVisiveis(u?.preferencias, base, cols, balcao ? ["numero", "cliente", "data", "situacao", "valor"] : ["numero", "nfe", "cliente", "data", "situacao", "conteudo", "valor"]);
   const tem = (c: string) => vis.includes(c);
   const loja = () => { const e = empresas[0]; return e ? e.nomeFantasia || e.razaoSocial : ""; };
   const modo = sp.acao;
@@ -75,6 +76,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
           {tem("data") && <Ordenar base={base} params={sp} campo="data" className="w-28">Data</Ordenar>}
           {tem("entrega") && <th className="w-28">Entrega</th>}
           {tem("situacao") && <Ordenar base={base} params={sp} campo="situacao" className="w-40">Situação</Ordenar>}
+          {tem("conteudo") && <th className="w-28">Conteúdo</th>}
           {tem("valor") && <Ordenar base={base} params={sp} campo="valor" className="w-32 text-right">Valor</Ordenar>}
           {tem("loja") && <th className="w-32">Loja</th>}
           <th className="w-28 text-right">Ações</th>
@@ -91,7 +93,8 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
                 {tem("cliente") && <td>{v.cliente ? <><Link href={`/clientes/${v.cliente.id}`} className="underline decoration-slate-300 hover:decoration-slate-700">{v.cliente.nome}</Link>{v.cliente.fantasia && <i className="block text-[11px] text-slate-500">{v.cliente.fantasia}</i>}</> : "Consumidor"}</td>}
                 {tem("data") && <td>{dataBr(v.data)}</td>}
                 {tem("entrega") && <td>{dataUtc(v.prazoEntrega)}</td>}
-                {tem("situacao") && <td><span className={`pilula ${c.pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${c.ponto}`} />{v.situacaoCfg?.nome ?? v.situacao}</span></td>}
+                {tem("situacao") && <td><span className={`pilula ${c.pilula}`}>{v.situacaoCfg?.nome ?? v.situacao}</span></td>}
+                {tem("conteudo") && <td className="text-[12px]">{conteudo(v._count.itens, v._count.servicos)}</td>}
                 {tem("valor") && <td className="text-right">{num2(v.total)}</td>}
                 {tem("loja") && <td className="text-[12px] uppercase">{loja()}</td>}
                 <td>

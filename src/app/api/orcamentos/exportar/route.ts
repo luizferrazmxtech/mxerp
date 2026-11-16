@@ -10,9 +10,8 @@ const dia = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "
 export async function GET(req: Request) {
   if (!(await usuarioAtual())) return new Response("não autorizado", { status: 401 });
   const sp = Object.fromEntries(new URL(req.url).searchParams) as Record<string, string>;
-  const tipo = sp.tipo === "SERVICO" ? "SERVICO" : "PRODUTO";
   const l = await prisma.orcamento.findMany({
-    where: await whereOrcamentos(tipo, sp), orderBy: ordemOrcamentos(sp.o),
+    where: await whereOrcamentos(sp), orderBy: ordemOrcamentos(sp.o),
     include: { cliente: { select: { nome: true } }, vendedor: { select: { nome: true } }, situacao: { select: { nome: true } } },
   });
   const ids = [...new Set(l.map((o) => o.criadoPorId).filter((x): x is string => !!x))];
