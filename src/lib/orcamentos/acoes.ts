@@ -13,7 +13,7 @@ export type Resultado = { ok: boolean; mensagem: string; sugerirVenda?: boolean 
 const EDITA: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR", "TECNICO", "CAIXA"];
 const GER: PapelUsuario[] = ["ADMIN", "GERENTE"];
 const erro = (e: unknown) => ({ ok: false, mensagem: e instanceof Error ? e.message : String(e) });
-const base = (tipo: string) => (tipo === "SERVICO" ? "/orcamentos/servicos" : "/orcamentos");
+const base = (_tipo?: string) => "/orcamentos";
 
 export async function salvarOrcamentoForm(_: Resultado, form: FormData): Promise<Resultado> {
   const u = await exigirUsuario(EDITA);

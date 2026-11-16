@@ -29,8 +29,10 @@ export async function calcularDre(ano: number, regime: Regime = "COMPETENCIA") {
   const campoValor = regime === "CAIXA" ? `l."valorPago"` : `l.valor`;
 
   const lanc = await prisma.$queryRawUnsafe<{ grupo: string; categoria: string; mes: number; valor: number }[]>(
-    `SELECT c."grupoDre"::text grupo, c.nome categoria, EXTRACT(MONTH FROM ${campoData})::int mes, SUM(${campoValor})::float valor
-       FROM "Lancamento" l JOIN "CategoriaFinanceira" c ON c.id = l."categoriaId"
+    // o rateio (venda/OS com peças e serviços) divide o lançamento entre categorias na proporção gravada
+    `SELECT c."grupoDre"::text grupo, c.nome categoria, EXTRACT(MONTH FROM ${campoData})::int mes, SUM(${campoValor} * COALESCE(r.fracao, 1))::float valor
+       FROM "Lancamento" l LEFT JOIN "LancamentoRateio" r ON r."lancamentoId" = l.id
+       JOIN "CategoriaFinanceira" c ON c.id = COALESCE(r."categoriaId", l."categoriaId")
       WHERE ${campoData} >= $1 AND ${campoData} < $2 AND c."grupoDre" <> 'NAO_OPERACIONAL'
         ${regime === "CAIXA" ? `AND l."pagoEm" IS NOT NULL` : ""}
       GROUP BY 1, 2, 3`,

@@ -1,8 +1,8 @@
 import ListaOrcamentos from "@/components/orcamentos/ListaOrcamentos";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Orçamentos de produtos" };
+export const metadata = { title: "Orçamentos" };
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  return <ListaOrcamentos tipo="PRODUTO" sp={await searchParams} />;
+  return <ListaOrcamentos sp={await searchParams} />;
 }

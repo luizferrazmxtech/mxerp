@@ -20,19 +20,21 @@ import FormSituacao from "./FormSituacao";
 
 const COLUNAS = [
   { chave: "numero", rotulo: "Nº" }, { chave: "cliente", rotulo: "Cliente" }, { chave: "data", rotulo: "Data" }, { chave: "entrega", rotulo: "Entrega" },
-  { chave: "situacao", rotulo: "Situação" }, { chave: "valor", rotulo: "Valor" }, { chave: "loja", rotulo: "Loja" },
+  { chave: "situacao", rotulo: "Situação" }, { chave: "conteudo", rotulo: "Conteúdo" }, { chave: "valor", rotulo: "Valor" }, { chave: "loja", rotulo: "Loja" },
 ];
+/** Peças, Serviços ou Peças e serviços, pelo que o documento tem. */
+export const conteudo = (produtos: number, servicos: number) => (produtos && servicos ? "Peças e serviços" : servicos ? "Serviços" : "Peças");
 const dataBr = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "UTC" }) : "");
 
 /** Lista de orçamentos de produtos ou de serviços, no padrão do Gestão Click. */
-export default async function ListaOrcamentos({ tipo, sp }: { tipo: "PRODUTO" | "SERVICO"; sp: ParamsOrcamentos }) {
-  const base = tipo === "SERVICO" ? "/orcamentos/servicos" : "/orcamentos";
-  const titulo = tipo === "SERVICO" ? "Orçamentos de serviços" : "Orçamentos de produtos";
+export default async function ListaOrcamentos({ sp }: { sp: ParamsOrcamentos }) {
+  const base = "/orcamentos";
+  const titulo = "Orçamentos";
   const u = await usuarioAtual();
-  const where = await whereOrcamentos(tipo, sp);
+  const where = await whereOrcamentos(sp);
   const { pagina, porPagina, skip, take } = lerPagina(sp);
   const [lista, total, soma, situacoes, empresas, cliente, produto, servico] = await Promise.all([
-    prisma.orcamento.findMany({ where, orderBy: ordemOrcamentos(sp.o), skip, take, include: { cliente: { select: { id: true, nome: true, fantasia: true } }, situacao: true } }),
+    prisma.orcamento.findMany({ where, orderBy: ordemOrcamentos(sp.o), skip, take, include: { cliente: { select: { id: true, nome: true, fantasia: true } }, situacao: true, _count: { select: { produtos: true, servicos: true } } } }),
     prisma.orcamento.count({ where }),
     prisma.orcamento.aggregate({ where, _sum: { total: true } }),
     prisma.situacaoOrcamento.findMany({ orderBy: { ordem: "asc" } }),
@@ -42,7 +44,7 @@ export default async function ListaOrcamentos({ tipo, sp }: { tipo: "PRODUTO" | 
     sp.serv ? prisma.servico.findUnique({ where: { id: sp.serv }, select: { id: true, nome: true } }) : null,
   ]);
   const centros = (await prisma.orcamento.findMany({ where: { centroCusto: { not: null } }, distinct: ["centroCusto"], select: { centroCusto: true } })).map((x) => x.centroCusto!);
-  const vis = colunasVisiveis(u?.preferencias, base, COLUNAS, ["numero", "cliente", "data", "situacao", "valor"]);
+  const vis = colunasVisiveis(u?.preferencias, base, COLUNAS, ["numero", "cliente", "data", "situacao", "conteudo", "valor"]);
   const tem = (c: string) => vis.includes(c);
   const loja = (id: string | null) => { const e = empresas.find((x) => x.id === id) ?? empresas[0]; return e ? e.nomeFantasia || e.razaoSocial : ""; };
   const modo = sp.acao;
@@ -61,6 +63,7 @@ export default async function ListaOrcamentos({ tipo, sp }: { tipo: "PRODUTO" | 
           {tem("data") && <Ordenar base={base} params={sp} campo="data" className="w-28">Data</Ordenar>}
           {tem("entrega") && <Ordenar base={base} params={sp} campo="entrega" className="w-28">Entrega</Ordenar>}
           {tem("situacao") && <th className="w-40">Situação</th>}
+          {tem("conteudo") && <th className="w-28">Conteúdo</th>}
           {tem("valor") && <Ordenar base={base} params={sp} campo="valor" className="w-32 text-right">Valor</Ordenar>}
           {tem("loja") && <th className="w-32">Loja</th>}
           <th className="w-28 text-right">Ações</th>
@@ -75,7 +78,8 @@ export default async function ListaOrcamentos({ tipo, sp }: { tipo: "PRODUTO" | 
                 {tem("cliente") && <td><Link href={`/clientes/${o.cliente.id}`} className="underline decoration-slate-300 hover:decoration-slate-700">{o.cliente.nome}</Link>{o.cliente.fantasia && <i className="block text-[11px] text-slate-500">{o.cliente.fantasia}</i>}</td>}
                 {tem("data") && <td>{dataBr(o.data)}</td>}
                 {tem("entrega") && <td>{dataBr(o.prazoEntrega)}</td>}
-                {tem("situacao") && <td><span className={`pilula ${c.pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${c.ponto}`} />{o.situacao.nome}</span></td>}
+                {tem("situacao") && <td><span className={`pilula ${c.pilula}`}>{o.situacao.nome}</span></td>}
+                {tem("conteudo") && <td className="text-[12px]">{conteudo(o._count.produtos, o._count.servicos)}</td>}
                 {tem("valor") && <td className="text-right">{num2(o.total)}</td>}
                 {tem("loja") && <td className="text-[12px] uppercase">{loja(o.empresaId)}</td>}
                 <td>
@@ -108,7 +112,7 @@ export default async function ListaOrcamentos({ tipo, sp }: { tipo: "PRODUTO" | 
       <div className="no-print mb-3 flex flex-wrap items-center gap-2">
         <Link href={`${base}/adicionar`} className="btn"><Icone nome="mais" size={15} /> Adicionar</Link>
         <Suspenso classe="btn-sec" botao={<><Icone nome="ajustes" size={15} /> Mais ações <Icone nome="abaixo" size={13} /></>}>
-          <a href={urlCom("/api/orcamentos/exportar", { ...filtros, tipo }, {})} className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="exportar" size={15} /> Exportar</a>
+          <a href={urlCom("/api/orcamentos/exportar", filtros, {})} className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="exportar" size={15} /> Exportar</a>
           <LinkSuspenso href={urlCom(base, sp, { acao: "imprimir" })} icone="imprimir">Imprimir</LinkSuspenso>
           <LinkSuspenso href={urlCom(base, sp, { acao: "situacoes" })} icone="atualizar">Alterar situação</LinkSuspenso>
           <LinkSuspenso href={urlCom(base, sp, { acao: "excluir" })} icone="excluir">Excluir</LinkSuspenso>

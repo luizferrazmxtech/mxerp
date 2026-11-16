@@ -1,9 +1,6 @@
-import ListaVendas from "@/components/vendas/ListaVendas";
-import type { ParamsVendas } from "@/lib/vendas/pedidos";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-export const metadata = { title: "Vendas de serviços" };
-
-export default async function VendasServicos({ searchParams }: { searchParams: Promise<ParamsVendas> }) {
-  return <ListaVendas tipo="SERVICO" sp={await searchParams} />;
+/** Venda é uma só (produtos e serviços juntos): o endereço antigo abre a lista única. */
+export default function Page() {
+  redirect("/vendas");
 }

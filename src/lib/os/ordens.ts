@@ -3,7 +3,7 @@ import { prisma, type Tx } from "@/lib/db";
 import { entrada } from "@/lib/estoque/estoque";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { cancelarRecebimentos } from "@/lib/financeiro/lancamentos";
-import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
+import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
 import { parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, lerNumero, subtotalProduto, subtotalServico } from "@/lib/orcamentos/tipos";
@@ -67,14 +67,15 @@ async function lancarFinanceiro(tx: Tx, osId: string) {
   const o = await tx.ordemServico.findUniqueOrThrow({ where: { id: osId }, include: { parcelas: { orderBy: { numero: "asc" } } } });
   if (!(Number(o.total) > 0)) return;
   await garantirPadroes(tx);
-  const cat = await categoria(tx, "Prestação de serviços", "RECEBER");
+  const rec = await receitaDocumento(tx, Number(o.totalProdutos), Number(o.totalServicos));
   const parcelas = o.parcelas.length ? o.parcelas : [{ numero: 1, vencimento: o.saida ?? o.entrada, valor: o.total, formaPagamentoId: o.formaPagamentoId }];
   for (const p of parcelas)
     await tx.lancamento.create({
       data: {
         tipo: "RECEBER", descricao: parcelas.length > 1 ? `OS de nº ${o.numero} (${p.numero}/${parcelas.length})` : `OS de nº ${o.numero}`,
-        pessoaId: o.clienteId, categoriaId: cat.id, formaPagamentoId: p.formaPagamentoId ?? o.formaPagamentoId, valor: p.valor,
+        pessoaId: o.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? o.formaPagamentoId, valor: p.valor,
         vencimento: p.vencimento, competencia: o.saida ?? o.entrada, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "OS", origemId: o.id,
+        rateio: { create: rec.rateio },
       },
     });
 }

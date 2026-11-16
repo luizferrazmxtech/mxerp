@@ -39,8 +39,7 @@ export const MENU: ItemMenu[] = [
   },
   {
     rotulo: "Orçamentos", icone: "notas", filhos: [
-      { rotulo: "Produtos", href: "/orcamentos", icone: "produtos" },
-      { rotulo: "Serviços", href: "/orcamentos/servicos", icone: "servicos" },
+      { rotulo: "Gerenciar orçamentos", href: "/orcamentos", icone: "gerenciar" },
       {
         rotulo: "Opções auxiliares", href: "/orcamentos/situacoes", icone: "auxiliares", filhos: [
           { rotulo: "Situações", href: "/orcamentos/situacoes", icone: "lista" },
@@ -53,8 +52,7 @@ export const MENU: ItemMenu[] = [
   },
   {
     rotulo: "Vendas", icone: "vendas", filhos: [
-      { rotulo: "Produtos", href: "/vendas", icone: "produtos" },
-      { rotulo: "Serviços", href: "/vendas/servicos", icone: "servicos" },
+      { rotulo: "Gerenciar vendas", href: "/vendas", icone: "gerenciar" },
       { rotulo: "Balcão", href: "/vendas/balcao", icone: "balcao" },
       { rotulo: "Trocas e devoluções", href: "/vendas/devolucoes", icone: "atualizar" },
       {
