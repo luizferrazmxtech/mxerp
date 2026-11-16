@@ -127,8 +127,9 @@ describe("backup do Gestão Click", () => {
 
     // OS: 7001 aberta, 7002 em andamento, 7003 concretizada (fica de fora), 7004 concluída-faturar (cliente criado)
     expect(por("os").criados).toBe(3);
-    const o1 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 }, include: { cliente: true, servicos: true } });
-    expect(o1).toMatchObject({ situacao: "ABERTA", equipamento: "NOBREAK", marca: "SMS" });
+    const o1 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 }, include: { cliente: true, servicos: true, equipamentos: true } });
+    expect(o1).toMatchObject({ situacao: "ABERTA" });
+    expect(o1.equipamentos[0]).toMatchObject({ equipamento: "NOBREAK", marca: "SMS" });
     expect(o1.cliente.nome).toBe("LAZARO");
     expect(Number(o1.total)).toBeCloseTo(369.8);
     expect((await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7002 } })).situacao).toBe("EM_ANDAMENTO");

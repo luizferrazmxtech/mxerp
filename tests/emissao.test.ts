@@ -94,7 +94,7 @@ describe("NFS-e da OS", () => {
     await prisma.empresa.updateMany({ data: { inscricaoMunicipal: "12345" } });
     const cli = await prisma.pessoa.create({ data: { nome: "Condomínio", documento: "11222333000181" } });
     const sv = await prisma.servico.create({ data: { codigo: "INST", nome: "Instalação de rede", preco: 600, codigoTributacaoNacional: "140101" } });
-    const o = await osSvc.criarOs({ clienteId: cli.id, equipamento: "Rack" });
+    const o = await osSvc.criarOs({ clienteId: cli.id, equipamentos: [{ equipamento: "Rack" }] });
     await osSvc.adicionarServico(o.id, { servicoId: sv.id });
     await expect(fiscal.emitirNfseOs(o.id, { cert })).rejects.toThrow(/Conclua/);
     await osSvc.alterarSituacao(o.id, "CONCLUIDA");

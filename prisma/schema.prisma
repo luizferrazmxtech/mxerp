@@ -68,6 +68,7 @@ model Usuario {
   vendas         Venda[]
   movimentos     MovimentoEstoque[]
   sessoes        Sessao[]
+  caixas         CaixaPdv[]
 }
 
 /** Sessão de login: o cookie guarda um token aleatório; aqui fica só o hash dele. */
@@ -320,6 +321,34 @@ enum SituacaoOs {
   DEVOLVIDA_SEM_REPARO
 }
 
+enum PrioridadeOs {
+  BAIXA
+  MEDIA
+  ALTA
+  URGENTE
+  MUITO_URGENTE
+}
+
+/** Equipamentos da OS (uma OS pode ter vários, como no Gestão Click). */
+model OsEquipamento {
+  id          String       @id @default(cuid())
+  osId        String
+  os          OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
+  ordem       Int          @default(1)
+  equipamento String
+  marca       String?
+  modelo      String?
+  serie       String?
+  condicoes   String?
+  defeitos    String?
+  acessorios  String?
+  solucao     String?
+  laudo       String?
+  garantia    String?
+
+  @@index([osId])
+}
+
 model OrdemServico {
   id            String     @id @default(cuid())
   numero        Int        @unique
@@ -333,14 +362,13 @@ model OrdemServico {
   entrada       DateTime   @default(now())
   previsao      DateTime?
   saida         DateTime?
-  equipamento   String?
-  marca         String?
-  modelo        String?
-  numeroSerie   String?
-  defeito       String?
-  laudo         String?
+  prioridade    PrioridadeOs?
+  canal         String     @default("Presencial")
   observacoes   String?
+  observacaoInterna String?
   desconto      Decimal    @default(0) @db.Decimal(14, 2)
+  frete         Decimal    @default(0) @db.Decimal(14, 2)
+  outros        Decimal    @default(0) @db.Decimal(14, 2)
   totalProdutos Decimal    @default(0) @db.Decimal(14, 2)
   totalServicos Decimal    @default(0) @db.Decimal(14, 2)
   total         Decimal    @default(0) @db.Decimal(14, 2)
@@ -348,6 +376,7 @@ model OrdemServico {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
+  equipamentos OsEquipamento[]
   produtos OsItemProduto[]
   servicos OsItemServico[]
   historico OsHistorico[]
@@ -406,6 +435,21 @@ enum SituacaoVenda {
   CANCELADA
 }
 
+/** Caixa do PDV: aberto com um valor em dinheiro, as vendas de balcão ficam ligadas a ele até o fechamento. */
+model CaixaPdv {
+  id              String    @id @default(cuid())
+  usuarioId       String
+  usuario         Usuario   @relation(fields: [usuarioId], references: [id])
+  abertoEm        DateTime  @default(now())
+  valorAbertura   Decimal   @db.Decimal(14, 2)
+  fechadoEm       DateTime?
+  valorFechamento Decimal?  @db.Decimal(14, 2)
+  observacao      String?
+  vendas          Venda[]
+
+  @@index([usuarioId, fechadoEm])
+}
+
 model Venda {
   id         String        @id @default(cuid())
   numero     Int           @unique
@@ -423,6 +467,9 @@ model Venda {
   idLegado   String?       @unique
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
+
+  caixaId    String?
+  caixa      CaixaPdv?     @relation(fields: [caixaId], references: [id])
 
   itens     VendaItem[]
   servicos  VendaItemServico[]

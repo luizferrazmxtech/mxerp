@@ -225,7 +225,7 @@ export async function emitirNfseOs(osId: string, deps: DependenciasNfse = {}) {
   if (!e.inscricaoMunicipal) throw new FiscalError("Informe a inscrição municipal da empresa");
   const os = await prisma.ordemServico.findUniqueOrThrow({
     where: { id: osId },
-    include: { cliente: true, servicos: { include: { servico: true } } },
+    include: { cliente: true, servicos: { include: { servico: true } }, equipamentos: { orderBy: { ordem: "asc" } } },
   });
   if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a NFS-e");
   if (!os.servicos.length) throw new FiscalError("OS sem serviços");
@@ -250,7 +250,7 @@ export async function emitirNfseOs(osId: string, deps: DependenciasNfse = {}) {
   try {
     const descricao = [
       ...os.servicos.map((s) => `${Number(s.quantidade)} x ${s.servico.nome}`),
-      os.equipamento ? `Equipamento: ${os.equipamento}` : "",
+      ...os.equipamentos.map((q) => `Equipamento: ${[q.equipamento, q.marca, q.modelo, q.serie].filter(Boolean).join(" ")}`),
       `OS ${os.numero}`,
     ].filter(Boolean).join(" | ");
     const { xml } = montarDps({
