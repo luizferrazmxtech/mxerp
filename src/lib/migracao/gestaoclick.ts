@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { entrada, reservarItem } from "@/lib/estoque/estoque";
 import { alterarSituacaoTx, recalcularTotais } from "@/lib/os/os";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
+import { proximoNumero } from "@/lib/sequencia";
 import { lerPlanilha, normalizar, numeroBr, type Linha } from "./planilha";
 import { importarPessoas, importarProdutos, importarServicos, type Resultado } from "./importar";
 import type { SituacaoOs } from "@prisma/client";
@@ -50,29 +51,32 @@ function dataHoraBr(s: string | undefined): Date | null {
 // ---------- cadastros: transformam o layout do Gestão Click no layout que os importadores entendem
 
 function linhasPessoas(cad: Linha[] | undefined, ends: Linha[] | undefined, tipoCol: string) {
-  // endereço: prefere o que não é só de entrega
-  const end = new Map<string, Linha>();
-  for (const e of ends ?? []) {
-    const atual = end.get(e.codigo);
-    if (!atual || (/entrega/i.test(atual.tipo) && !/entrega/i.test(e.tipo))) end.set(e.codigo, e);
-  }
+  // todos os endereços; o principal (o primeiro) é o que não é só de entrega
+  const ends2 = new Map<string, Linha[]>();
+  for (const e of ends ?? []) (ends2.get(e.codigo) ?? ends2.set(e.codigo, []).get(e.codigo)!).push(e);
   return (cad ?? []).map((c) => {
-    const e = end.get(c.codigo) ?? {};
+    const lista = [...(ends2.get(c.codigo) ?? [])].sort((x, y) => Number(/entrega/i.test(x.tipo ?? "")) - Number(/entrega/i.test(y.tipo ?? "")));
+    const e = lista[0] ?? {};
     const pj = c[tipoCol] === "PJ";
     const razao = c["razao social"];
+    const nome = c.nome || c["nome fantasia"];
     return {
       codigo: c.codigo,
-      nome: pj && razao ? razao : c.nome || razao || "",
-      "nome fantasia": pj && razao && c.nome && chaveNome(c.nome) !== chaveNome(razao) ? c.nome : "",
+      nome: pj && razao ? razao : nome || razao || "",
+      "nome fantasia": pj && razao && nome && chaveNome(nome) !== chaveNome(razao) ? nome : "",
       documento: pj ? c.cnpj || c.cpf : c.cpf || c.cnpj,
-      "tipo de pessoa": c[tipoCol] === "PF" ? "física" : "jurídica",
-      ie: c["inscricao estadual"] ?? "",
+      "tipo de pessoa": c[tipoCol] === "PF" ? "física" : /estrang/i.test(c[tipoCol] ?? "") ? "estrangeiro" : "jurídica",
+      rg: c.rg ?? "", "data de nascimento": c["data de nascimento"] ?? "", "nome social": c["nome social"] ?? "",
+      ie: c["inscricao estadual"] ?? "", "inscricao municipal": c["inscricao municipal"] ?? "", responsavel: c.responsavel ?? "",
       email: c["e mail"] ?? "",
       telefone: c.telefone ?? "",
       celular: c.celular ?? "",
+      observacoes: c.observacoes ?? "",
+      "cadastrado em": c["cadastrado em"] ?? "",
       cep: e.cep ?? "", logradouro: e.logradouro ?? "", numero: e.numero ?? "", complemento: e.complemento ?? "",
       bairro: e.bairro ?? "", cidade: e.cidade ?? "", uf: e.uf ?? "",
-      ativo: sim(c.ativo ?? ""),
+      __enderecos: JSON.stringify(lista.map((x) => ({ tipo: x.tipo ?? "", cep: x.cep ?? "", logradouro: x.logradouro ?? "", numero: x.numero ?? "", complemento: x.complemento ?? "", bairro: x.bairro ?? "", cidade: x.cidade ?? "", uf: x.uf ?? "" }))),
+      ativo: sim(c.ativo ?? c.situacao ?? ""),
     } as Linha;
   });
 }
@@ -201,7 +205,7 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
       const cliente =
         (codCli && (await tx.pessoa.findUnique({ where: { idLegado: `cliente:${codCli}` } }))) ||
         (await tx.pessoa.findFirst({ where: { OR: [{ nome: { equals: o.cliente, mode: "insensitive" } }, { fantasia: { equals: o.cliente, mode: "insensitive" } }] } })) ||
-        (await tx.pessoa.create({ data: { nome: o.cliente || "Cliente não informado", idLegado: `cliente-os:${o.cliente}`, observacoes: "Criado na migração a partir de uma OS" } }));
+        (await tx.pessoa.create({ data: { nome: o.cliente || "Cliente não informado", idLegado: `cliente-os:${o.cliente}`, observacoes: "Criado na migração a partir de uma OS", codigoCliente: await proximoNumero(tx, "CLIENTE") } }));
       const eq = equips.get(o["n da os"]) ?? [];
       const os = await tx.ordemServico.create({
         data: {
@@ -341,6 +345,7 @@ export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: bo
   if (e.cadastros) {
     res.push(await importarPessoas(linhasPessoas(t.clientes, t.clientes_enderecos, "tipo de pessoa"), "cliente", simular));
     res.push(await importarPessoas(linhasPessoas(t.fornecedores, t.fornecedores_enderecos, "tipo de fornecedor"), "fornecedor", simular));
+    if (t.transportadoras) res.push(await importarPessoas(linhasPessoas(t.transportadoras, t.transportadoras_enderecos, "tipo de transportadora"), "transportadora", simular));
     res.push(await importarServicos(linhasServicos(t.servicos), simular));
   }
   if (e.cadastros || e.estoque) {

@@ -40,6 +40,7 @@ function emitenteDe(e: Empresa): DadosNota["emitente"] {
 }
 
 function destinatarioDe(p: Pessoa | null, obrigatorio: boolean): Destinatario | null {
+  if (p?.tipoPessoa === "ESTRANGEIRO") throw new FiscalError("Nota para cliente estrangeiro (exportação) ainda não é emitida pelo sistema");
   if (!p || !p.documento) {
     if (obrigatorio) throw new FiscalError("NF-e exige cliente com CPF/CNPJ");
     return null;

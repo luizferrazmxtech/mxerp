@@ -1,4 +1,7 @@
+import type { TipoPessoa } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { proximoNumero } from "@/lib/sequencia";
+import { PAPEIS, garantirCodigo, type PapelPessoa } from "@/lib/cadastros/pessoas";
 import { entrada, resumoProduto, saida } from "@/lib/estoque/estoque";
 import { campo, numeroBr, type Linha } from "./planilha";
 
@@ -8,7 +11,7 @@ import { campo, numeroBr, type Linha } from "./planilha";
  * que seria feito sem gravar nada.
  */
 
-export type Tipo = "clientes" | "fornecedores" | "produtos" | "servicos" | "os" | "receber" | "pagar";
+export type Tipo = "clientes" | "fornecedores" | "transportadoras" | "produtos" | "servicos" | "os" | "receber" | "pagar";
 
 export type Resultado = {
   tipo: Tipo;
@@ -41,6 +44,11 @@ export const COLUNAS = {
   uf: ["uf", "estado"],
   situacao: ["situação", "situacao", "ativo", "status"],
   observacoes: ["observações", "observacoes", "obs"],
+  rg: ["rg"],
+  nascimento: ["data de nascimento", "nascimento"],
+  nomeSocial: ["nome social"],
+  responsavel: ["responsável", "responsavel"],
+  cadastrado: ["cadastrado em", "data de cadastro"],
   // produtos
   gtin: ["código de barras", "codigo de barras", "codigo de barra", "gtin", "ean", "gtin/ean"],
   unidade: ["unidade", "un", "unid", "sigla da unidade", "unidade de saida", "unidade de entrada"],
@@ -64,24 +72,37 @@ function novoResultado(tipo: Tipo, simular: boolean, lidas: number): Resultado {
   return { tipo, simulado: simular, lidas, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
 }
 
-export async function importarPessoas(linhas: Linha[], papel: "cliente" | "fornecedor", simular = true): Promise<Resultado> {
-  const r = novoResultado(papel === "cliente" ? "clientes" : "fornecedores", simular, linhas.length);
+export async function importarPessoas(linhas: Linha[], papel: PapelPessoa, simular = true): Promise<Resultado> {
+  const r = novoResultado(`${papel === "transportadora" ? "transportadoras" : papel === "cliente" ? "clientes" : "fornecedores"}` as Tipo, simular, linhas.length);
+  const cfg = PAPEIS[papel];
   const vistos = new Set<string>();
+  let maiorCodigo = 0;
   for (const [i, l] of linhas.entries()) {
     const nome = c(l, "nome");
     if (!nome) { r.ignorados.push({ linha: i + 2, motivo: "sem nome" }); continue; }
-    let doc = digitos(c(l, "documento")) || null;
-    if (doc && ![11, 14].includes(doc.length)) { r.avisos.push(`Linha ${i + 2}: documento "${c(l, "documento")}" inválido, importado sem documento`); doc = null; }
+    const tipoTxt = c(l, "tipoPessoa");
+    const estrangeiro = /estrang/i.test(tipoTxt);
+    let doc = estrangeiro ? c(l, "documento") || null : digitos(c(l, "documento")) || null;
+    if (doc && !estrangeiro && ![11, 14].includes(doc.length)) { r.avisos.push(`Linha ${i + 2}: documento "${c(l, "documento")}" inválido, importado sem documento`); doc = null; }
     if (doc && vistos.has(doc)) { r.ignorados.push({ linha: i + 2, motivo: `documento ${doc} repetido` }); continue; }
     if (doc) vistos.add(doc);
-    const legado = c(l, "codigo") ? `${papel}:${c(l, "codigo")}` : null;
-    const tipoTxt = c(l, "tipoPessoa");
+    const codigoTxt = c(l, "codigo");
+    const legado = codigoTxt ? `${papel}:${codigoTxt}` : null;
+    const tipoPessoa = (estrangeiro ? "ESTRANGEIRO" : doc?.length === 11 || /f[ií]sica|^pf$/i.test(tipoTxt) ? "FISICA" : "JURIDICA") as TipoPessoa;
+    const enderecos = l.__enderecos ? (JSON.parse(l.__enderecos) as Linha[]) : [];
+    const nasc = c(l, "nascimento");
+    const cadastrado = c(l, "cadastrado");
     const dados = {
       nome: nome.slice(0, 200),
       fantasia: c(l, "fantasia") || null,
       documento: doc,
-      tipoPessoa: (doc?.length === 11 || /f[ií]sica|^pf$/i.test(tipoTxt) ? "FISICA" : "JURIDICA") as "FISICA" | "JURIDICA",
+      tipoPessoa,
+      nomeSocial: c(l, "nomeSocial") || null,
+      rg: c(l, "rg") || null,
+      nascimento: /^\d{2}\/\d{2}\/\d{4}/.test(nasc) ? new Date(`${nasc.slice(6, 10)}-${nasc.slice(3, 5)}-${nasc.slice(0, 2)}T00:00:00Z`) : /^\d{4}-\d{2}-\d{2}/.test(nasc) ? new Date(nasc.slice(0, 10) + "T00:00:00Z") : null,
       inscricaoEstadual: c(l, "ie") || null,
+      inscricaoMunicipal: c(l, "im") || null,
+      responsavel: c(l, "responsavel") || null,
       contribuinteIcms: (/isent/i.test(c(l, "ie")) ? "ISENTO" : digitos(c(l, "ie")) ? "CONTRIBUINTE" : "NAO_CONTRIBUINTE") as "ISENTO" | "CONTRIBUINTE" | "NAO_CONTRIBUINTE",
       email: c(l, "email") || null,
       telefone: c(l, "telefone") || null,
@@ -99,19 +120,50 @@ export async function importarPessoas(linhas: Linha[], papel: "cliente" | "forne
     };
     const existente = await prisma.pessoa.findFirst({
       where: { OR: [...(doc ? [{ documento: doc }] : []), ...(legado ? [{ idLegado: legado }] : [])] },
+      include: { _count: { select: { enderecos: true } } },
     });
     if (simular) { if (existente) r.atualizados++; else r.criados++; continue; }
-    if (existente) {
-      // campos vazios na planilha não apagam o que já existe (ex.: fornecedor sem endereço que já era cliente)
-      const preenchidos = Object.fromEntries(Object.entries(dados).filter(([, v]) => v !== null && v !== ""));
-      await prisma.pessoa.update({ where: { id: existente.id }, data: { ...preenchidos, [papel]: true } });
-      r.atualizados++;
-    } else {
-      await prisma.pessoa.create({ data: { ...dados, idLegado: legado, cliente: papel === "cliente", fornecedor: papel === "fornecedor" } });
-      r.criados++;
-    }
+    const listaEnd = (enderecos.length ? enderecos : dados.logradouro || dados.cep || dados.cidade ? [{ cep: dados.cep ?? "", logradouro: dados.logradouro ?? "", numero: dados.numero ?? "", complemento: dados.complemento ?? "", bairro: dados.bairro ?? "", cidade: dados.cidade ?? "", uf: dados.uf ?? "", codigomunicipio: dados.codigoMunicipio ?? "" }] : [])
+      .map((e, ordem) => ({ ordem, tipo: e.tipo || null, cep: digitos(e.cep ?? "") || null, logradouro: e.logradouro || null, numero: e.numero || null, complemento: e.complemento || null, bairro: e.bairro || null, cidade: e.cidade || null, codigoMunicipio: digitos(e.codigomunicipio ?? "") || null, uf: (e.uf ?? "").toUpperCase().slice(0, 2) || null }));
+    // código do sistema anterior vira o código do cadastro, quando livre
+    const n = Number(codigoTxt);
+    const codigoLegado = Number.isInteger(n) && n > 0 && !(await prisma.pessoa.findFirst({ where: { [cfg.codigo]: n, ...(existente ? { NOT: { id: existente.id } } : {}) }, select: { id: true } })) ? n : null;
+    if (codigoLegado) maiorCodigo = Math.max(maiorCodigo, codigoLegado);
+    await prisma.$transaction(async (tx) => {
+      if (existente) {
+        // campos vazios na planilha não apagam o que já existe (ex.: fornecedor sem endereço que já era cliente)
+        const preenchidos = Object.fromEntries(Object.entries(dados).filter(([, v]) => v !== null && v !== ""));
+        await tx.pessoa.update({
+          where: { id: existente.id },
+          data: { ...preenchidos, [papel]: true,
+            ...(existente.idLegado === legado && cadastrado && dataBrHora(cadastrado) ? { createdAt: dataBrHora(cadastrado)! } : {}), ...(existente[cfg.codigo] == null && codigoLegado ? { [cfg.codigo]: codigoLegado } : {}),
+            ...(existente._count.enderecos === 0 && listaEnd.length ? { enderecos: { create: listaEnd } } : {}) },
+        });
+        if (existente[cfg.codigo] == null && !codigoLegado) await garantirCodigo(tx, existente.id, papel);
+        r.atualizados++;
+      } else {
+        await tx.pessoa.create({
+          data: {
+            ...dados, idLegado: legado, cliente: papel === "cliente", fornecedor: papel === "fornecedor", transportadora: papel === "transportadora",
+            [cfg.codigo]: codigoLegado ?? (await proximoNumero(tx, cfg.sequencia)),
+            ...(cadastrado && dataBrHora(cadastrado) ? { createdAt: dataBrHora(cadastrado)! } : {}),
+            enderecos: { create: listaEnd },
+          },
+        });
+        r.criados++;
+      }
+    });
+  }
+  if (!simular && maiorCodigo) {
+    await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES (${cfg.sequencia}, ${maiorCodigo})
+      ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, EXCLUDED.valor)`;
   }
   return r;
+}
+
+function dataBrHora(s: string): Date | null {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})(?: (\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(s.trim());
+  return m ? new Date(`${m[3]}-${m[2]}-${m[1]}T${m[4] ?? "12"}:${m[5] ?? "00"}:${m[6] ?? "00"}-03:00`) : null;
 }
 
 /**

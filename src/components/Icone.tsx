@@ -3,7 +3,7 @@ import {
   ChartNoAxesColumn, ChevronDown, ChevronRight, CircleAlert, ClipboardList, Copy, CreditCard, Eye, FileText, Gauge,
   HandCoins, House, IdCard, KeyRound, Landmark, LayoutGrid, List, LogOut, MapPin, Menu, MonitorSmartphone, MoreVertical,
   Package, Pencil, Plus, Printer, ReceiptText, RefreshCw, Search, Settings, Settings2, Share2, ShoppingBasket, ShoppingCart,
-  SlidersHorizontal, Store, Tag, Trash2, Truck, Upload, User, Users, Wallet, Wrench, X, Zap,
+  SlidersHorizontal, Store, Factory, Paperclip, StickyNote, MessageCircle, Send, ShieldCheck, Info, Camera, Contact, Percent, Download, Mail, Check, Megaphone, ListChecks, Phone, UserRound, Upload as Enviar, FileSpreadsheet, Tag, Trash2, Truck, Upload, User, Users, Wallet, Wrench, X, Zap,
 } from "lucide-react";
 import type { LucideProps } from "lucide-react";
 
@@ -18,7 +18,10 @@ const ICONES = {
   calendario: CalendarDays, prazo: CalendarClock, alerta: CircleAlert, urgente: Zap, relogio: AlarmClock, atualizar: RefreshCw,
   grafico: ChartNoAxesColumn, dinheiro: Banknote, cartao: CreditCard, caixa: Calculator, etiqueta: Tag, frete: Truck,
   carrinho: ShoppingCart, pdv: MonitorSmartphone, valor: BadgeDollarSign, fechar: X, abaixo: ChevronDown, direita: ChevronRight,
-  ajustes: Settings2,
+  ajustes: Settings2, fornecedores: Factory, anexos: Paperclip, anotacoes: StickyNote, whatsapp: MessageCircle, envios: Send,
+  serasa: ShieldCheck, detalhes: Info, foto: Camera, contatos: Contact, percentual: Percent, exportar: Download, importar: Enviar,
+  email: Mail, ok: Check, auxiliares: Megaphone, colunas: ListChecks, telefone: Phone, pessoa: UserRound, eventos: CalendarDays,
+  planilha: FileSpreadsheet, chave: KeyRound, endereco: MapPin, lojas: Store, transportadoras: Truck,
 } as const;
 
 export type NomeIcone = keyof typeof ICONES;

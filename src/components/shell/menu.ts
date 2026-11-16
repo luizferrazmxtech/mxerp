@@ -2,13 +2,23 @@ import type { PapelUsuario } from "@prisma/client";
 import { podeAcessar } from "@/lib/auth/permissoes";
 
 /** Menu lateral na mesma ordem e agrupamento do Gestão Click. */
-export type ItemMenu = { rotulo: string; icone: string; href?: string; filhos?: { rotulo: string; href: string; icone: string }[] };
+export type SubItem = { rotulo: string; href: string; icone: string; filhos?: { rotulo: string; href: string; icone: string }[] };
+export type ItemMenu = { rotulo: string; icone: string; href?: string; filhos?: SubItem[] };
 
 export const MENU: ItemMenu[] = [
   {
     rotulo: "Cadastros", icone: "cadastros", filhos: [
       { rotulo: "Clientes", href: "/clientes", icone: "clientes" },
-      { rotulo: "Funcionários", href: "/usuarios", icone: "funcionarios" },
+      { rotulo: "Fornecedores", href: "/fornecedores", icone: "fornecedores" },
+      { rotulo: "Funcionários", href: "/funcionarios", icone: "funcionarios" },
+      { rotulo: "Transportadoras", href: "/transportadoras", icone: "transportadoras" },
+      {
+        rotulo: "Opções auxiliares", href: "/tipos-contatos", icone: "auxiliares", filhos: [
+          { rotulo: "Tipos de contatos", href: "/tipos-contatos", icone: "auxiliares" },
+          { rotulo: "Tipos de endereços", href: "/tipos-enderecos", icone: "endereco" },
+          { rotulo: "Campos extras", href: "/campos-extras", icone: "ajustes" },
+        ],
+      },
     ],
   },
   {
@@ -66,6 +76,12 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/fiscal", rotulo: "Fiscal", cor: "#7a4fd1", icone: "fiscal" },
   { prefixo: "/estoque", rotulo: "Estoque", cor: "#b5651d", icone: "estoque" },
   { prefixo: "/clientes", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
+  { prefixo: "/campos-extras", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
+  { prefixo: "/tipos-enderecos", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
+  { prefixo: "/tipos-contatos", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
+  { prefixo: "/funcionarios", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
+  { prefixo: "/transportadoras", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
+  { prefixo: "/fornecedores", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
   { prefixo: "/servicos", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
   { prefixo: "/usuarios", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/migracao", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
@@ -73,6 +89,11 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
 ];
 
 export function menuDoPapel(papel: PapelUsuario): ItemMenu[] {
-  return MENU.map((g) => ({ ...g, filhos: g.filhos?.filter((f) => podeAcessar(papel, f.href.split("?")[0])) }))
+  return MENU.map((g) => ({
+    ...g,
+    filhos: g.filhos
+      ?.map((f) => (f.filhos ? { ...f, filhos: f.filhos.filter((x) => podeAcessar(papel, x.href.split("?")[0])) } : f))
+      .filter((f) => (f.filhos ? f.filhos.length > 0 : podeAcessar(papel, f.href.split("?")[0]))),
+  }))
     .filter((g) => (g.filhos ? g.filhos.length > 0 : g.href && podeAcessar(papel, g.href)));
 }

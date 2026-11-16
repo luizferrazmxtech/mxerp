@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Icone from "@/components/Icone";
-import { MODULOS, type ItemMenu } from "./menu";
+import { MODULOS, type ItemMenu, type SubItem } from "./menu";
 
 type Props = {
   menu: ItemMenu[];
@@ -15,6 +15,8 @@ type Props = {
 };
 
 const iniciais = (nome: string) => nome.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
+
+const ativoSub = (f: SubItem, caminho: string, busca: string): boolean => (f.filhos ? f.filhos.some((x) => ativo(x.href, caminho, busca)) : ativo(f.href, caminho, busca));
 
 function ativo(href: string, caminho: string, busca: string) {
   const [p, q] = href.split("?");
@@ -29,14 +31,16 @@ export default function AppShell({ menu, usuario, empresa, sair, children }: Pro
   const pdv = caminho.startsWith("/pdv");
   const [menuAberto, setMenuAberto] = useState(true);
   const [abertos, setAbertos] = useState<string[]>(() =>
-    menu.filter((m) => m.filhos?.some((f) => ativo(f.href, caminho, busca))).map((m) => m.rotulo));
+    [...menu.filter((m) => m.filhos?.some((f) => ativoSub(f, caminho, busca))).map((m) => m.rotulo),
+      ...menu.flatMap((m) => m.filhos ?? []).filter((f) => f.filhos && ativoSub(f, caminho, busca)).map((f) => f.rotulo)]);
   const [perfil, setPerfil] = useState(false);
   const perfilRef = useRef<HTMLDivElement>(null);
 
   // abre o grupo da página atual
   useEffect(() => {
-    const g = menu.find((m) => m.filhos?.some((f) => ativo(f.href, caminho, busca)));
-    if (g) setAbertos((a) => (a.includes(g.rotulo) ? a : [...a, g.rotulo]));
+    const g = menu.find((m) => m.filhos?.some((f) => ativoSub(f, caminho, busca)));
+    const sub = g?.filhos?.find((f) => f.filhos && ativoSub(f, caminho, busca));
+    if (g) setAbertos((a) => [...a, ...[g.rotulo, sub?.rotulo].filter((x): x is string => !!x && !a.includes(x))]);
   }, [caminho, busca, menu]);
 
   useEffect(() => {
@@ -114,7 +118,7 @@ export default function AppShell({ menu, usuario, empresa, sair, children }: Pro
             <nav className="mt-3 text-[14px]">
               {menu.map((g) => {
                 const aberto = abertos.includes(g.rotulo);
-                const grupoAtivo = g.filhos?.some((f) => ativo(f.href, caminho, busca));
+                const grupoAtivo = g.filhos?.some((f) => ativoSub(f, caminho, busca));
                 return (
                   <div key={g.rotulo}>
                     <button
@@ -128,6 +132,27 @@ export default function AppShell({ menu, usuario, empresa, sair, children }: Pro
                     {aberto && (
                       <div className="pb-1">
                         {g.filhos?.map((f) => {
+                          if (f.filhos) {
+                            const subAberto = abertos.includes(f.rotulo);
+                            const subAtivo = ativoSub(f, caminho, busca);
+                            return (
+                              <div key={f.rotulo}>
+                                <button onClick={() => setAbertos((x) => (subAberto ? x.filter((y) => y !== f.rotulo) : [...x, f.rotulo]))}
+                                  className={`mx-1.5 flex w-[calc(100%-12px)] items-center gap-2 rounded py-[6px] pl-7 pr-2 text-left text-[13px] ${subAtivo ? "bg-slate-200 font-semibold text-black" : "text-slate-500 hover:text-black"}`}>
+                                  <Icone nome={f.icone} size={14} className={subAtivo ? "text-marca" : ""} /> <span className="flex-1">{f.rotulo}</span>
+                                  <Icone nome={subAberto ? "abaixo" : "direita"} size={12} className="text-slate-400" />
+                                </button>
+                                {subAberto && f.filhos.map((x) => {
+                                  const a = ativo(x.href, caminho, busca);
+                                  return (
+                                    <Link key={x.href} href={x.href} className={`mx-1.5 flex items-center gap-2 rounded py-[5px] pl-11 pr-2 text-[12.5px] ${a ? "font-semibold text-black" : "text-slate-500 hover:text-black"}`}>
+                                      <Icone nome={x.icone} size={13} className={a ? "text-marca" : ""} /> {x.rotulo}
+                                    </Link>
+                                  );
+                                })}
+                              </div>
+                            );
+                          }
                           const a = ativo(f.href, caminho, busca);
                           return (
                             <Link key={f.href + f.rotulo} href={f.href}
