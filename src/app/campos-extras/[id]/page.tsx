@@ -10,5 +10,5 @@ export default async function Editar({ params }: { params: Promise<{ id: string 
   const { id } = await params;
   const c = await prisma.campoExtra.findUnique({ where: { id } });
   if (!c) notFound();
-  return <Pagina titulo="Editar campo extra" trilha={[{ rotulo: "Campos extras", href: "/campos-extras" }, { rotulo: "Editar" }]}><FormCampoExtra c={c} /></Pagina>;
+  return <Pagina titulo="Editar campo extra" trilha={[{ rotulo: "Campos extras", href: "/campos-extras" }, { rotulo: "Editar" }]}><FormCampoExtra c={c} entidade={c.entidade} /></Pagina>;
 }

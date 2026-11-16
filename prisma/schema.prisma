@@ -187,13 +187,14 @@ model Pessoa {
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 
-  enderecos     PessoaEndereco[]
-  contatos      PessoaContato[]
-  anotacoes     PessoaAnotacao[]
-  ordensServico OrdemServico[]
-  vendas        Venda[]
-  lancamentos   Lancamento[]
-  compras       Compra[]
+  enderecos       PessoaEndereco[]
+  itensFornecidos ItemFornecedor[]
+  contatos        PessoaContato[]
+  anotacoes       PessoaAnotacao[]
+  ordensServico   OrdemServico[]
+  vendas          Venda[]
+  lancamentos     Lancamento[]
+  compras         Compra[]
 
   @@index([nome])
 }
@@ -253,7 +254,8 @@ model PessoaAnotacao {
  */
 model Anexo {
   id         String   @id @default(cuid())
-  entidade   String // PESSOA, USUARIO, OS…
+  entidade   String // PESSOA, USUARIO, OS, FOTO_PRODUTO, FOTO_SERVICO…
+  ordem      Int      @default(0)
   entidadeId String
   nome       String
   tipo       String
@@ -306,67 +308,252 @@ enum ContribuinteIcms {
 }
 
 model GrupoProduto {
-  id       String    @id @default(cuid())
-  nome     String    @unique
+  id       String         @id @default(cuid())
+  nome     String         @unique
+  paiId    String?
+  pai      GrupoProduto?  @relation("Subgrupos", fields: [paiId], references: [id])
+  filhos   GrupoProduto[] @relation("Subgrupos")
   produtos Produto[]
 }
 
-model Produto {
-  id              String        @id @default(cuid())
-  codigo          String        @unique
-  gtin            String?
-  nome            String
-  unidade         String        @default("UN")
-  grupoId         String?
-  grupo           GrupoProduto? @relation(fields: [grupoId], references: [id])
-  precoVenda      Decimal       @default(0) @db.Decimal(14, 2)
-  custo           Decimal       @default(0) @db.Decimal(14, 4)
-  controlaEstoque Boolean       @default(true)
-  estoqueMinimo   Decimal       @default(0) @db.Decimal(14, 4)
-  localPadraoId   String? // onde o item "mora"; usado para entradas
-  localPadrao     Local?        @relation("LocalPadrao", fields: [localPadraoId], references: [id])
-  // fiscal
-  ncm             String?
-  cest            String?
-  origem          Int           @default(0)
-  cfopInterno     String?
-  cfopExterno     String?
-  csosn           String?
-  cstIcms         String?
-  aliquotaIcms    Decimal?      @db.Decimal(7, 4)
-  cstPis          String?
-  cstCofins       String?
-  cClassTrib      String? // IBS/CBS (reforma tributária)
-  ativo           Boolean       @default(true)
-  idLegado        String?       @unique
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+/**
+ * Unidades de produtos (UN, CX, MT…).
+ */
+model Unidade {
+  id     String  @id @default(cuid())
+  nome   String
+  sigla  String  @unique
+  padrao Boolean @default(false)
+}
 
-  saldos      Saldo[]
-  reservas    Reserva[]
-  movimentos  MovimentoEstoque[]
-  itensOs     OsItemProduto[]
-  itensVenda  VendaItem[]
-  itensCompra CompraItem[]
+/**
+ * Tipos de valor de venda (tabela de preços): Varejo, Atacado…
+ */
+model TipoValor {
+  id        String         @id @default(cuid())
+  nome      String         @unique
+  lucro     Decimal        @default(0) @db.Decimal(14, 4) // % de lucro sobre o custo final
+  porRegras Boolean        @default(false) // forma de utilização: ilimitada ou através de regras
+  padrao    Boolean        @default(false) // o valor padrão vai para Produto.precoVenda
+  lojas     String[]
+  valores   ProdutoValor[]
+}
+
+model ProdutoValor {
+  id             String    @id @default(cuid())
+  produtoId      String
+  produto        Produto   @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  tipoValorId    String
+  tipoValor      TipoValor @relation(fields: [tipoValorId], references: [id])
+  lucroUtilizado Decimal   @default(0) @db.Decimal(14, 4)
+  valor          Decimal   @default(0) @db.Decimal(14, 2)
+  ativo          Boolean   @default(true)
+
+  @@unique([produtoId, tipoValorId])
+}
+
+/**
+ * Kit: componentes de um produto com composição.
+ */
+model ProdutoComponente {
+  id           String  @id @default(cuid())
+  produtoId    String
+  produto      Produto @relation("Kit", fields: [produtoId], references: [id], onDelete: Cascade)
+  componenteId String
+  componente   Produto @relation("ComponenteDe", fields: [componenteId], references: [id])
+  quantidade   Decimal @db.Decimal(14, 4)
+
+  @@index([produtoId])
+}
+
+/**
+ * Variações (grade) do produto: ex. Cor Preta / Tamanho M.
+ */
+model ProdutoVariacao {
+  id        String  @id @default(cuid())
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  ordem     Int     @default(0)
+  nome      String
+  codigo    String?
+  gtin      String?
+
+  @@index([produtoId])
+}
+
+/**
+ * Fornecedores que fornecem um produto ou prestam um serviço.
+ */
+model ItemFornecedor {
+  id           String   @id @default(cuid())
+  produtoId    String?
+  produto      Produto? @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  servicoId    String?
+  servico      Servico? @relation(fields: [servicoId], references: [id], onDelete: Cascade)
+  fornecedorId String
+  fornecedor   Pessoa   @relation(fields: [fornecedorId], references: [id])
+  codigo       String? // código do produto no fornecedor
+
+  @@index([produtoId])
+  @@index([servicoId])
+  @@index([fornecedorId])
+}
+
+/**
+ * Histórico de valores do produto (custo e venda).
+ */
+model HistoricoValor {
+  id        String   @id @default(cuid())
+  produtoId String
+  produto   Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  campo     String // "Valor de custo", "Varejo"…
+  anterior  Decimal  @db.Decimal(14, 4)
+  novo      Decimal  @db.Decimal(14, 4)
+  usuarioId String?
+  createdAt DateTime @default(now())
+
+  @@index([produtoId, createdAt])
+}
+
+/**
+ * Grades de variações (Cor, Tamanho…).
+ */
+model Grade {
+  id        String   @id @default(cuid())
+  nome      String   @unique
+  variacoes String[]
+}
+
+/**
+ * Modelos de etiqueta (PIMACO, Argox…). Medidas em cm.
+ */
+model ModeloEtiqueta {
+  id             String  @id @default(cuid())
+  nome           String
+  padrao         String  @default("Personalizado")
+  altura         Decimal @db.Decimal(6, 2)
+  largura        Decimal @db.Decimal(6, 2)
+  pagina         String  @default("A4")
+  colunas        Int
+  linhas         Int
+  margemSuperior Decimal @db.Decimal(6, 2)
+  margemLateral  Decimal @db.Decimal(6, 2)
+  distVertical   Decimal @db.Decimal(6, 2)
+  distHorizontal Decimal @db.Decimal(6, 2)
+  mostrarNome    Boolean @default(true)
+  mostrarPreco   Boolean @default(true)
+  mostrarCodigo  Boolean @default(true)
+  mostrarBarras  Boolean @default(true)
+}
+
+model Produto {
+  id                   String        @id @default(cuid())
+  codigo               String        @unique
+  gtin                 String?
+  nome                 String
+  unidade              String        @default("UN")
+  grupoId              String?
+  grupo                GrupoProduto? @relation(fields: [grupoId], references: [id])
+  precoVenda           Decimal       @default(0) @db.Decimal(14, 2)
+  custo                Decimal       @default(0) @db.Decimal(14, 4)
+  controlaEstoque      Boolean       @default(true) // "Movimenta estoque?"
+  emiteNota            Boolean       @default(true) // "Habilitar nota fiscal?"
+  possuiVariacoes      Boolean       @default(false)
+  possuiComposicao     Boolean       @default(false)
+  // unidade: compra em unidadeCompra e vende em unidade; 1 unidadeCompra = fatorConversao × unidade
+  unidadeCompra        String?
+  fatorConversao       Decimal       @default(1) @db.Decimal(14, 4)
+  vendidoSeparadamente Boolean       @default(true)
+  vendePdv             Boolean       @default(true)
+  comissao             Decimal?      @db.Decimal(6, 2)
+  camposExtras         Json?
+  peso                 Decimal?      @db.Decimal(14, 4)
+  largura              Decimal?      @db.Decimal(14, 4)
+  altura               Decimal?      @db.Decimal(14, 4)
+  comprimento          Decimal?      @db.Decimal(14, 4)
+  descricao            String?
+  despesasAcessorias   Decimal       @default(0) @db.Decimal(14, 4)
+  outrasDespesas       Decimal       @default(0) @db.Decimal(14, 4)
+  estoqueMinimo        Decimal       @default(0) @db.Decimal(14, 4)
+  estoqueMaximo        Decimal?      @db.Decimal(14, 4)
+  codigoBeneficio      String?
+  pesoLiquido          Decimal?      @db.Decimal(14, 4)
+  pesoBruto            Decimal?      @db.Decimal(14, 4)
+  numeroFci            String?
+  produtoEspecifico    String?
+  lojas                String[]
+  criadoPorId          String?
+  localPadraoId        String? // onde o item "mora"; usado para entradas
+  localPadrao          Local?        @relation("LocalPadrao", fields: [localPadraoId], references: [id])
+  // fiscal
+  ncm                  String?
+  cest                 String?
+  origem               Int           @default(0)
+  cfopInterno          String?
+  cfopExterno          String?
+  csosn                String?
+  cstIcms              String?
+  aliquotaIcms         Decimal?      @db.Decimal(7, 4)
+  cstPis               String?
+  cstCofins            String?
+  cClassTrib           String? // IBS/CBS (reforma tributária)
+  ativo                Boolean       @default(true)
+  idLegado             String?       @unique
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  saldos       Saldo[]
+  reservas     Reserva[]
+  movimentos   MovimentoEstoque[]
+  itensOs      OsItemProduto[]
+  itensVenda   VendaItem[]
+  itensCompra  CompraItem[]
+  valores      ProdutoValor[]
+  componentes  ProdutoComponente[] @relation("Kit")
+  usadoEm      ProdutoComponente[] @relation("ComponenteDe")
+  variacoes    ProdutoVariacao[]
+  fornecedores ItemFornecedor[]
+  historico    HistoricoValor[]
 
   @@index([nome])
 }
 
 model Servico {
-  id                       String   @id @default(cuid())
-  codigo                   String   @unique
-  nome                     String
-  preco                    Decimal  @default(0) @db.Decimal(14, 2)
+  id                        String   @id @default(cuid())
+  codigo                    String   @unique
+  nome                      String
+  preco                     Decimal  @default(0) @db.Decimal(14, 2)
+  custo                     Decimal  @default(0) @db.Decimal(14, 2)
+  comissao                  Decimal? @db.Decimal(6, 2)
+  descricao                 String?
+  camposExtras              Json?
+  lojas                     String[]
   // NFS-e
-  codigoTributacaoNacional String? // cTribNac
-  codigoNbs                String?
-  aliquotaIss              Decimal? @db.Decimal(7, 4)
-  ativo                    Boolean  @default(true)
-  idLegado                 String?  @unique
-  createdAt                DateTime @default(now())
+  atividade                 String? // atividade de serviço escolhida (preenche os códigos)
+  codigoLc116               String? // item da lista de serviços da LC 116
+  codigoTributacaoMunicipal String?
+  codigoTributacaoNacional  String? // cTribNac
+  codigoNbs                 String?
+  cnae                      String?
+  descricaoAtividade        String?
+  aliquotaIss               Decimal? @db.Decimal(7, 4)
+  aliquotaCofins            Decimal? @db.Decimal(7, 4)
+  aliquotaPis               Decimal? @db.Decimal(7, 4)
+  aliquotaCsll              Decimal? @db.Decimal(7, 4)
+  aliquotaIr                Decimal? @db.Decimal(7, 4)
+  aliquotaInss              Decimal? @db.Decimal(7, 4)
+  descontarImpostos         Boolean  @default(false)
+  descontarDeducoes         Boolean  @default(false)
+  construcaoCivil           Boolean  @default(false)
+  reterIss                  Boolean  @default(false)
+  ativo                     Boolean  @default(true)
+  idLegado                  String?  @unique
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @default(now()) @updatedAt
 
-  itensOs    OsItemServico[]
-  itensVenda VendaItemServico[]
+  itensOs      OsItemServico[]
+  itensVenda   VendaItemServico[]
+  fornecedores ItemFornecedor[]
 }
 
 // ───────────────────────── Estoque ─────────────────────────
