@@ -195,6 +195,7 @@ model Pessoa {
   ordensServico   OrdemServico[]
   orcamentos      Orcamento[]      @relation("OrcamentoCliente")
   orcamentosFrete Orcamento[]      @relation("OrcamentoTransportadora")
+  vendasFrete     Venda[]          @relation("VendaTransportadora")
   vendas          Venda[]
   lancamentos     Lancamento[]
   compras         Compra[]
@@ -784,7 +785,51 @@ model OsHistorico {
 
 enum TipoVenda {
   PEDIDO
+  SERVICO // venda de serviços
   BALCAO // PDV
+}
+
+/// O que a situação da venda faz com o estoque.
+enum EstoqueSituacao {
+  RESERVAR // separa as peças (MXERP: o pedido em aberto já reserva)
+  LANCAR // baixa do estoque
+  NAO // não mexe (libera o que estava reservado)
+}
+
+/// O que a situação faz com a nota (NF-e ou NFS-e).
+enum NotaSituacao {
+  NAO
+  GERAR // gera sem emitir
+  EMITIR // gera e emite
+}
+
+/// Situações configuráveis da venda (Vendas › Opções auxiliares › Situações).
+model SituacaoVendaConfig {
+  id               String          @id @default(cuid())
+  nome             String          @unique
+  cor              String          @default("cinza")
+  ordem            Int             @default(0)
+  padrao           Boolean         @default(false)
+  permiteEdicao    Boolean         @default(true)
+  exibir           Boolean         @default(true)
+  exibirCobranca   Boolean         @default(true)
+  estoque          EstoqueSituacao @default(RESERVAR)
+  financeiro       Boolean         @default(false)
+  notaProduto      NotaSituacao    @default(NAO)
+  notaServico      NotaSituacao    @default(NAO)
+  enviarMensagem   Boolean         @default(false)
+  modeloMensagemId String?
+  gerarAssinatura  Boolean         @default(false)
+  bloqueados       PapelUsuario[]
+  vendas           Venda[]
+}
+
+/// Canais de venda (valem para vendas, orçamentos e OS).
+model CanalVenda {
+  id     String  @id @default(cuid())
+  nome   String  @unique
+  padrao Boolean @default(false)
+  ordem  Int     @default(0)
 }
 
 enum SituacaoVenda {
@@ -829,25 +874,119 @@ model Venda {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
+  // campos do pedido completo (padrão Gestão Click)
+  situacaoId         String?
+  situacaoCfg        SituacaoVendaConfig? @relation(fields: [situacaoId], references: [id])
+  prazoEntrega       DateTime?            @db.Date
+  canal              String               @default("Presencial")
+  centroCusto        String?
+  transportadoraId   String?
+  transportadora     Pessoa?              @relation("VendaTransportadora", fields: [transportadoraId], references: [id])
+  mostrarEntrega     Boolean              @default(false)
+  enderecoEntregaId  String?
+  totalProdutos      Decimal              @default(0) @db.Decimal(14, 2)
+  totalServicos      Decimal              @default(0) @db.Decimal(14, 2)
+  descontoPercentual Decimal?             @db.Decimal(7, 4)
+  condicao           String               @default("AVISTA") // AVISTA | PARCELADO
+  formaPagamentoId   String?
+  formaPagamento     FormaPagamento?      @relation("VendaForma", fields: [formaPagamentoId], references: [id])
+  intervaloDias      Int                  @default(30)
+  observacaoInterna  String?
+  camposExtras       Json                 @default("{}")
+  token              String               @unique @default(cuid()) // link de cobrança
+  criadoPorId        String?
+
   caixaId String?
   caixa   CaixaPdv? @relation(fields: [caixaId], references: [id])
 
   itens      VendaItem[]
   servicos   VendaItemServico[]
   pagamentos VendaPagamento[]
+  parcelas   VendaParcela[]
+  historico  VendaHistorico[]
+  devolucoes Devolucao[]
+}
+
+model VendaParcela {
+  id               String          @id @default(cuid())
+  vendaId          String
+  venda            Venda           @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  numero           Int
+  vencimento       DateTime        @db.Date
+  valor            Decimal         @db.Decimal(14, 2)
+  formaPagamentoId String?
+  formaPagamento   FormaPagamento? @relation(fields: [formaPagamentoId], references: [id])
+  observacao       String?
+}
+
+model VendaHistorico {
+  id          String   @id @default(cuid())
+  vendaId     String
+  venda       Venda    @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  descricao   String
+  situacao    String?
+  usuarioNome String?
+  createdAt   DateTime @default(now())
+}
+
+enum TipoDevolucao {
+  DEVOLUCAO
+  TROCA
+}
+
+/// Trocas e devoluções: os produtos voltam ao estoque; a troca gera vale-compras e a devolução, conta a pagar ao cliente.
+model Devolucao {
+  id          String          @id @default(cuid())
+  numero      Int             @unique
+  tipo        TipoDevolucao
+  vendaId     String
+  venda       Venda           @relation(fields: [vendaId], references: [id])
+  clienteId   String?
+  total       Decimal         @db.Decimal(14, 2)
+  observacao  String?
+  usuarioNome String?
+  createdAt   DateTime        @default(now())
+  itens       DevolucaoItem[]
+  vale        ValeCompra?
+}
+
+model DevolucaoItem {
+  id          String    @id @default(cuid())
+  devolucaoId String
+  devolucao   Devolucao @relation(fields: [devolucaoId], references: [id], onDelete: Cascade)
+  vendaItemId String
+  produtoId   String
+  quantidade  Decimal   @db.Decimal(14, 4)
+  valorUnit   Decimal   @db.Decimal(14, 2)
+  total       Decimal   @db.Decimal(14, 2)
+}
+
+model ValeCompra {
+  id          String     @id @default(cuid())
+  codigo      String     @unique
+  clienteId   String?
+  devolucaoId String?    @unique
+  devolucao   Devolucao? @relation(fields: [devolucaoId], references: [id])
+  valor       Decimal    @db.Decimal(14, 2)
+  saldo       Decimal    @db.Decimal(14, 2)
+  validade    DateTime?  @db.Date
+  createdAt   DateTime   @default(now())
 }
 
 model VendaItem {
-  id         String  @id @default(cuid())
-  vendaId    String
-  venda      Venda   @relation(fields: [vendaId], references: [id], onDelete: Cascade)
-  produtoId  String
-  produto    Produto @relation(fields: [produtoId], references: [id])
-  quantidade Decimal @db.Decimal(14, 4)
-  valorUnit  Decimal @db.Decimal(14, 2)
-  custoUnit  Decimal @default(0) @db.Decimal(14, 4)
-  desconto   Decimal @default(0) @db.Decimal(14, 2)
-  subtotal   Decimal @db.Decimal(14, 2)
+  id          String  @id @default(cuid())
+  ordem       Int     @default(0)
+  detalhes    String?
+  tipoValorId String?
+  vendaId     String
+  venda       Venda   @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  produtoId   String
+  produto     Produto @relation(fields: [produtoId], references: [id])
+  quantidade  Decimal @db.Decimal(14, 4)
+  valorUnit   Decimal @db.Decimal(14, 2)
+  custoUnit   Decimal @default(0) @db.Decimal(14, 4)
+  desconto    Decimal @default(0) @db.Decimal(14, 2)
+  subtotal    Decimal @db.Decimal(14, 2)
 }
 
 model VendaItemServico {
@@ -858,7 +997,10 @@ model VendaItemServico {
   servico    Servico @relation(fields: [servicoId], references: [id])
   quantidade Decimal @default(1) @db.Decimal(14, 4)
   valorUnit  Decimal @db.Decimal(14, 2)
+  desconto   Decimal @default(0) @db.Decimal(14, 2)
   subtotal   Decimal @db.Decimal(14, 2)
+  ordem      Int     @default(0)
+  detalhes   String?
 }
 
 model VendaPagamento {
@@ -922,6 +1064,8 @@ model FormaPagamento {
   lancamentos Lancamento[]
   orcamentos  Orcamento[]
   parcelasOrc OrcamentoParcela[]
+  vendas      Venda[]            @relation("VendaForma")
+  parcelasVen VendaParcela[]
 }
 
 /// Grupo da DRE gerencial para onde a categoria soma.

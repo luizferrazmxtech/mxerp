@@ -5,6 +5,9 @@ import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao
 import { cancelarRecebimentos, gerarRecebimentos, type Pagamento } from "@/lib/financeiro/lancamentos";
 import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
+import { situacaoDoEstado } from "./pedidos";
+
+const cfgId = async (tx: Tx, s: SituacaoVenda) => (await situacaoDoEstado(tx, s))?.id ?? null;
 
 export function estadoEstoqueVenda(s: SituacaoVenda): EstadoEstoque {
   return s === "ABERTA" ? "RESERVADO" : s === "CONCLUIDA" ? "BAIXADO" : "LIVRE";
@@ -31,7 +34,7 @@ async function travarVenda(tx: Tx, vendaId: string) {
 export async function criarVenda(dados: { tipo?: TipoVenda; clienteId?: string; situacao?: SituacaoVenda; vendedorId?: string }) {
   return prisma.$transaction(async (tx) => {
     const numero = await proximoNumero(tx, "VENDA");
-    return tx.venda.create({ data: { numero, ...dados } });
+    return tx.venda.create({ data: { numero, ...dados, situacaoId: await cfgId(tx, dados.situacao ?? "ABERTA") } });
   });
 }
 
@@ -75,7 +78,7 @@ async function recalcular(tx: Tx, vendaId: string) {
     tx.venda.findUniqueOrThrow({ where: { id: vendaId }, select: { desconto: true, frete: true } }),
   ]);
   const total = Number(p._sum.subtotal ?? 0) + Number(s._sum.subtotal ?? 0) - Number(v.desconto) + Number(v.frete);
-  await tx.venda.update({ where: { id: vendaId }, data: { total: D(total) } });
+  await tx.venda.update({ where: { id: vendaId }, data: { total: D(total), totalProdutos: D(Number(p._sum.subtotal ?? 0)), totalServicos: D(Number(s._sum.subtotal ?? 0)) } });
   return total;
 }
 
@@ -97,7 +100,7 @@ async function concluirTx(tx: Tx, vendaId: string, pagamentos: Pagamento[], opts
   await tx.vendaPagamento.createMany({
     data: pagamentos.map((p) => ({ vendaId, formaPagamentoId: p.formaPagamentoId, valor: D(p.valor), parcelas: p.parcelas ?? 1 })),
   });
-  const venda = await tx.venda.update({ where: { id: vendaId }, data: { situacao: "CONCLUIDA" } });
+  const venda = await tx.venda.update({ where: { id: vendaId }, data: { situacao: "CONCLUIDA", situacaoId: await cfgId(tx, "CONCLUIDA") } });
   await garantirPadroes(tx);
   await gerarRecebimentos(tx, {
     origemTipo: "VENDA",
@@ -122,7 +125,7 @@ async function alterarSituacaoVendaTx(tx: Tx, vendaId: string, nova: Exclude<Sit
   const v = await travarVenda(tx, vendaId);
   if (v.situacao === "CONCLUIDA") await cancelarRecebimentos(tx, "VENDA", vendaId, opts.forcar);
   await transicionarEstoque(tx, "VENDA", vendaId, estadoEstoqueVenda(v.situacao), estadoEstoqueVenda(nova), itensDaVenda(tx, vendaId), opts);
-  return tx.venda.update({ where: { id: vendaId }, data: { situacao: nova } });
+  return tx.venda.update({ where: { id: vendaId }, data: { situacao: nova, situacaoId: await cfgId(tx, nova) } });
 }
 
 export type CabecalhoVenda = {
@@ -181,7 +184,7 @@ export async function salvarVenda(args: {
     if (args.situacao === "CONCLUIDA" || args.situacao === "CANCELADA") throw new EstoqueError("Cadastre o pedido em aberto ou como orçamento");
     const numero = await proximoNumero(tx, "VENDA");
     vendaId = (await tx.venda.create({
-      data: { numero, tipo: "PEDIDO", situacao: args.situacao, ...resto, frete: D(frete ?? 0), desconto: D(desconto ?? 0) },
+      data: { numero, tipo: "PEDIDO", situacao: args.situacao, situacaoId: await cfgId(tx, args.situacao), ...resto, frete: D(frete ?? 0), desconto: D(desconto ?? 0) },
     })).id;
     for (const p of args.produtos) {
       if (!(p.quantidade > 0)) throw new EstoqueError("Informe a quantidade de todos os produtos");
@@ -205,7 +208,7 @@ export async function vendaBalcao(args: {
   return prisma.$transaction(async (tx) => {
     const numero = await proximoNumero(tx, "VENDA");
     const venda = await tx.venda.create({
-      data: { numero, tipo: "BALCAO", situacao: "ABERTA", clienteId: args.clienteId, desconto: D(args.desconto ?? 0), vendedorId: args.usuarioId, caixaId: args.caixaId },
+      data: { numero, tipo: "BALCAO", situacao: "ABERTA", situacaoId: await cfgId(tx, "ABERTA"), clienteId: args.clienteId, desconto: D(args.desconto ?? 0), vendedorId: args.usuarioId, caixaId: args.caixaId },
     });
     for (const i of args.itens) await adicionarItemTx(tx, venda.id, i);
     // no balcão a peça já está na mão do cliente: não bloqueia por falta de saldo

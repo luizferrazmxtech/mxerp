@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 import Icone from "@/components/Icone";
-import { abrirCaixaAcao, type ResultadoSimples } from "../vendas/actions";
+import { abrirCaixaAcao, type ResultadoSimples } from "./actions";
 
 /** Tela de abertura do caixa, como no Gestão Click: valor inicial e opção de lançar no financeiro. */
 export default function AbrirCaixa() {

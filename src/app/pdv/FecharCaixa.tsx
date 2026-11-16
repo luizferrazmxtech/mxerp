@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { fecharCaixaAcao, type ResultadoSimples } from "../vendas/actions";
+import { fecharCaixaAcao, type ResultadoSimples } from "./actions";
 
 export default function FecharCaixa({ caixaId, esperado }: { caixaId: string; esperado: number }) {
   const [r, acao, pendente] = useActionState<ResultadoSimples, FormData>(fecharCaixaAcao, null);

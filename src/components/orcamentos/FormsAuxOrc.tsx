@@ -7,9 +7,9 @@ import { Bloco } from "@/components/ui/Pagina";
 import { salvarConfigOrcamentoAcao, salvarMensagemAcao, salvarSituacaoAcao, type Resultado } from "@/lib/orcamentos/acoes";
 import { CORES, TAGS_MENSAGEM, aplicarTags } from "@/lib/orcamentos/tipos";
 
-const PAPEIS: [string, string][] = [["ADMIN", "Administradores"], ["GERENTE", "Gerentes"], ["OPERADOR", "Operadores"], ["TECNICO", "Técnicos"], ["CAIXA", "Caixas"]];
+export const PAPEIS: [string, string][] = [["ADMIN", "Administradores"], ["GERENTE", "Gerentes"], ["OPERADOR", "Operadores"], ["TECNICO", "Técnicos"], ["CAIXA", "Caixas"]];
 
-function Rodape({ r, pendente, voltar, editando, rotulo }: { r: Resultado; pendente: boolean; voltar: string; editando: boolean; rotulo?: string }) {
+export function Rodape({ r, pendente, voltar, editando, rotulo }: { r: Resultado; pendente: boolean; voltar: string; editando: boolean; rotulo?: string }) {
   return (
     <div className="sticky bottom-0 z-10 mt-3 flex flex-wrap items-center gap-2 border-t bg-white px-4 py-3">
       {r && <p className={`w-full rounded px-3 py-2 text-[13px] ${r.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{r.mensagem}</p>}
@@ -19,7 +19,7 @@ function Rodape({ r, pendente, voltar, editando, rotulo }: { r: Resultado; pende
   );
 }
 
-function Radio({ name, valor, atual, titulo, children, onChange }: { name: string; valor: string; atual: string; titulo: string; children?: React.ReactNode; onChange?: (v: string) => void }) {
+export function Radio({ name, valor, atual, titulo, children, onChange }: { name: string; valor: string; atual: string; titulo: string; children?: React.ReactNode; onChange?: (v: string) => void }) {
   return (
     <label className={`flex flex-1 cursor-pointer gap-2 rounded-md border p-3 ${atual === valor ? "border-marca bg-teal-50/40" : "border-slate-200"}`}>
       <input type="radio" name={name} value={valor} defaultChecked={atual === valor} onChange={() => onChange?.(valor)} className="mt-1" />
@@ -99,8 +99,8 @@ export function FormSituacaoOrc({ s, modelos }: { s?: SituacaoForm; modelos: { i
 
 const EXEMPLO = { "[nome_cliente]": "Maria Silva", "[numero]": "6650", "[valor_total]": "R$ 299,40", "[data]": "16/11/2026", "[validade]": "10 dias", "[vendedor]": "Caue", "[link]": "https://…/proposta/abc", "[nome_empresa]": "MXTECH" };
 
-export function FormMensagemOrc({ m }: { m?: { id: string; assunto: string; email: string; sms: string | null; padrao: boolean } }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarMensagemAcao, null);
+export function FormMensagemOrc({ m, acao: acaoServidor, voltar = "/orcamentos/mensagens" }: { m?: { id: string; assunto: string; email: string; sms: string | null; padrao: boolean }; acao?: (r: Resultado, f: FormData) => Promise<Resultado>; voltar?: string }) {
+  const [r, acao, pendente] = useActionState<Resultado, FormData>(acaoServidor ?? salvarMensagemAcao, null);
   const [email, setEmail] = useState(m?.email ?? "");
   const [sms, setSms] = useState(m?.sms ?? "");
   const [previa, setPrevia] = useState(false);
@@ -132,7 +132,7 @@ export function FormMensagemOrc({ m }: { m?: { id: string; assunto: string; emai
       <Bloco icone="whatsapp" titulo="Mensagem via WhatsApp" subtitulo="Gerada automaticamente a partir do e-mail. Não é editável.">
         <div className="whitespace-pre-wrap rounded bg-[#e7fbe6] p-3 text-[13px] text-slate-700">{whats || "—"}</div>
       </Bloco>
-      <Rodape r={r} pendente={pendente} voltar="/orcamentos/mensagens" editando={!!m} />
+      <Rodape r={r} pendente={pendente} voltar={voltar} editando={!!m} />
     </form>
   );
 }
