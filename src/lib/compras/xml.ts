@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { pessoaDoXml } from "@/lib/cadastros/importacao";
 import { importarPessoas } from "@/lib/migracao/importar";
 import { configEstoque } from "@/lib/estoque/config";
+import { fatorPeloNome, mesmaUnidade, textoConversao } from "@/lib/itens/unidades";
 import type { DadosCompra, LinhaCompra } from "./tipos";
 
 /**
@@ -34,6 +35,8 @@ export async function compraDoXml(xml: string): Promise<{ dados: Partial<DadosCo
   const dets = (Array.isArray(inf.det) ? inf.det : [inf.det]) as { prod: Record<string, unknown> }[];
   const produtos: LinhaCompra[] = [];
   const semVinculo: string[] = [];
+  const convertidos: string[] = [];
+  const conferir: string[] = [];
   for (const d of dets) {
     const p = d.prod;
     const codigo = s(p.cProd), nome = s(p.xProd), gtin = s(p.cEAN);
@@ -44,13 +47,30 @@ export async function compraDoXml(xml: string): Promise<{ dados: Partial<DadosCo
       ?? (cfg.vincularPor !== "NOME" ? await prisma.produto.findFirst({ where: { codigo } }) : null)
       ?? (cfg.vincularPor !== "CODIGO" ? await prisma.produto.findFirst({ where: { nome: { equals: nome, mode: "insensitive" } } }) : null);
     const q = num(p.qCom), vUn = num(p.vUnCom), desc = cfg.desconto ? num(p.vDesc) : 0;
+    const uCom = s(p.uCom).trim().toUpperCase();
     if (!produto) semVinculo.push(`${codigo} ${nome}`);
+    // conversão: a nota vem na unidade do fornecedor (CX, RL) e o produto é vendido em outra (MT)
+    let conv: Pick<LinhaCompra, "unidadeCompra" | "fator" | "salvarConversao"> = produto ? {} : { unidadeCompra: uCom, fator: "" };
+    if (produto && uCom && !mesmaUnidade(uCom, produto.unidade)) {
+      const fp = Number(produto.fatorConversao);
+      if (produto.unidadeCompra && fp > 0) {
+        conv = { unidadeCompra: uCom, fator: String(fp).replace(".", ",") };
+        convertidos.push(`${produto.nome}: ${fmt(q, 4).replace(/,?0+$/, "")} ${uCom} = ${(q * fp).toLocaleString("pt-BR", { maximumFractionDigits: 4 })} ${produto.unidade}`);
+      } else {
+        const palpite = fatorPeloNome(`${nome} ${produto.nome}`, produto.unidade);
+        conv = { unidadeCompra: uCom, fator: palpite ? String(palpite) : "1", salvarConversao: true };
+        conferir.push(palpite ? `${produto.nome} (${textoConversao(uCom, palpite, produto.unidade)}, pelo nome)` : `${produto.nome} (nota em ${uCom}, produto em ${produto.unidade})`);
+      }
+    }
     produtos.push({
-      produtoId: produto?.id ?? "", nome: produto?.nome ?? nome, codigo: produto?.codigo ?? codigo, unidade: produto?.unidade ?? s(p.uCom),
-      detalhes: produto ? "" : `${codigo} ${nome} (${s(p.uCom)})`, quantidade: fmt(q, 4).replace(/,?0+$/, ""), valorUnit: fmt(vUn, 4).replace(/(,\d\d)0+$/, "$1"),
-      desconto: desc ? fmt(desc) : "", descontoPct: false,
+      produtoId: produto?.id ?? "", nome: produto?.nome ?? nome, codigo: produto?.codigo ?? codigo, unidade: produto?.unidade ?? uCom,
+      detalhes: produto ? "" : `${codigo} ${nome} (${uCom})`, quantidade: fmt(q, 4).replace(/,?0+$/, ""), valorUnit: fmt(vUn, 4).replace(/(,\d\d)0+$/, "$1"),
+      desconto: desc ? fmt(desc) : "", descontoPct: false, codigoFornecedor: codigo, ...conv,
+      conversaoProduto: produto?.unidadeCompra ? { unidade: produto.unidadeCompra, fator: Number(produto.fatorConversao) } : null,
     });
   }
+  if (convertidos.length) avisos.push(`Conversão de unidade aplicada pelo cadastro: ${convertidos.join("; ")}.`);
+  if (conferir.length) avisos.push(`Confira a conversão destes itens (a nota vem numa unidade e o produto é vendido em outra). Ao salvar, ela fica gravada no produto: ${conferir.join("; ")}.`);
   if (semVinculo.length) avisos.push(`${semVinculo.length} item(ns) da nota não se ligaram a nenhum produto: escolha o produto em cada linha em branco (${semVinculo.slice(0, 5).join("; ")}${semVinculo.length > 5 ? "…" : ""}).`);
 
   const tot = inf.total?.ICMSTot ?? {};
@@ -58,6 +78,8 @@ export async function compraDoXml(xml: string): Promise<{ dados: Partial<DadosCo
   const outras = cfg.outras ? num(tot.vOutro) : 0;
   const dups = inf.cobr?.dup ? (Array.isArray(inf.cobr.dup) ? inf.cobr.dup : [inf.cobr.dup]) : [];
   const chave = s(inf["@Id"]).replace(/^NFe/, "");
+  const ja = chave ? await prisma.compra.findFirst({ where: { chaveNfe: chave }, select: { numero: true } }) : null;
+  if (ja) avisos.unshift(`Atenção: esta NF-e já foi lançada na compra nº ${ja.numero}. Salvar de novo duplica o estoque e as contas.`);
   return {
     dados: {
       fornecedorId: forn?.id ?? "", fornecedorNome: forn?.nome ?? s(inf.emit.xNome), data: s(inf.ide?.dhEmi || inf.ide?.dEmi).slice(0, 10),

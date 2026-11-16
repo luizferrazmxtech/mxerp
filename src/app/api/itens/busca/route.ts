@@ -14,11 +14,11 @@ export async function GET(req: Request) {
   }
   const l = await prisma.produto.findMany({
     where: { ativo: true, OR: [{ nome: c }, { codigo: c }, { gtin: q }] }, orderBy: { nome: "asc" }, take: 15,
-    select: { id: true, codigo: true, nome: true, unidade: true, precoVenda: true, custo: true, controlaEstoque: true, valores: { where: { ativo: true }, select: { tipoValorId: true, valor: true } } },
+    select: { id: true, codigo: true, nome: true, unidade: true, unidadeCompra: true, fatorConversao: true, precoVenda: true, custo: true, controlaEstoque: true, valores: { where: { ativo: true }, select: { tipoValorId: true, valor: true } } },
   });
   const est = await estoquesDe(l.map((p) => p.id));
   return NextResponse.json(l.map((p) => {
     const e = est.get(p.id)!;
-    return { id: p.id, codigo: p.codigo, nome: p.nome, unidade: p.unidade, preco: Number(p.precoVenda), custo: Number(p.custo), fisico: p.controlaEstoque ? e.fisico : null, disponivel: p.controlaEstoque ? e.fisico - e.reservado : null, valores: p.valores.map((v) => ({ tipoValorId: v.tipoValorId, valor: Number(v.valor) })) };
+    return { id: p.id, codigo: p.codigo, nome: p.nome, unidade: p.unidade, unidadeCompra: p.unidadeCompra, fatorConversao: Number(p.fatorConversao), preco: Number(p.precoVenda), custo: Number(p.custo), fisico: p.controlaEstoque ? e.fisico : null, disponivel: p.controlaEstoque ? e.fisico - e.reservado : null, valores: p.valores.map((v) => ({ tipoValorId: v.tipoValorId, valor: Number(v.valor) })) };
   }));
 }

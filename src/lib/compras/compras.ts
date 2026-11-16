@@ -6,8 +6,9 @@ import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
 import { parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, lerNumero } from "@/lib/orcamentos/tipos";
-import { lancaEstoque, lancaFinanceiro, subtotalCompra, totaisCompra, type DadosCompra } from "./tipos";
+import { fatorLinha, lancaEstoque, lancaFinanceiro, subtotalCompra, totaisCompra, type DadosCompra } from "./tipos";
 import { configEstoque } from "@/lib/estoque/config";
+import { atualizarCustoPorEntrada } from "@/lib/estoque/custo";
 
 /**
  * Compra de produtos/serviços (padrão Gestão Click). A situação decide o que é lançado:
@@ -43,23 +44,17 @@ async function localPadrao(tx: Tx) {
 
 /** Entrada das peças no estoque, atualizando o custo do produto (média, última compra ou não atualiza). */
 async function lancarEstoque(tx: Tx, compraId: string, usuarioId?: string) {
-  const c = await tx.compra.findUniqueOrThrow({ where: { id: compraId }, include: { itens: { include: { produto: { select: { controlaEstoque: true, localPadraoId: true, custo: true } } } } } });
+  const c = await tx.compra.findUniqueOrThrow({ where: { id: compraId }, include: { itens: { include: { produto: { select: { controlaEstoque: true, localPadraoId: true } } } } } });
   const regra = (await configEstoque()).custoCompra;
   let padrao: string | null = null;
   for (const i of c.itens) {
-    const q = Number(i.quantidade);
+    // quantidade da nota × fator = quantidade na unidade do produto (ex.: 2 CX × 305 = 610 MT); o custo vai por MT
+    const fator = Number(i.fator) > 0 ? Number(i.fator) : 1;
+    const q = Number(i.quantidade) * fator;
     if (!i.produto.controlaEstoque || !(q > 0)) continue;
     const localId = i.localId ?? i.produto.localPadraoId ?? (padrao ??= await localPadrao(tx));
-    const custo = Number(i.subtotal) > 0 ? Number(i.subtotal) / q : Number(i.custoUnit);
-    if (regra !== "NAO" && custo > 0) {
-      let novo = custo;
-      if (regra === "MEDIA") {
-        const [s] = await tx.$queryRaw<{ q: number | null }[]>`SELECT COALESCE(SUM(quantidade), 0)::float AS q FROM "Saldo" WHERE "produtoId" = ${i.produtoId}`;
-        const atual = Math.max(0, Number(s?.q ?? 0));
-        novo = atual + q > 0 ? (atual * Number(i.produto.custo) + q * custo) / (atual + q) : custo;
-      }
-      await tx.produto.update({ where: { id: i.produtoId }, data: { custo: D4(novo) } });
-    }
+    const custo = Number(i.subtotal) > 0 ? Number(i.subtotal) / q : Number(i.custoUnit) / fator;
+    await atualizarCustoPorEntrada(tx, i.produtoId, q, custo, regra);
     await entrada(tx, { produtoId: i.produtoId, localId, quantidade: q, custoUnit: custo, origemTipo: "COMPRA", origemId: c.id, observacao: `Compra nº ${c.numero}`, usuarioId });
     if (!i.localId) await tx.compraItem.update({ where: { id: i.id }, data: { localId } });
   }
@@ -71,7 +66,7 @@ async function estornarEstoque(tx: Tx, compraId: string, usuarioId?: string) {
   const c = await tx.compra.findUniqueOrThrow({ where: { id: compraId }, include: { itens: { include: { produto: { select: { controlaEstoque: true, localPadraoId: true } } } } } });
   let padrao: string | null = null;
   for (const i of c.itens) {
-    const q = Number(i.quantidade);
+    const q = Number(i.quantidade) * (Number(i.fator) > 0 ? Number(i.fator) : 1);
     if (!i.produto.controlaEstoque || !(q > 0)) continue;
     const localId = i.localId ?? i.produto.localPadraoId ?? (padrao ??= await localPadrao(tx));
     await saida(tx, { produtoId: i.produtoId, localId, quantidade: q, origemTipo: "COMPRA", origemId: c.id, observacao: `Estorno da compra nº ${c.numero}`, usuarioId });
@@ -110,6 +105,24 @@ async function aplicar(tx: Tx, compraId: string, para: SituacaoCompraConfig, opt
   await tx.compra.update({ where: { id: compraId }, data: { situacaoId: para.id } });
 }
 
+/**
+ * O que a compra ensina ao cadastro: o código do item na nota do fornecedor (a próxima NF-e já se liga sozinha)
+ * e, quando marcado na linha, a conversão de unidade (ex.: 1 CX = 305 MT) no produto.
+ * Roda antes de lançar o estoque; o custo do produto é recalculado na entrada.
+ */
+async function aprender(tx: Tx, fornecedorId: string, linhas: DadosCompra["produtos"]) {
+  for (const l of linhas) {
+    const cod = t(l.codigoFornecedor);
+    if (cod && !(await tx.itemFornecedor.findFirst({ where: { fornecedorId, produtoId: l.produtoId, codigo: cod } })))
+      await tx.itemFornecedor.create({ data: { fornecedorId, produtoId: l.produtoId, codigo: cod } });
+    if (l.salvarConversao && t(l.unidadeCompra) && fatorLinha(l) > 0) {
+      const p = await tx.produto.findUniqueOrThrow({ where: { id: l.produtoId }, select: { unidade: true } });
+      if (p.unidade !== t(l.unidadeCompra)!.toUpperCase())
+        await tx.produto.update({ where: { id: l.produtoId }, data: { unidadeCompra: t(l.unidadeCompra)!.toUpperCase(), fatorConversao: D4(fatorLinha(l)) } });
+    }
+  }
+}
+
 export async function proximoNumeroCompra() {
   const s = await prisma.sequencia.findUnique({ where: { chave: "COMPRA" } });
   return (s?.valor ?? 0) + 1;
@@ -122,6 +135,8 @@ export async function salvarCompra(d: DadosCompra, u: Usuario, id?: string, opts
   const servicos = d.servicos.filter((l) => l.servicoId);
   if (!produtos.length && !servicos.length) throw new CompraError(d.tipo === "SERVICO" ? "Adicione ao menos um serviço" : "Adicione ao menos um produto");
   for (const l of [...produtos, ...servicos]) if (!(n(l.quantidade) > 0)) throw new CompraError(`Informe a quantidade de ${l.nome || "todos os itens"}`);
+  for (const l of produtos)
+    if (t(l.unidadeCompra) && !((lerNumero(l.fator ?? "") ?? 0) > 0)) throw new CompraError(`Informe quantos ${l.unidade || "itens"} vêm em 1 ${l.unidadeCompra} de ${l.nome}`);
   const tot = totaisCompra({ ...d, produtos, servicos });
   if (tot.total < 0) throw new CompraError("O desconto é maior que o valor da compra");
   const data = parseDia(d.data);
@@ -147,13 +162,15 @@ export async function salvarCompra(d: DadosCompra, u: Usuario, id?: string, opts
     observacoes: t(d.observacoes), observacaoInterna: t(d.observacaoInterna), camposExtras: (d.camposExtras ?? {}) as Prisma.InputJsonValue,
   };
   const assinatura = (l: { produtoId: string; quantidade: number }[]) => l.map((x) => `${x.produtoId}:${x.quantidade}`).sort().join("|");
-  const novos = produtos.map((l) => ({ produtoId: l.produtoId, quantidade: n(l.quantidade) }));
+  // a assinatura usa a quantidade que entra no estoque: mudar só a conversão também refaz a entrada
+  const novos = produtos.map((l) => ({ produtoId: l.produtoId, quantidade: Math.round(n(l.quantidade) * fatorLinha(l) * 10000) / 10000 }));
   const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null }[]) =>
     `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}`).join("|")}`;
 
   return prisma.$transaction(async (tx) => {
     const linha = (compraId: string, l: (typeof produtos)[number], i: number) => ({
       compraId, ordem: i, produtoId: l.produtoId, detalhes: t(l.detalhes), quantidade: D4(n(l.quantidade)), custoUnit: D4(n(l.valorUnit)),
+      unidadeCompra: t(l.unidadeCompra)?.toUpperCase() ?? null, fator: D4(fatorLinha(l)),
       desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalCompra(l)),
     });
     const criarItens = async (compraId: string) => {
@@ -175,7 +192,7 @@ export async function salvarCompra(d: DadosCompra, u: Usuario, id?: string, opts
       if (numero !== atual.numero && (await tx.compra.findUnique({ where: { numero } }))) throw new CompraError(`Já existe a compra nº ${numero}`);
       const existentes = await tx.compraItem.findMany({ where: { compraId: id } });
       const antigas = await tx.compraParcela.findMany({ where: { compraId: id }, orderBy: { numero: "asc" } });
-      const mudouItens = assinatura(existentes.map((e) => ({ produtoId: e.produtoId, quantidade: Number(e.quantidade) }))) !== assinatura(novos);
+      const mudouItens = assinatura(existentes.map((e) => ({ produtoId: e.produtoId, quantidade: Math.round(Number(e.quantidade) * Number(e.fator) * 10000) / 10000 }))) !== assinatura(novos);
       const mudouFin = assinaturaFin(Number(atual.total), antigas) !== assinaturaFin(tot.total, parcelas);
       await tx.compra.update({ where: { id }, data: { ...dados, numero } });
       await tx.compraParcela.deleteMany({ where: { compraId: id } });
@@ -190,6 +207,7 @@ export async function salvarCompra(d: DadosCompra, u: Usuario, id?: string, opts
         }
         await aplicar(tx, id, para, { ...opts, usuarioId: u.id, refazerFinanceiro: mudouFin });
       }
+      await aprender(tx, d.fornecedorId, produtos);
       await tx.compraHistorico.create({ data: { compraId: id, descricao: atual.situacaoId !== para.id ? `Compra alterada e levada para "${para.nome}"` : "Compra alterada", situacao: para.nome, usuarioNome: u.nome, usuarioId: u.id } });
       return tx.compra.findUniqueOrThrow({ where: { id } });
     }
@@ -202,6 +220,7 @@ export async function salvarCompra(d: DadosCompra, u: Usuario, id?: string, opts
       do numero = await proximoNumero(tx, "COMPRA"); while (await tx.compra.findUnique({ where: { numero } }));
     }
     const c = await tx.compra.create({ data: { ...dados, numero, situacaoId: para.id, criadoPorId: u.id, cotacaoId: t(d.cotacaoId), parcelas: { create: parcelas } } });
+    await aprender(tx, d.fornecedorId, produtos);
     await criarItens(c.id);
     await criarServicos(c.id);
     await aplicar(tx, c.id, para, { ...opts, usuarioId: u.id });
@@ -250,7 +269,12 @@ export async function dadosDaCompra(id: string, copia = false): Promise<DadosCom
     ...(copia ? {} : { id: c.id }), tipo: c.tipo === "SERVICO" ? "SERVICO" : "PRODUTO", numero: copia ? "" : String(c.numero),
     fornecedorId: c.fornecedorId, fornecedorNome: c.fornecedor.nome, data: copia ? hoje : iso(c.data), situacaoId: copia ? "" : c.situacaoId ?? "",
     numeroNfe: copia ? "" : c.numeroNfe ?? "", chaveNfe: copia ? "" : c.chaveNfe ?? "", centroCusto: c.centroCusto ?? "",
-    produtos: c.itens.map((i) => ({ produtoId: i.produtoId, nome: i.produto.nome, codigo: i.produto.codigo, unidade: i.produto.unidade, detalhes: i.detalhes ?? "", quantidade: q(i.quantidade), valorUnit: f(i.custoUnit), desconto: Number(i.desconto) ? f(i.desconto) : "", descontoPct: false })),
+    produtos: c.itens.map((i) => ({
+      produtoId: i.produtoId, nome: i.produto.nome, codigo: i.produto.codigo, unidade: i.produto.unidade, detalhes: i.detalhes ?? "", quantidade: q(i.quantidade),
+      valorUnit: Number(i.custoUnit).toFixed(4).replace(/(\.\d\d)0+$/, "$1").replace(".", ","), desconto: Number(i.desconto) ? f(i.desconto) : "", descontoPct: false,
+      unidadeCompra: i.unidadeCompra ?? "", fator: i.unidadeCompra ? q(i.fator) : "",
+      conversaoProduto: i.produto.unidadeCompra ? { unidade: i.produto.unidadeCompra, fator: Number(i.produto.fatorConversao) } : null,
+    })),
     servicos: c.servicos.map((i) => ({ servicoId: i.servicoId, nome: i.servico.nome, codigo: i.servico.codigo, detalhes: i.detalhes ?? "", quantidade: q(i.quantidade), valorUnit: f(i.valorUnit), desconto: Number(i.desconto) ? f(i.desconto) : "", descontoPct: false })),
     transportadoraId: c.transportadoraId ?? "", transportadoraNome: c.transportadora?.nome ?? "", frete: f(c.frete), freteNoTotal: c.freteNoTotal, impostos: f(c.impostos), impostosNoTotal: c.impostosNoTotal,
     desconto: c.descontoPercentual ? String(Number(c.descontoPercentual)).replace(".", ",") : Number(c.desconto) ? f(c.desconto) : "", descontoPct: !!c.descontoPercentual,

@@ -4,6 +4,7 @@ import { entrada, saida, transferir } from "@/lib/estoque/estoque";
 import { proximoNumero } from "@/lib/sequencia";
 import { parseDia } from "@/lib/datas";
 import { lerNumero } from "@/lib/itens/tipos";
+import { atualizarCustoPorEntrada } from "./custo";
 
 /**
  * Documentos de estoque do Gestão Click: ajustes (entrada/saída avulsa), transferências entre
@@ -44,14 +45,21 @@ async function retirar(tx: Tx, produtoId: string, q: number, base: { origemTipo:
 
 // ---------- ajustes
 
-export type ItemAjuste = { produtoId: string; nome?: string; codigo?: string; unidade?: string; quantidade: string; custo: string; localId?: string };
-export type DadosAjuste = { tipo: "ENTRADA" | "SAIDA"; frete: string; observacoes: string; itens: ItemAjuste[] };
+/** Linha do ajuste. Na entrada manual a quantidade pode estar na unidade de compra (2 CX): entra quantidade × fator (610 MT). */
+export type ItemAjuste = {
+  produtoId: string; nome?: string; codigo?: string; unidade?: string; quantidade: string; custo: string; localId?: string;
+  unidadeCompra?: string; fator?: string; salvarConversao?: boolean; conversaoProduto?: { unidade: string; fator: number } | null;
+};
+/** atualizarCusto: a entrada manual recalcula o custo do produto (média/última, como nas compras). */
+export type DadosAjuste = { tipo: "ENTRADA" | "SAIDA"; frete: string; observacoes: string; itens: ItemAjuste[]; atualizarCusto?: boolean };
 
 export async function criarAjusteTx(tx: Tx, d: DadosAjuste, u: Usuario | null, extra: { inventarioId?: string } = {}) {
   if (d.tipo !== "ENTRADA" && d.tipo !== "SAIDA") throw new DocEstoqueError("Escolha a movimentação (entrada ou saída)");
   const itens = d.itens.filter((i) => i.produtoId);
   if (!itens.length) throw new DocEstoqueError("Adicione ao menos um produto");
   for (const i of itens) if (!(n(i.quantidade) > 0)) throw new DocEstoqueError(`Informe a quantidade de ${i.nome || "todos os produtos"}`);
+  const fatorDe = (i: ItemAjuste) => ((i.unidadeCompra ?? "").trim() ? n(i.fator ?? "") : 1);
+  for (const i of itens) if (!(fatorDe(i) > 0)) throw new DocEstoqueError(`Informe quantos ${i.unidade || "itens"} vêm em 1 ${i.unidadeCompra} de ${i.nome || "um dos produtos"}`);
   const produtos = new Map((await tx.produto.findMany({ where: { id: { in: itens.map((i) => i.produtoId) } }, select: { id: true, nome: true, controlaEstoque: true, localPadraoId: true } })).map((p) => [p.id, p]));
   for (const i of itens) {
     const p = produtos.get(i.produtoId);
@@ -67,18 +75,23 @@ export async function criarAjusteTx(tx: Tx, d: DadosAjuste, u: Usuario | null, e
   const padrao = await localPadrao(tx);
   const obs = `Ajuste de estoque nº ${numero}`;
   for (const [ordem, i] of itens.entries()) {
-    const q = n(i.quantidade), custo = n(i.custo), p = produtos.get(i.produtoId)!;
+    // conversão: 2 CX a R$ 600 = 610 MT a R$ 1,9672 (o total da linha não muda)
+    const f = fatorDe(i), un = (i.unidadeCompra ?? "").trim().toUpperCase();
+    const q = n(i.quantidade) * f, custo = n(i.custo) / f, p = produtos.get(i.produtoId)!;
+    const obsLinha = f !== 1 || un ? `${obs} (${n(i.quantidade).toLocaleString("pt-BR")} ${un} × ${f.toLocaleString("pt-BR")})` : obs;
+    if (i.salvarConversao && un && f > 0) await tx.produto.update({ where: { id: p.id }, data: { unidadeCompra: un, fatorConversao: f.toFixed(4) } });
     let localId = i.localId ?? null;
     if (d.tipo === "ENTRADA") {
       localId ??= p.localPadraoId ?? padrao;
-      await entrada(tx, { produtoId: p.id, localId, quantidade: q, custoUnit: custo, origemTipo: "AJUSTE", origemId: a.id, observacao: obs, usuarioId: u?.id });
+      if (d.atualizarCusto) await atualizarCustoPorEntrada(tx, p.id, q, custo);
+      await entrada(tx, { produtoId: p.id, localId, quantidade: q, custoUnit: custo, origemTipo: "AJUSTE", origemId: a.id, observacao: obsLinha, usuarioId: u?.id });
     } else if (localId) {
-      await saida(tx, { produtoId: p.id, localId, quantidade: q, origemTipo: "AJUSTE", origemId: a.id, observacao: obs, usuarioId: u?.id });
+      await saida(tx, { produtoId: p.id, localId, quantidade: q, origemTipo: "AJUSTE", origemId: a.id, observacao: obsLinha, usuarioId: u?.id });
     } else {
-      const partes = await retirar(tx, p.id, q, { origemTipo: "AJUSTE", origemId: a.id, observacao: obs, usuarioId: u?.id }, p.localPadraoId ?? padrao);
+      const partes = await retirar(tx, p.id, q, { origemTipo: "AJUSTE", origemId: a.id, observacao: obsLinha, usuarioId: u?.id }, p.localPadraoId ?? padrao);
       localId = partes.length === 1 ? partes[0].localId : null;
     }
-    await tx.ajusteEstoqueItem.create({ data: { ajusteId: a.id, ordem, produtoId: p.id, localId, quantidade: q, custoUnit: custo, total: Math.round(q * custo * 100) / 100 } });
+    await tx.ajusteEstoqueItem.create({ data: { ajusteId: a.id, ordem, produtoId: p.id, localId, quantidade: q, custoUnit: custo.toFixed(4), total: Math.round(n(i.quantidade) * n(i.custo) * 100) / 100 } });
   }
   return a;
 }

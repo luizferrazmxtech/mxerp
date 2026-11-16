@@ -99,7 +99,7 @@ export function siglaUnidade(u: string | undefined) {
  * quando as unidades diferem e o custo passa do preço de venda, tenta achar a metragem no nome ("305M");
  * se não achar, zera o custo e avisa (melhor sem custo do que com custo de uma caixa inteira por metro).
  */
-export function custoPorSaida(x: Linha): { custo: number; ajuste?: string; semCusto?: boolean } {
+export function custoPorSaida(x: Linha): { custo: number; ajuste?: string; semCusto?: boolean; unidadeCompra?: string; fator?: number } {
   const custo = numeroBr(x["valor de custo"] ?? "");
   const venda = numeroBr(x["valor varejo"] ?? "");
   const ent = siglaUnidade(x["unidade de entrada"]);
@@ -108,7 +108,7 @@ export function custoPorSaida(x: Linha): { custo: number; ajuste?: string; semCu
   const metros = sai === "MT" || sai === "M" ? /(\d{2,4})\s*(M|MT|METROS?)\b/i.exec(x.produto ?? "") : null;
   if (metros) {
     const fator = Number(metros[1]);
-    return { custo: Math.round((custo / fator) * 10000) / 10000, ajuste: `${x.codigo}: ${custo.toFixed(2)} por ${ent} ÷ ${fator} = ${(custo / fator).toFixed(4)} por ${sai}` };
+    return { custo: Math.round((custo / fator) * 10000) / 10000, unidadeCompra: ent, fator, ajuste: `${x.codigo}: ${custo.toFixed(2)} por ${ent} ÷ ${fator} = ${(custo / fator).toFixed(4)} por ${sai}` };
   }
   return { custo: 0, semCusto: true };
 }
@@ -119,6 +119,8 @@ function linhasProdutos(p: Linha[] | undefined) {
     return {
       codigo: x.codigo, "codigo de barras": x["codigo de barra"] ?? "", nome: x.produto, grupo: x.grupo ?? "",
       unidade: un, "valor de venda": x["valor varejo"] ?? "", "valor de custo": custoPorSaida(x).custo.toFixed(4).replace(".", ","),
+      // conversão achada pela metragem do nome (1 CX = 305 MT) vai para o cadastro: a próxima nota já converte
+      "unidade de compra": custoPorSaida(x).unidadeCompra ?? "", "fator de conversao": custoPorSaida(x).fator ? String(custoPorSaida(x).fator) : "",
       "estoque atual": x["estoque atual"] ?? "", "estoque minimo": x["estoque minimo"] ?? "",
       ncm: x["codigo ncm"] ?? "", cest: x["codigo cest"] ?? "", ativo: sim(x.ativo ?? ""),
     } as Linha;
@@ -626,7 +628,10 @@ async function importarCompras(t: Tabelas, simular: boolean): Promise<Resultado>
         const q = numeroBr(p.quantidade) || 1, cu = numeroBr(p["custo unitario"]);
         const produto = await ctx.produto(tx, p.produto, cu);
         if (!produto) continue;
-        itens.push({ ordem: i, produtoId: produto.id, quantidade: q, custoUnit: cu.toFixed(4), desconto: "0", subtotal: (numeroBr(p["custo total"] ?? "") || cu * q).toFixed(2) });
+        // no GC a compra vem na unidade de entrada (CX): se o produto tem conversão e o preço é de caixa (> preço de venda), a linha leva o fator
+        const pc = await tx.produto.findUnique({ where: { id: produto.id }, select: { unidadeCompra: true, fatorConversao: true, precoVenda: true } });
+        const conv = pc?.unidadeCompra && Number(pc.fatorConversao) > 1 && cu > Number(pc.precoVenda) ? { unidadeCompra: pc.unidadeCompra, fator: Number(pc.fatorConversao).toFixed(4) } : {};
+        itens.push({ ordem: i, produtoId: produto.id, quantidade: q, custoUnit: cu.toFixed(4), desconto: "0", subtotal: (numeroBr(p["custo total"] ?? "") || cu * q).toFixed(2), ...conv });
       }
       const totalProdutos = numeroBr(c["total dos produtos"] ?? "") || itens.reduce((a, x) => a + Number(x.subtotal), 0);
       const frete = numeroBr(c["valor frete"] ?? ""), desconto = numeroBr(c["desconto valor"] ?? "");

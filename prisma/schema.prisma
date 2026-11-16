@@ -1134,18 +1134,21 @@ model Compra {
 }
 
 model CompraItem {
-  id         String  @id @default(cuid())
-  compraId   String
-  compra     Compra  @relation(fields: [compraId], references: [id], onDelete: Cascade)
-  produtoId  String
-  produto    Produto @relation(fields: [produtoId], references: [id])
-  localId    String? // onde vai ser guardado
-  quantidade Decimal @db.Decimal(14, 4)
-  custoUnit  Decimal @db.Decimal(14, 4)
-  ordem      Int     @default(0)
-  detalhes   String?
-  desconto   Decimal @default(0) @db.Decimal(14, 2)
-  subtotal   Decimal @default(0) @db.Decimal(14, 2)
+  id            String  @id @default(cuid())
+  compraId      String
+  compra        Compra  @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  produtoId     String
+  produto       Produto @relation(fields: [produtoId], references: [id])
+  localId       String? // onde vai ser guardado
+  // quantidade e custoUnit na unidade da nota (unidadeCompra); no estoque entra quantidade × fator na unidade do produto
+  quantidade    Decimal @db.Decimal(14, 4)
+  custoUnit     Decimal @db.Decimal(14, 4)
+  unidadeCompra String?
+  fator         Decimal @default(1) @db.Decimal(14, 4)
+  ordem         Int     @default(0)
+  detalhes      String?
+  desconto      Decimal @default(0) @db.Decimal(14, 2)
+  subtotal      Decimal @default(0) @db.Decimal(14, 2)
 }
 
 model CompraItemServico {

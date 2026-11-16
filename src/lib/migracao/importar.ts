@@ -57,6 +57,8 @@ export const COLUNAS = {
   custo: ["valor de custo", "preço de custo", "preco de custo", "custo", "custo médio", "custo medio"],
   estoque: ["estoque", "estoque atual", "quantidade", "saldo", "qtd estoque", "estoque disponível"],
   estoqueMinimo: ["estoque mínimo", "estoque minimo", "mínimo", "minimo"],
+  unidadeCompra: ["unidade de compra"],
+  fator: ["fator de conversao", "fator de conversão", "fator"],
   ncm: ["ncm", "código ncm", "codigo ncm"],
   cest: ["cest", "código cest", "codigo cest"],
   origem: ["origem", "origem da mercadoria"],
@@ -207,6 +209,8 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
       origem: Number(digitos(c(l, "origem")).slice(0, 1) || 0),
       ativo: !inativo(c(l, "situacao")),
       idLegado: `produto:${codigo}`,
+      // só preenche a conversão quando a planilha traz (reimportar não apaga a que foi ajustada à mão)
+      ...(c(l, "unidadeCompra") && numeroBr(c(l, "fator")) > 0 ? { unidadeCompra: c(l, "unidadeCompra").toUpperCase().slice(0, 6), fatorConversao: numeroBr(c(l, "fator")) } : {}),
     };
     const estoque = numeroBr(c(l, "estoque"));
     if (estoque < 0) negativos.push(`${codigo} (${estoque})`);

@@ -5,13 +5,15 @@ import { useActionState, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import { ResumoConversao, SeletorUnidade } from "@/components/itens/CelulaConversao";
+import { fatorPeloNome, mesmaUnidade } from "@/lib/itens/unidades";
 import { salvarCompraForm, type Resultado } from "@/lib/compras/acoes";
 import { subtotalCompra, totaisCompra, type DadosCompra, type LinhaCompra } from "@/lib/compras/tipos";
 import { gerarParcelas, lerNumero, type LinhaServico } from "@/lib/orcamentos/tipos";
 
 export type InicialCompra = DadosCompra & { id?: string; proximoNumero: number; anexos: { id: string; nome: string }[] };
 type Opcoes = { situacoes: { id: string; nome: string }[]; formas: { id: string; nome: string }[]; campos: { id: string; nome: string }[]; centros: string[] };
-type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; custo: number; fisico: number | null };
+type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; custo: number; fisico: number | null; unidadeCompra: string | null; fatorConversao: number };
 type ServicoBusca = { id: string; codigo: string; nome: string; preco: number };
 
 const n2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -43,11 +45,11 @@ export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op
   const novoServico = (): LinhaServico => ({ servicoId: "", nome: "", codigo: "", detalhes: "", quantidade: "1", valorUnit: "0,00", desconto: "", descontoPct: false });
 
   const blocoProdutos = (
-    <Bloco key="p" icone="produtos" titulo={<>Adicione os <b>produtos</b> da compra</>} subtitulo="Produto, quantidade e valor de custo por linha. Ao lançar o estoque, o custo do produto é atualizado conforme as configurações." corpo="p-0">
+    <Bloco key="p" icone="produtos" titulo={<>Adicione os <b>produtos</b> da compra</>} subtitulo="Produto, quantidade e valor de custo por linha, na unidade da nota. Se comprou em caixa e vende por metro, escolha a unidade de compra: entra no estoque a quantidade convertida e o custo por metro." corpo="p-0">
       <div className="overflow-x-auto">
         <table className="tabela">
           <thead><tr>
-            <th className="min-w-72">Produto *</th><th className="min-w-40">Detalhes</th><th className="w-24 text-right">Quant. *</th><th className="w-16">Unid.</th>
+            <th className="min-w-72">Produto *</th><th className="min-w-40">Detalhes</th><th className="w-24 text-right">Quant. *</th><th className="w-28">Unid.</th>
             <th className="w-32 text-right">Valor de custo *</th><th className="w-32">Desconto</th><th className="w-28 text-right">Subtotal</th><th className="w-12"></th>
           </tr></thead>
           <tbody>
@@ -57,15 +59,28 @@ export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op
                   {l.produtoId ? <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}</div> : (
                     <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus
                       linha={(p) => <span><span className="font-mono text-[11px] text-slate-500">{p.codigo}</span> {p.nome} <span className="text-[11px] text-slate-500">· custo {brl(p.custo)}{p.fisico != null ? ` · estoque ${p.fisico}` : ""}</span></span>}
-                      onEscolher={(p) => p && setProd(i, { produtoId: p.id, nome: p.nome, codigo: p.codigo, unidade: p.unidade, valorUnit: n2(p.custo) })} />
+                      onEscolher={(p) => {
+                        if (!p) return;
+                        const cp = p.unidadeCompra ? { unidade: p.unidadeCompra, fator: p.fatorConversao } : null;
+                        const base = { produtoId: p.id, nome: p.nome, codigo: p.codigo, unidade: p.unidade, conversaoProduto: cp };
+                        if (l.codigoFornecedor) {
+                          // linha da NF-e: quantidade e valor são os da nota, na unidade da nota
+                          const uNota = l.unidadeCompra || l.unidade;
+                          if (mesmaUnidade(uNota, p.unidade)) setProd(i, { ...base, unidadeCompra: "", fator: "" });
+                          else if (cp) setProd(i, { ...base, unidadeCompra: uNota, fator: String(cp.fator).replace(".", ",") });
+                          else { const g = fatorPeloNome(`${l.detalhes} ${p.nome}`, p.unidade); setProd(i, { ...base, unidadeCompra: uNota, fator: g ? String(g) : "", salvarConversao: true }); }
+                        } else
+                          // produto com conversão: a compra já vem na unidade de compra (CX), com o custo da caixa
+                          setProd(i, { ...base, ...(cp ? { unidadeCompra: cp.unidade, fator: String(cp.fator).replace(".", ","), valorUnit: n2(p.custo * cp.fator) } : { valorUnit: n2(p.custo) }) });
+                      }} />
                   )}
                 </td>
                 <td><input className="campo" value={l.detalhes} onChange={(e) => setProd(i, { detalhes: e.target.value })} /></td>
                 <td><input className="campo text-right" value={l.quantidade} onChange={(e) => setProd(i, { quantidade: e.target.value })} /></td>
-                <td className="text-[12px] text-slate-600">{l.unidade}</td>
+                <td className="text-[12px] text-slate-600">{l.produtoId ? <SeletorUnidade l={l} onChange={(m) => setProd(i, m)} /> : l.unidadeCompra || l.unidade}</td>
                 <td><input className="campo text-right" value={l.valorUnit} onChange={(e) => setProd(i, { valorUnit: e.target.value })} /></td>
                 <td><Desconto valor={l.desconto} pct={l.descontoPct} onValor={(v) => setProd(i, { desconto: v })} onPct={(v) => setProd(i, { descontoPct: v })} /></td>
-                <td className="text-right font-semibold">{n2(subtotalCompra(l))}</td>
+                <td className="text-right font-semibold">{n2(subtotalCompra(l))}{l.produtoId && <ResumoConversao l={l} quantidade={l.quantidade} subtotal={subtotalCompra(l)} />}</td>
                 <td><button type="button" className="btn-icone text-red-600" title="Remover" onClick={() => set("produtos", d.produtos.filter((_, j) => j !== i))}><Icone nome="excluir" size={13} /></button></td>
               </tr>
             ))}
