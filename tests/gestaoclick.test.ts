@@ -49,6 +49,10 @@ async function backup() {
   ]));
   z.file("produtos/produtos_2.xlsx", await planilha([cabProd,
     ["FONTE", null, "MXTECH", null, "FONTE ATX 500W", null, null, null, null, null, "100,00", "PC", "PC", null, null, "0,00", null, "Não", "0,00", "0,00", "0,00", null, null, null, null, "199"],
+    // custo por caixa de 305 m, estoque e venda por metro
+    ["CX305", null, "MXTECH", null, "INF - CABO DE REDE UTP CAT6 305M AZUL", null, null, null, null, null, "690,00", "CX1", "MT", null, null, "0,00", null, "Sim", "0,00", "0,00", "1.459,00", "85444900", "Cabos", null, null, "3.9"],
+    // custo por caixa sem quantidade no nome: entra sem custo
+    ["CONX", null, "MXTECH", null, "CONECTOR RJ45 CAT5E", null, null, null, null, null, "12,52", "CX1", "Unidade", null, null, "0,00", null, "Sim", "0,00", "0,00", "343,00", "85366990", "Conectores", null, null, "2.5"],
   ]));
   z.file("servicos/servicos.xlsx", await planilha([
     ["Servico", "Código interno", "Valor unitário", "Comissão", "Observações", "Cadastrado por", "Cadastrado em", "Modificado em"],
@@ -99,7 +103,7 @@ async function backup() {
 describe("backup do Gestão Click", () => {
   it("lê o zip juntando as partes", async () => {
     const t = await gc.lerBackupGestaoClick(await backup());
-    expect(t.produtos).toHaveLength(3);
+    expect(t.produtos).toHaveLength(5);
     expect(t.ordens_servicos_situacoes).toHaveLength(6);
   });
 
@@ -118,6 +122,14 @@ describe("backup do Gestão Click", () => {
     // pessoas: PJ usa razão social e guarda o nome como fantasia; endereço comercial preferido ao de entrega; mesma empresa vira fornecedor
     const folk = await prisma.pessoa.findUniqueOrThrow({ where: { documento: "11222333000181" } });
     expect(folk).toMatchObject({ nome: "FOLK COMERCIO LTDA", fantasia: "FOLK STORE", logradouro: "Rua Nestor de Campos", cliente: true, fornecedor: true, tipoPessoa: "JURIDICA" });
+
+    const cabo305 = await prisma.produto.findUniqueOrThrow({ where: { codigo: "CX305" } });
+    expect(cabo305.unidade).toBe("MT");
+    expect(Number(cabo305.custo)).toBeCloseTo(690 / 305, 4);
+    const conx = await prisma.produto.findUniqueOrThrow({ where: { codigo: "CONX" } });
+    expect(conx.unidade).toBe("UN");
+    expect(Number(conx.custo)).toBe(0);
+    expect(por("produtos").avisos.join(" ")).toMatch(/CONX/);
 
     const bat = await prisma.produto.findUniqueOrThrow({ where: { codigo: "BAT7" } });
     expect(Number(bat.precoVenda)).toBeCloseTo(144.9);
@@ -174,5 +186,20 @@ describe("backup do Gestão Click", () => {
     expect(await prisma.lancamento.count()).toBe(2);
     expect(await prisma.pessoa.count()).toBe(3);
     expect((await prisma.$transaction((tx) => est.resumoProduto(tx, bat.id))).fisico).toBe(3);
+  });
+});
+
+describe("unidade e custo do Gestão Click", () => {
+  it("converte a unidade e o custo de caixa para metro", async () => {
+    const { siglaUnidade, custoPorSaida } = await import("@/lib/migracao/gestaoclick");
+    expect(siglaUnidade("Unidade")).toBe("UN");
+    expect(siglaUnidade("CX1")).toBe("CX");
+    expect(siglaUnidade("Metro Quadrado")).toBe("M2");
+    const linha = (produto: string, custo: string, ent: string, sai: string, venda: string) =>
+      ({ codigo: "X", produto, "valor de custo": custo, "unidade de entrada": ent, "unidade de saida": sai, "valor varejo": venda });
+    expect(custoPorSaida(linha("CABO CAT6 LSZH 100M AZ", "425,34", "CX1", "MT", "4.5")).custo).toBeCloseTo(4.2534, 4);
+    expect(custoPorSaida(linha("CABO ALTA ISOLACAO 7MM 50M", "73,00", "CX1", "MT", "2.19")).custo).toBeCloseTo(1.46, 4);
+    expect(custoPorSaida(linha("SENSOR PIR", "90,00", "UN1", "Unidade", "169")).custo).toBe(90); // mesma unidade
+    expect(custoPorSaida(linha("CABO 5MM BRANCO", "47,00", "CX1", "MT", "1.99"))).toMatchObject({ custo: 0, semCusto: true });
   });
 });
