@@ -14,7 +14,7 @@ beforeAll(() => {
   execSync("npx prisma migrate deploy", { env: { ...process.env, DATABASE_URL: URL }, stdio: "ignore" });
 });
 beforeEach(async () => {
-  await prisma.$executeRawUnsafe(`TRUNCATE "Lancamento","OsHistorico","OsItemServico","OsItemProduto","OrdemServico","Reserva","MovimentoEstoque","Saldo","Produto","GrupoProduto","Local","Deposito","Pessoa","Servico","Sequencia","FormaPagamento","CategoriaFinanceira","ContaBancaria" CASCADE`);
+  await prisma.$executeRawUnsafe(`TRUNCATE "Compra","AjusteEstoque","Lancamento","OsHistorico","OsItemServico","OsItemProduto","OrdemServico","Reserva","MovimentoEstoque","Saldo","Produto","GrupoProduto","Local","Deposito","Pessoa","Servico","Sequencia","FormaPagamento","CategoriaFinanceira","ContaBancaria" CASCADE`);
 });
 
 async function planilha(linhas: (string | null)[][]) {
@@ -96,6 +96,31 @@ async function backup() {
     cr("Venda de nº 8002", "Não Pago", "Vendas de produtos", "LAZARO", "100", "30/11/2026", "CREDITO VISA/MASTER 1X"),
     cr("Venda de nº 8003", "Atrasado", "Vendas de produtos", "LAZARO", "0", "30/11/2026", "PIX"),
   ]));
+  z.file("compras/compras.xlsx", await planilha([
+    ["Nº da compra", "Número da NF-e", "Chave NF-e", "Fornecedor", "Total dos produtos", "Valor frete", "Desconto valor", "Total da compra", "Data de emissão", "Pagar frete", "Transportadora", "Observações", "Cadastrado por", "Cadastrado em", "Modificado em", "Loja"],
+    ["990", "123", "NFe35261011222333000181550010000001231000000010", "FOLK COMERCIO E DISTRIBUICAO LTDA", "160,00", "10,00", "0,00", "170,00", "01/10/2026", "Sim", null, "NF de teste", null, "01/10/2026 09:00:00", null, "MXTECH"],
+    ["991", null, "NFe35261099888777000166550010000004561000000020", "NOVO FORNECEDOR LTDA", "12,00", "0,00", "0,00", "12,00", "05/10/2026", "Sim", null, null, null, "05/10/2026 09:00:00", null, "MXTECH"],
+  ]));
+  z.file("compras/compras_produtos.xlsx", await planilha([
+    ["Código", "Produto", "Quantidade", "Unidade", "Custo unitário", "Custo total"],
+    ["990", "ELE - BATERIA 12V 7AH", "2", "UN", "80,00", "160,00"],
+    ["991", "CABO UTP CAT5E", "10", "MT", "1,20", "12,00"],
+  ]));
+  z.file("compras/compras_pagamentos.xlsx", await planilha([
+    ["Código", "Vencimento", "Valor da parcela", "Forma de pagamento", "Observação"],
+    ["990", "01/11/2026", "85,00", "Boleto Bancário", null], ["990", "01/12/2026", "85,00", "Boleto Bancário", null],
+    ["991", "05/11/2026", "12,00", "PIX", null],
+  ]));
+  z.file("compras/compras_historicos.xlsx", await planilha([
+    ["Código", "Data", "Observação", "Situação", "Funcionário"],
+    ["990", "01/10/2026 09:00:00", "Compra cadastrada", "Em aberto", "MATHEUS"], ["990", "02/10/2026 09:00:00", null, "Confirmada", "MATHEUS"],
+    ["991", "05/10/2026 09:00:00", "Compra cadastrada", "Em aberto", "MATHEUS"],
+  ]));
+  z.file("estoque/ajustes_estoques.xlsx", await planilha([
+    ["Código", "Movimentação", "Valor frete", "Observações", "Cadastrado por", "Cadastrado em", "Loja"],
+    ["1", "Entrada", "0,00", "AJUSTE DE ESTOQUE INICIAL", "MATHEUS", "02/06/2025 13:17:38", "MXTECH"],
+  ]));
+  z.file("estoque/ajustes_estoques_produtos.xlsx", await planilha([["Código", "Produto", "Variações", "Quantidade"], ["1", "ELE - BATERIA 12V 7AH", null, "3,00"]]));
   z.file("vendas/vendas_1.xlsx", await planilha([["Nº do pedido", "Cliente"], ["8694", "Consumidor"]]));
   return Buffer.from(await z.generateAsync({ type: "nodebuffer" }));
 }
@@ -182,13 +207,41 @@ describe("backup do Gestão Click", () => {
 
     expect(await prisma.contaBancaria.findUnique({ where: { nome: "INTER" } })).not.toBeNull();
 
+    // compras: a confirmada entra recebida e com as contas "já lançadas lá"; fornecedor achado pelo CNPJ da chave da NF-e
+    const c990 = await prisma.compra.findUniqueOrThrow({ where: { numero: 990 }, include: { parcelas: true, historico: true, itens: true } });
+    expect(c990).toMatchObject({ fornecedorId: folk.id, situacaoId: "sc_confirmada", recebida: true, financeiroNoLegado: true, numeroNfe: "123", chaveNfe: "35261011222333000181550010000001231000000010" });
+    expect(Number(c990.total)).toBeCloseTo(170);
+    expect(c990.parcelas).toHaveLength(2);
+    expect(c990.historico).toHaveLength(3);
+    const c991 = await prisma.compra.findUniqueOrThrow({ where: { numero: 991 }, include: { fornecedor: true } });
+    expect(c991).toMatchObject({ situacaoId: "sc_aberto", recebida: false, financeiroNoLegado: false });
+    expect(c991.fornecedor).toMatchObject({ nome: "NOVO FORNECEDOR LTDA", documento: "99888777000166", fornecedor: true });
+    expect(await prisma.movimentoEstoque.count({ where: { origemTipo: { in: ["COMPRA", "AJUSTE"] } } })).toBe(0);
+    expect((await prisma.sequencia.findUniqueOrThrow({ where: { chave: "COMPRA" } })).valor).toBe(991);
+    const aj = await prisma.ajusteEstoque.findUniqueOrThrow({ where: { numero: 1 }, include: { itens: true } });
+    expect(aj).toMatchObject({ tipo: "ENTRADA", criadoPorNome: "MATHEUS" });
+    expect(Number(aj.itens[0].quantidade)).toBe(3);
+
     // repetir não duplica nada nem mexe no estoque já movimentado
     const res2 = await gc.importarBackupGestaoClick(t, { simular: false });
     expect(res2.find((x) => x.tipo === "os")!.criados).toBe(0);
     expect(await prisma.ordemServico.count()).toBe(4);
     expect(await prisma.lancamento.count()).toBe(2);
-    expect(await prisma.pessoa.count()).toBe(3);
+    expect(await prisma.pessoa.count()).toBe(4) // + o fornecedor criado pela compra 991;
     expect((await prisma.$transaction((tx) => est.resumoProduto(tx, bat.id))).fisico).toBe(3);
+    expect(await prisma.compra.count()).toBe(2);
+    expect(await prisma.ajusteEstoque.count()).toBe(1);
+
+    // a compra em aberto, ao ser confirmada no MXERP, dá entrada e gera a conta a pagar (a confirmada no GC não)
+    const { alterarSituacaoCompra } = await import("@/lib/compras/compras");
+    const usu = await prisma.usuario.upsert({ where: { email: "gc@local.test" }, update: {}, create: { nome: "Teste", email: "gc@local.test", papel: "GERENTE" } });
+    const eu = { id: usu.id, nome: usu.nome };
+    await alterarSituacaoCompra(c991.id, "sc_confirmada", eu);
+    expect((await prisma.$transaction((tx) => est.resumoProduto(tx, cabo.id))).fisico).toBe(10);
+    expect(await prisma.lancamento.count({ where: { origemTipo: "COMPRA", origemId: c991.id } })).toBe(1);
+    await alterarSituacaoCompra(c990.id, "sc_aberto", eu);
+    await alterarSituacaoCompra(c990.id, "sc_confirmada", eu);
+    expect(await prisma.lancamento.count({ where: { origemTipo: "COMPRA", origemId: c990.id } })).toBe(0);
   });
 });
 

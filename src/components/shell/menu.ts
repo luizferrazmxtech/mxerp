@@ -85,8 +85,26 @@ export const MENU: ItemMenu[] = [
   },
   {
     rotulo: "Estoque", icone: "estoque", filhos: [
+      { rotulo: "Movimentações", href: "/estoque/movimentacoes", icone: "transferir" },
+      { rotulo: "Ajustes", href: "/estoque/ajustes", icone: "ajustes" },
+      { rotulo: "Transferências", href: "/estoque/transferencias", icone: "lojas" },
       { rotulo: "Saldos e reservas", href: "/estoque", icone: "produtos" },
       { rotulo: "Locais (prateleiras)", href: "/estoque/locais", icone: "locais" },
+      {
+        rotulo: "Compras", href: "/compras", icone: "carrinho", filhos: [
+          { rotulo: "Produtos", href: "/compras", icone: "produtos" },
+          { rotulo: "Serviços", href: "/compras/servicos", icone: "servicos" },
+          { rotulo: "Cotações", href: "/compras/cotacoes", icone: "cotacao" },
+        ],
+      },
+      {
+        rotulo: "Opções auxiliares", href: "/compras/situacoes", icone: "auxiliares", filhos: [
+          { rotulo: "Situações de compras", href: "/compras/situacoes", icone: "lista" },
+          { rotulo: "Campos extras", href: "/campos-extras?entidade=COMPRA", icone: "ajustes" },
+          { rotulo: "Modelos de e-mail", href: "/compras/mensagens", icone: "email" },
+          { rotulo: "Configurações", href: "/estoque/configuracoes", icone: "configuracoes" },
+        ],
+      },
     ],
   },
   {
@@ -120,6 +138,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/financeiro", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
   { prefixo: "/fiscal", rotulo: "Fiscal", cor: "#7a4fd1", icone: "fiscal" },
   { prefixo: "/estoque", rotulo: "Estoque", cor: "#b5651d", icone: "estoque" },
+  { prefixo: "/compras", rotulo: "Estoque", cor: "#b5651d", icone: "estoque" },
   { prefixo: "/clientes", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
   { prefixo: "/campos-extras", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },
   { prefixo: "/tipos-enderecos", rotulo: "Cadastros", cor: "#5b6573", icone: "cadastros" },

@@ -193,10 +193,12 @@ model Pessoa {
   contatos        PessoaContato[]
   anotacoes       PessoaAnotacao[]
   ordensServico   OrdemServico[]
-  orcamentos      Orcamento[]      @relation("OrcamentoCliente")
-  orcamentosFrete Orcamento[]      @relation("OrcamentoTransportadora")
-  vendasFrete     Venda[]          @relation("VendaTransportadora")
-  osFrete         OrdemServico[]   @relation("OsTransportadora")
+  orcamentos      Orcamento[]         @relation("OrcamentoCliente")
+  orcamentosFrete Orcamento[]         @relation("OrcamentoTransportadora")
+  vendasFrete     Venda[]             @relation("VendaTransportadora")
+  osFrete         OrdemServico[]      @relation("OsTransportadora")
+  comprasFrete    Compra[]            @relation("CompraTransportadora")
+  cotacoes        CotacaoFornecedor[] @relation("CotacaoFornecedor")
   vendas          Venda[]
   lancamentos     Lancamento[]
   compras         Compra[]
@@ -507,19 +509,22 @@ model Produto {
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
-  saldos       Saldo[]
-  reservas     Reserva[]
-  movimentos   MovimentoEstoque[]
-  itensOs      OsItemProduto[]
-  itensVenda   VendaItem[]
-  itensOrc     OrcamentoItem[]
-  itensCompra  CompraItem[]
-  valores      ProdutoValor[]
-  componentes  ProdutoComponente[] @relation("Kit")
-  usadoEm      ProdutoComponente[] @relation("ComponenteDe")
-  variacoes    ProdutoVariacao[]
-  fornecedores ItemFornecedor[]
-  historico    HistoricoValor[]
+  saldos             Saldo[]
+  reservas           Reserva[]
+  movimentos         MovimentoEstoque[]
+  itensOs            OsItemProduto[]
+  itensVenda         VendaItem[]
+  itensOrc           OrcamentoItem[]
+  itensCompra        CompraItem[]
+  itensAjuste        AjusteEstoqueItem[]
+  itensTransferencia TransferenciaEstoqueItem[]
+  itensInventario    InventarioItem[]
+  valores            ProdutoValor[]
+  componentes        ProdutoComponente[]        @relation("Kit")
+  usadoEm            ProdutoComponente[]        @relation("ComponenteDe")
+  variacoes          ProdutoVariacao[]
+  fornecedores       ItemFornecedor[]
+  historico          HistoricoValor[]
 
   @@index([nome])
 }
@@ -558,6 +563,7 @@ model Servico {
   updatedAt                 DateTime @default(now()) @updatedAt
 
   itensOs      OsItemServico[]
+  itensCompra  CompraItemServico[]
   itensVenda   VendaItemServico[]
   itensOrc     OrcamentoServico[]
   fornecedores ItemFornecedor[]
@@ -1081,14 +1087,50 @@ model VendaPagamento {
 model Compra {
   id           String       @id @default(cuid())
   numero       Int          @unique
+  tipo         String       @default("PRODUTO") // PRODUTO | SERVICO (compras de serviços)
   fornecedorId String
   fornecedor   Pessoa       @relation(fields: [fornecedorId], references: [id])
-  data         DateTime     @default(now())
-  recebida     Boolean      @default(false)
+  data         DateTime     @default(now()) @db.Date
+  recebida     Boolean      @default(false) // estoque já lançado
   chaveNfe     String?
   total        Decimal      @default(0) @db.Decimal(14, 2)
   createdAt    DateTime     @default(now())
   itens        CompraItem[]
+
+  // padrão Gestão Click
+  situacaoId         String?
+  situacaoCfg        SituacaoCompraConfig? @relation(fields: [situacaoId], references: [id])
+  numeroNfe          String?
+  centroCusto        String?
+  transportadoraId   String?
+  transportadora     Pessoa?               @relation("CompraTransportadora", fields: [transportadoraId], references: [id])
+  frete              Decimal               @default(0) @db.Decimal(14, 2)
+  freteNoTotal       Boolean               @default(true)
+  impostos           Decimal               @default(0) @db.Decimal(14, 2)
+  impostosNoTotal    Boolean               @default(true)
+  desconto           Decimal               @default(0) @db.Decimal(14, 2)
+  descontoPercentual Decimal?              @db.Decimal(7, 4)
+  totalProdutos      Decimal               @default(0) @db.Decimal(14, 2)
+  totalServicos      Decimal               @default(0) @db.Decimal(14, 2)
+  condicao           String                @default("AVISTA")
+  formaPagamentoId   String?
+  formaPagamento     FormaPagamento?       @relation("CompraForma", fields: [formaPagamentoId], references: [id])
+  intervaloDias      Int                   @default(30)
+  observacoes        String?
+  observacaoInterna  String?
+  camposExtras       Json                  @default("{}")
+  token              String                @unique @default(cuid())
+  criadoPorId        String?
+  cotacaoId          String?
+  idLegado           String?               @unique
+  financeiroNoLegado Boolean               @default(false) // migrada já com as contas lançadas no Gestão Click (não lança de novo)
+  updatedAt          DateTime              @default(now()) @updatedAt
+
+  servicos  CompraItemServico[]
+  parcelas  CompraParcela[]
+  historico CompraHistorico[]
+
+  @@index([data])
 }
 
 model CompraItem {
@@ -1100,6 +1142,209 @@ model CompraItem {
   localId    String? // onde vai ser guardado
   quantidade Decimal @db.Decimal(14, 4)
   custoUnit  Decimal @db.Decimal(14, 4)
+  ordem      Int     @default(0)
+  detalhes   String?
+  desconto   Decimal @default(0) @db.Decimal(14, 2)
+  subtotal   Decimal @default(0) @db.Decimal(14, 2)
+}
+
+model CompraItemServico {
+  id         String  @id @default(cuid())
+  compraId   String
+  compra     Compra  @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  servicoId  String
+  servico    Servico @relation(fields: [servicoId], references: [id])
+  ordem      Int     @default(0)
+  detalhes   String?
+  quantidade Decimal @default(1) @db.Decimal(14, 4)
+  valorUnit  Decimal @db.Decimal(14, 2)
+  desconto   Decimal @default(0) @db.Decimal(14, 2)
+  subtotal   Decimal @db.Decimal(14, 2)
+}
+
+model CompraParcela {
+  id               String          @id @default(cuid())
+  compraId         String
+  compra           Compra          @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  numero           Int
+  vencimento       DateTime        @db.Date
+  valor            Decimal         @db.Decimal(14, 2)
+  formaPagamentoId String?
+  formaPagamento   FormaPagamento? @relation(fields: [formaPagamentoId], references: [id])
+  observacao       String?
+
+  @@index([compraId])
+}
+
+model CompraHistorico {
+  id          String   @id @default(cuid())
+  compraId    String
+  compra      Compra   @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  descricao   String
+  situacao    String?
+  usuarioNome String?
+  usuarioId   String?
+  createdAt   DateTime @default(now())
+}
+
+/// Situações de compra: o que cada uma lança (estoque e/ou financeiro), como no Gestão Click.
+model SituacaoCompraConfig {
+  id            String   @id @default(cuid())
+  nome          String
+  cor           String   @default("cinza")
+  padrao        Boolean  @default(false)
+  exibir        Boolean  @default(true) // aparece na listagem
+  lancamento    String   @default("NAO") // NAO | AMBOS | ESTOQUE | FINANCEIRO
+  permiteEdicao Boolean  @default(true)
+  bloqueados    String[]
+  ordem         Int      @default(0)
+  compras       Compra[]
+}
+
+// ───────────────────────── Ajustes, transferências, inventários e cotações ─────────────────────────
+
+model AjusteEstoque {
+  id            String              @id @default(cuid())
+  numero        Int                 @unique
+  tipo          TipoMovimento
+  frete         Decimal             @default(0) @db.Decimal(14, 2)
+  total         Decimal             @default(0) @db.Decimal(14, 2)
+  observacoes   String?
+  criadoPorId   String?
+  criadoPorNome String?
+  inventarioId  String?
+  idLegado      String?             @unique
+  createdAt     DateTime            @default(now())
+  itens         AjusteEstoqueItem[]
+}
+
+model AjusteEstoqueItem {
+  id         String        @id @default(cuid())
+  ajusteId   String
+  ajuste     AjusteEstoque @relation(fields: [ajusteId], references: [id], onDelete: Cascade)
+  produtoId  String
+  produto    Produto       @relation(fields: [produtoId], references: [id])
+  localId    String?
+  quantidade Decimal       @db.Decimal(14, 4)
+  custoUnit  Decimal       @default(0) @db.Decimal(14, 4)
+  total      Decimal       @default(0) @db.Decimal(14, 2)
+  ordem      Int           @default(0)
+}
+
+/// Transferência entre depósitos (as "lojas" do Gestão Click).
+model TransferenciaEstoque {
+  id                String                     @id @default(cuid())
+  numero            Int                        @unique
+  origemDepositoId  String
+  destinoDepositoId String
+  total             Decimal                    @default(0) @db.Decimal(14, 2)
+  observacoes       String?
+  criadoPorId       String?
+  criadoPorNome     String?
+  createdAt         DateTime                   @default(now())
+  itens             TransferenciaEstoqueItem[]
+}
+
+model TransferenciaEstoqueItem {
+  id              String               @id @default(cuid())
+  transferenciaId String
+  transferencia   TransferenciaEstoque @relation(fields: [transferenciaId], references: [id], onDelete: Cascade)
+  produtoId       String
+  produto         Produto              @relation(fields: [produtoId], references: [id])
+  quantidade      Decimal              @db.Decimal(14, 4)
+  custoUnit       Decimal              @default(0) @db.Decimal(14, 4)
+  ordem           Int                  @default(0)
+}
+
+model Inventario {
+  id                  String           @id @default(cuid())
+  numero              Int              @unique
+  descricao           String
+  responsavelId       String?
+  responsavelNome     String
+  data                DateTime         @db.Date
+  motivo              String?
+  escopo              String           @default("TODOS") // TODOS | GRUPOS | FORNECEDORES | PRODUTOS
+  filtroIds           String[]
+  contagemCega        Boolean          @default(false)
+  somarLeituras       Boolean          @default(true)
+  considerarMovimento Boolean          @default(true)
+  situacao            String           @default("CONTANDO") // CONTANDO | CONCLUIDO | CANCELADO
+  concluidoEm         DateTime?
+  createdAt           DateTime         @default(now())
+  itens               InventarioItem[]
+}
+
+model InventarioItem {
+  id           String     @id @default(cuid())
+  inventarioId String
+  inventario   Inventario @relation(fields: [inventarioId], references: [id], onDelete: Cascade)
+  produtoId    String
+  produto      Produto    @relation(fields: [produtoId], references: [id])
+  saldoInicial Decimal    @db.Decimal(14, 4) // saldo no início da contagem
+  contado      Decimal?   @db.Decimal(14, 4)
+  custoUnit    Decimal    @default(0) @db.Decimal(14, 4)
+
+  @@unique([inventarioId, produtoId])
+}
+
+model Cotacao {
+  id                String              @id @default(cuid())
+  numero            Int                 @unique
+  data              DateTime            @db.Date
+  prazo             DateTime?           @db.Date // prazo para os fornecedores responderem
+  observacoes       String? // para o fornecedor
+  observacaoInterna String?
+  situacao          String              @default("ABERTA") // ABERTA | FINALIZADA | CANCELADA
+  compraId          String?
+  criadoPorId       String?
+  criadoPorNome     String?
+  createdAt         DateTime            @default(now())
+  fornecedores      CotacaoFornecedor[]
+  itens             CotacaoItem[]
+}
+
+model CotacaoFornecedor {
+  id           String            @id @default(cuid())
+  cotacaoId    String
+  cotacao      Cotacao           @relation(fields: [cotacaoId], references: [id], onDelete: Cascade)
+  fornecedorId String
+  fornecedor   Pessoa            @relation("CotacaoFornecedor", fields: [fornecedorId], references: [id])
+  email        String
+  celular      String?
+  token        String            @unique @default(cuid())
+  respondidoEm DateTime?
+  frete        Decimal?          @db.Decimal(14, 2)
+  prazoEntrega String?
+  condicao     String?
+  observacao   String?
+  respostas    CotacaoResposta[]
+}
+
+model CotacaoItem {
+  id         String            @id @default(cuid())
+  cotacaoId  String
+  cotacao    Cotacao           @relation(fields: [cotacaoId], references: [id], onDelete: Cascade)
+  produtoId  String?
+  servicoId  String?
+  nome       String
+  detalhes   String?
+  quantidade Decimal           @db.Decimal(14, 4)
+  unidade    String            @default("UN")
+  ordem      Int               @default(0)
+  respostas  CotacaoResposta[]
+}
+
+model CotacaoResposta {
+  id           String            @id @default(cuid())
+  fornecedorId String
+  fornecedor   CotacaoFornecedor @relation(fields: [fornecedorId], references: [id], onDelete: Cascade)
+  itemId       String
+  item         CotacaoItem       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  valorUnit    Decimal?          @db.Decimal(14, 4)
+  observacao   String?
+
+  @@unique([fornecedorId, itemId])
 }
 
 // ───────────────────────── Financeiro ─────────────────────────
@@ -1117,20 +1362,22 @@ model ContaBancaria {
 }
 
 model FormaPagamento {
-  id          String             @id @default(cuid())
-  nome        String             @unique
-  tPag        String // código do meio de pagamento na NF-e (01 dinheiro, 03 crédito, 17 PIX...)
-  taxa        Decimal            @default(0) @db.Decimal(7, 4)
-  diasPrazo   Int                @default(0)
-  ativa       Boolean            @default(true)
-  pagamentos  VendaPagamento[]
-  lancamentos Lancamento[]
-  orcamentos  Orcamento[]
-  parcelasOrc OrcamentoParcela[]
-  vendas      Venda[]            @relation("VendaForma")
-  parcelasVen VendaParcela[]
-  ordens      OrdemServico[]     @relation("OsForma")
-  parcelasOs  OsParcela[]
+  id             String             @id @default(cuid())
+  nome           String             @unique
+  tPag           String // código do meio de pagamento na NF-e (01 dinheiro, 03 crédito, 17 PIX...)
+  taxa           Decimal            @default(0) @db.Decimal(7, 4)
+  diasPrazo      Int                @default(0)
+  ativa          Boolean            @default(true)
+  pagamentos     VendaPagamento[]
+  lancamentos    Lancamento[]
+  orcamentos     Orcamento[]
+  parcelasOrc    OrcamentoParcela[]
+  vendas         Venda[]            @relation("VendaForma")
+  parcelasVen    VendaParcela[]
+  ordens         OrdemServico[]     @relation("OsForma")
+  parcelasOs     OsParcela[]
+  compras        Compra[]           @relation("CompraForma")
+  parcelasCompra CompraParcela[]
 }
 
 /// Grupo da DRE gerencial para onde a categoria soma.
