@@ -47,3 +47,17 @@ export async function garantirPadroes(tx: Tx) {
 export async function categoria(tx: Tx, nome: string, tipo: "RECEBER" | "PAGAR") {
   return tx.categoriaFinanceira.findUniqueOrThrow({ where: { nome_tipo: { nome, tipo } } });
 }
+
+/**
+ * Categoria da receita de um documento com peças e/ou serviços. Quando tem os dois, o lançamento fica na
+ * categoria da parte maior e ganha um rateio proporcional, para a DRE separar "Venda de produtos" e
+ * "Prestação de serviços" sem duplicar a conta (um boleto por parcela).
+ */
+export async function receitaDocumento(tx: Tx, totalProdutos: number, totalServicos: number) {
+  const prod = await categoria(tx, "Venda de produtos", "RECEBER");
+  const serv = await categoria(tx, "Prestação de serviços", "RECEBER");
+  const soma = Math.max(0, totalProdutos) + Math.max(0, totalServicos);
+  if (!(totalProdutos > 0) || !(totalServicos > 0)) return { categoriaId: totalServicos > 0 && !(totalProdutos > 0) ? serv.id : prod.id, rateio: [] as { categoriaId: string; fracao: number }[] };
+  const fp = Math.round((totalProdutos / soma) * 1e8) / 1e8;
+  return { categoriaId: fp >= 0.5 ? prod.id : serv.id, rateio: [{ categoriaId: prod.id, fracao: fp }, { categoriaId: serv.id, fracao: Math.round((1 - fp) * 1e8) / 1e8 }] };
+}

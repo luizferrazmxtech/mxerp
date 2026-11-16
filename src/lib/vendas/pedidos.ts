@@ -3,7 +3,7 @@ import { prisma, type Tx } from "@/lib/db";
 import { entrada } from "@/lib/estoque/estoque";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { cancelarRecebimentos } from "@/lib/financeiro/lancamentos";
-import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
+import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
 import { diaSP, parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento } from "@/lib/orcamentos/tipos";
@@ -56,14 +56,15 @@ const itensDoc = (tx: Tx, vendaId: string) => async () =>
 async function lancarFinanceiro(tx: Tx, vendaId: string) {
   const v = await tx.venda.findUniqueOrThrow({ where: { id: vendaId }, include: { parcelas: { orderBy: { numero: "asc" } } } });
   await garantirPadroes(tx);
-  const cat = await categoria(tx, v.tipo === "SERVICO" ? "Prestação de serviços" : "Venda de produtos", "RECEBER");
+  const rec = await receitaDocumento(tx, Number(v.totalProdutos), Number(v.totalServicos));
   const parcelas = v.parcelas.length ? v.parcelas : [{ numero: 1, vencimento: v.data, valor: v.total, formaPagamentoId: v.formaPagamentoId }];
   for (const p of parcelas) {
     await tx.lancamento.create({
       data: {
         tipo: "RECEBER", descricao: parcelas.length > 1 ? `Venda de nº ${v.numero} (${p.numero}/${parcelas.length})` : `Venda de nº ${v.numero}`,
-        pessoaId: v.clienteId, categoriaId: cat.id, formaPagamentoId: p.formaPagamentoId ?? v.formaPagamentoId, valor: p.valor,
+        pessoaId: v.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? v.formaPagamentoId, valor: p.valor,
         vencimento: p.vencimento, competencia: diaSP(v.data), parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "VENDA", origemId: v.id,
+        rateio: { create: rec.rateio },
       },
     });
   }
@@ -117,7 +118,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
   if (!t(d.canal)) throw new PedidoError("Informe o canal de venda");
   const produtos = d.produtos.filter((l) => l.produtoId);
   const servicos = d.servicos.filter((l) => l.servicoId);
-  if (!produtos.length && !servicos.length) throw new PedidoError(`Adicione ao menos um ${d.tipo === "SERVICO" ? "serviço" : "produto"}`);
+  if (!produtos.length && !servicos.length) throw new PedidoError("Adicione ao menos um produto ou serviço");
   for (const l of [...produtos, ...servicos]) if (!(n(l.quantidade) > 0)) throw new PedidoError(`Informe a quantidade de ${l.nome || "todos os itens"}`);
   const tot = totais({ ...d, produtos, servicos });
   if (tot.total < 0) throw new PedidoError("O desconto é maior que o valor da venda");
@@ -136,7 +137,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
   }
 
   const dados = {
-    tipo: d.tipo === "SERVICO" ? ("SERVICO" as const) : ("PEDIDO" as const), clienteId: d.clienteId, vendedorId: t(d.vendedorId),
+    tipo: produtos.length ? ("PEDIDO" as const) : ("SERVICO" as const), clienteId: d.clienteId, vendedorId: t(d.vendedorId),
     data: new Date(`${d.data}T12:00:00-03:00`), prazoEntrega: dia(d.prazoEntrega), canal: d.canal, centroCusto: t(d.centroCusto),
     transportadoraId: t(d.transportadoraId), frete: D(tot.frete), mostrarEntrega: d.mostrarEntrega, enderecoEntregaId: d.mostrarEntrega ? t(d.enderecoEntregaId) : null,
     totalProdutos: D(tot.produtos), totalServicos: D(tot.servicos), desconto: D(tot.desconto), descontoPercentual: d.descontoPct ? new Prisma.Decimal(n(d.desconto)) : null,
@@ -324,7 +325,7 @@ export type ParamsVendas = Record<string, string | undefined>;
 
 /** Filtros da lista: período (pela data), busca simples e busca avançada. */
 export async function whereVendas(tipo: "PEDIDO" | "SERVICO" | "BALCAO", sp: ParamsVendas): Promise<Prisma.VendaWhereInput> {
-  const w: Prisma.VendaWhereInput[] = [{ tipo }];
+  const w: Prisma.VendaWhereInput[] = [tipo === "BALCAO" ? { tipo } : { tipo: { in: ["PEDIDO", "SERVICO"] } }];
   const buscando = !!(sp.q || sp.codigo || sp.de || sp.ate || sp.cli);
   const per = buscando && !sp.periodo ? null : periodoDia(sp.periodo, sp.pde, sp.pate);
   // a data da venda tem hora: o dia vai da meia-noite às 23:59 de Brasília

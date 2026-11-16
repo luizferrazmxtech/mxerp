@@ -66,10 +66,9 @@ export default async function PaginaFormOrcamento({ tipo, id }: { tipo?: "PRODUT
       proximoNumero: proximo, anexos,
     };
   }
-  const t = inicial.tipo === "SERVICO" ? "Orçamentos de serviços" : "Orçamentos de produtos";
   const acao = id ? "Editar" : "Adicionar";
   return (
-    <Pagina titulo={`${acao} orçamento`} trilha={[{ rotulo: t, href: inicial.tipo === "SERVICO" ? "/orcamentos/servicos" : "/orcamentos" }, { rotulo: acao }]}>
+    <Pagina titulo={`${acao} orçamento`} trilha={[{ rotulo: "Orçamentos", href: "/orcamentos" }, { rotulo: acao }]}>
       <FormOrcamento inicial={inicial}
         op={{ vendedores, situacoes, formas, tiposValor, campos, centros: centros.map((c) => c.centroCusto!), canais: canalLista(canais.map((c) => c.nome), inicial.canal) }}
         vis={{

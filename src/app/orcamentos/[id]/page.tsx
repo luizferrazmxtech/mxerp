@@ -76,7 +76,7 @@ export default async function VerOrcamento({ params, searchParams }: { params: P
   const endEntrega = o.mostrarEntrega ? o.cliente.enderecos.find((e) => e.id === o.enderecoEntregaId) ?? o.cliente.enderecos[0] : null;
 
   return (
-    <Pagina titulo="Visualizar orçamento" trilha={[{ rotulo: o.tipo === "SERVICO" ? "Orçamentos de serviços" : "Orçamentos de produtos", href: o.tipo === "SERVICO" ? "/orcamentos/servicos" : "/orcamentos" }, { rotulo: "Visualizar" }]}>
+    <Pagina titulo="Visualizar orçamento" trilha={[{ rotulo: "Orçamentos", href: "/orcamentos" }, { rotulo: "Visualizar" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="notas" size={18} /> Orçamento #{o.numero}

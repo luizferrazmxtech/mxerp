@@ -42,7 +42,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
   const venda = modo === "venda" || os;
   const doc = os ? "da ordem de serviço" : venda ? "da venda" : "do orçamento";
   const neste = os ? "nesta OS" : venda ? "nesta venda" : "neste orçamento";
-  const base = os ? "/os" : venda ? (inicial.tipo === "SERVICO" ? "/vendas/servicos" : "/vendas") : inicial.tipo === "SERVICO" ? "/orcamentos/servicos" : "/orcamentos";
+  const base = os ? "/os" : venda ? "/vendas" : "/orcamentos";
   const raiz = os ? "/os" : venda ? "/vendas" : "/orcamentos";
   const [d, setD] = useState(inicial);
   const [editNumero, setEditNumero] = useState(false);
@@ -226,7 +226,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
         </Bloco>
       )}
 
-      {d.tipo === "SERVICO" && !os ? [blocoServicos, blocoProdutos] : [blocoProdutos, blocoServicos]}
+      {[blocoProdutos, blocoServicos]}
 
       <Bloco icone="frete" titulo={os ? <>Informe a <b>entrega</b> {doc}</> : <>Informe o <b>transporte</b> {doc}</>}>
         {!os && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -29,7 +29,7 @@ export async function salvarOrcamento(d: DadosOrcamento, u: Usuario, id?: string
   if (!t(d.canal)) throw new OrcamentoError("Informe o canal de venda");
   const produtos = d.produtos.filter((l) => l.produtoId);
   const servicos = d.servicos.filter((l) => l.servicoId);
-  if (!produtos.length && !servicos.length) throw new OrcamentoError(`Adicione ao menos um ${d.tipo === "SERVICO" ? "serviço" : "produto"}`);
+  if (!produtos.length && !servicos.length) throw new OrcamentoError("Adicione ao menos um produto ou serviço");
   for (const l of [...produtos, ...servicos]) if (!(n(l.quantidade) > 0)) throw new OrcamentoError(`Informe a quantidade de ${l.nome || "todos os itens"}`);
   const tot = totais({ ...d, produtos, servicos });
   if (tot.total < 0) throw new OrcamentoError("O desconto é maior que o valor do orçamento");
@@ -50,7 +50,7 @@ export async function salvarOrcamento(d: DadosOrcamento, u: Usuario, id?: string
   }
 
   const dados = {
-    tipo: d.tipo, clienteId: d.clienteId, vendedorId: t(d.vendedorId), data: parseDia(d.data), validade: t(d.validade), prazoEntrega: dia(d.prazoEntrega),
+    tipo: produtos.length ? ("PRODUTO" as const) : ("SERVICO" as const), clienteId: d.clienteId, vendedorId: t(d.vendedorId), data: parseDia(d.data), validade: t(d.validade), prazoEntrega: dia(d.prazoEntrega),
     aosCuidados: t(d.aosCuidados), canal: d.canal, centroCusto: t(d.centroCusto), introducao: t(d.introducao),
     transportadoraId: t(d.transportadoraId), frete: D(tot.frete), mostrarEntrega: d.mostrarEntrega, enderecoEntregaId: d.mostrarEntrega ? t(d.enderecoEntregaId) : null,
     totalProdutos: D(tot.produtos), totalServicos: D(tot.servicos), desconto: D(tot.desconto), descontoPercentual: d.descontoPct ? new Prisma.Decimal(n(d.desconto)) : null,
@@ -207,8 +207,8 @@ export async function gerarOsDoOrcamento(id: string, u: Usuario) {
 export type ParamsOrcamentos = Record<string, string | undefined>;
 
 /** Filtros da lista: período (pela data), busca simples e busca avançada. */
-export async function whereOrcamentos(tipo: "PRODUTO" | "SERVICO", sp: ParamsOrcamentos): Promise<Prisma.OrcamentoWhereInput> {
-  const and: Prisma.OrcamentoWhereInput[] = [{ tipo }];
+export async function whereOrcamentos(sp: ParamsOrcamentos): Promise<Prisma.OrcamentoWhereInput> {
+  const and: Prisma.OrcamentoWhereInput[] = [];
   const buscando = Boolean(sp.q);
   const per = buscando ? null : periodoDia(sp.periodo, sp.pde, sp.pate);
   if (per) and.push({ data: { gte: per.de, lte: per.ate } });

@@ -13,7 +13,7 @@ export type Resultado = { ok: boolean; mensagem: string } | null;
 const VENDE: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"];
 const GER: PapelUsuario[] = ["ADMIN", "GERENTE"];
 const erro = (e: unknown) => ({ ok: false, mensagem: e instanceof Error ? e.message : String(e) });
-const base = (tipo: string) => (tipo === "SERVICO" ? "/vendas/servicos" : tipo === "BALCAO" ? "/vendas/balcao" : "/vendas");
+const base = (tipo: string) => (tipo === "BALCAO" ? "/vendas/balcao" : "/vendas");
 
 export async function salvarPedidoForm(_: Resultado, form: FormData): Promise<Resultado> {
   const u = await exigirUsuario(VENDE);

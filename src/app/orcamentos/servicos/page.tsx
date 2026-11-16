@@ -1,8 +1,6 @@
-import ListaOrcamentos from "@/components/orcamentos/ListaOrcamentos";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-export const metadata = { title: "Orçamentos de serviços" };
-
-export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  return <ListaOrcamentos tipo="SERVICO" sp={await searchParams} />;
+/** Orçamento é um só (peças e serviços juntos): o endereço antigo abre a lista única. */
+export default function Page() {
+  redirect("/orcamentos");
 }
