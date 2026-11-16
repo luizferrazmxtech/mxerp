@@ -77,16 +77,63 @@ function linhasPessoas(cad: Linha[] | undefined, ends: Linha[] | undefined, tipo
   });
 }
 
+/** Unidade do Gestão Click → sigla de até 6 letras (a da NF-e). */
+export function siglaUnidade(u: string | undefined) {
+  const k = chaveNome(u ?? "");
+  const MAPA: Record<string, string> = {
+    unidade: "UN", un: "UN", un1: "UN", unid: "UN", peca: "PC", pc: "PC", metro: "MT", mt: "MT", m: "M",
+    "metro quadrado": "M2", m2: "M2", quilograma: "KG", kg: "KG", caixa: "CX", cx: "CX", cx1: "CX", pacote: "PCT",
+  };
+  if (MAPA[k]) return MAPA[k];
+  const t = (u ?? "").trim().toUpperCase().replace(/\s+/g, "");
+  return t ? t.slice(0, 6) : "UN";
+}
+
+/**
+ * No Gestão Click o estoque e o preço de venda são por unidade de SAÍDA, mas o custo é por unidade de ENTRADA
+ * (ex.: cabo comprado em caixa de 305 m e vendido por metro). O backup não traz o fator de conversão:
+ * quando as unidades diferem e o custo passa do preço de venda, tenta achar a metragem no nome ("305M");
+ * se não achar, zera o custo e avisa (melhor sem custo do que com custo de uma caixa inteira por metro).
+ */
+export function custoPorSaida(x: Linha): { custo: number; ajuste?: string; semCusto?: boolean } {
+  const custo = numeroBr(x["valor de custo"] ?? "");
+  const venda = numeroBr(x["valor varejo"] ?? "");
+  const ent = siglaUnidade(x["unidade de entrada"]);
+  const sai = siglaUnidade(x["unidade de saida"]);
+  if (!x["unidade de entrada"] || ent === sai || custo <= 0 || venda <= 0 || custo <= venda) return { custo };
+  const metros = sai === "MT" || sai === "M" ? /(\d{2,4})\s*(M|MT|METROS?)\b/i.exec(x.produto ?? "") : null;
+  if (metros) {
+    const fator = Number(metros[1]);
+    return { custo: Math.round((custo / fator) * 10000) / 10000, ajuste: `${x.codigo}: ${custo.toFixed(2)} por ${ent} ÷ ${fator} = ${(custo / fator).toFixed(4)} por ${sai}` };
+  }
+  return { custo: 0, semCusto: true };
+}
+
 function linhasProdutos(p: Linha[] | undefined) {
   return (p ?? []).map((x) => {
-    const un = [x["unidade de entrada"], x["unidade de saida"]].find((u) => u && u.length <= 6) ?? "UN";
+    const un = siglaUnidade(x["unidade de saida"] || x["unidade de entrada"]);
     return {
       codigo: x.codigo, "codigo de barras": x["codigo de barra"] ?? "", nome: x.produto, grupo: x.grupo ?? "",
-      unidade: un, "valor de venda": x["valor varejo"] ?? "", "valor de custo": x["valor de custo"] ?? "",
+      unidade: un, "valor de venda": x["valor varejo"] ?? "", "valor de custo": custoPorSaida(x).custo.toFixed(4).replace(".", ","),
       "estoque atual": x["estoque atual"] ?? "", "estoque minimo": x["estoque minimo"] ?? "",
       ncm: x["codigo ncm"] ?? "", cest: x["codigo cest"] ?? "", ativo: sim(x.ativo ?? ""),
     } as Linha;
   });
+}
+
+/** Avisos da conversão de custo (entrada ≠ saída), para a simulação mostrar antes de gravar. */
+function avisosUnidades(p: Linha[] | undefined, simular: boolean) {
+  const ajustados: string[] = [];
+  const semCusto: string[] = [];
+  for (const x of p ?? []) {
+    const r = custoPorSaida(x);
+    if (r.ajuste) ajustados.push(r.ajuste);
+    if (r.semCusto) semCusto.push(`${x.codigo} (${x.produto}: ${x["valor de custo"]} por ${x["unidade de entrada"]}, venda ${x["valor varejo"]} por ${x["unidade de saida"]})`);
+  }
+  const av: string[] = [];
+  if (ajustados.length) av.push(`${ajustados.length} produtos comprados em caixa e vendidos por metro ${simular ? "terão" : "tiveram"} o custo dividido pela metragem do nome: ${ajustados.join("; ")}`);
+  if (semCusto.length) av.push(`${semCusto.length} produtos têm o custo do Gestão Click por unidade de entrada, maior que o preço de venda, sem como converter: ${simular ? "entrarão" : "entraram"} com custo 0. Informe o custo por unidade de venda no cadastro: ${semCusto.join("; ")}`);
+  return av;
 }
 
 function linhasServicos(s: Linha[] | undefined) {
@@ -296,7 +343,11 @@ export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: bo
     res.push(await importarPessoas(linhasPessoas(t.fornecedores, t.fornecedores_enderecos, "tipo de fornecedor"), "fornecedor", simular));
     res.push(await importarServicos(linhasServicos(t.servicos), simular));
   }
-  if (e.cadastros || e.estoque) res.push(await importarProdutos(linhasProdutos(t.produtos), { simular, importarEstoque: !!e.estoque }));
+  if (e.cadastros || e.estoque) {
+    const r = await importarProdutos(linhasProdutos(t.produtos), { simular, importarEstoque: !!e.estoque });
+    r.avisos.push(...avisosUnidades(t.produtos, simular));
+    res.push(r);
+  }
   if (e.os) res.push(await importarOs(t, simular));
   if (e.receber) res.push(await importarContas(t.contas_receber, "RECEBER", simular));
   if (e.pagar) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas));

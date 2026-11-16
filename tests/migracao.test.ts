@@ -15,7 +15,7 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
-  await prisma.$executeRawUnsafe(`TRUNCATE "Reserva","MovimentoEstoque","Saldo","Produto","GrupoProduto","Local","Deposito","Pessoa","Servico" CASCADE`);
+  await prisma.$executeRawUnsafe(`TRUNCATE "OsItemProduto","OsHistorico","OrdemServico","Sequencia","Reserva","MovimentoEstoque","Saldo","Produto","GrupoProduto","Local","Deposito","Pessoa","Servico" CASCADE`);
 });
 
 async function xlsx(linhas: (string | number)[][]) {
@@ -83,6 +83,21 @@ describe("importação", () => {
     expect(r2.atualizados).toBe(2);
     expect(await prisma.produto.count()).toBe(2);
     expect((await prisma.$transaction((tx) => est.resumoProduto(tx, p1.id))).fisico).toBe(3);
+  });
+
+  it("reimportar com custo corrigido corrige as peças de OS que guardaram o custo antigo", async () => {
+    const os = await import("@/lib/os/os");
+    const cab = ["Código", "Nome", "Unidade", "Preço de venda", "Valor de custo", "Estoque"];
+    await imp.importarProdutos((await lerPlanilha("p.xlsx", await xlsx([cab, ["CABO", "Cabo 305M", "MT", "3,90", "690,00", "100"]]))).linhas, { simular: false });
+    const prod = await prisma.produto.findUniqueOrThrow({ where: { codigo: "CABO" } });
+    const cli = await prisma.pessoa.create({ data: { nome: "Cliente" } });
+    const o = await os.criarOs({ clienteId: cli.id });
+    await os.adicionarProduto(o.id, { produtoId: prod.id, quantidade: 10 });
+    const linhas = (await lerPlanilha("p.xlsx", await xlsx([cab, ["CABO", "Cabo 305M", "MT", "3,90", "2,2623", "100"]]))).linhas;
+    const sim = await imp.importarProdutos(linhas, { simular: true, importarEstoque: false });
+    expect(sim.avisos.join(" ")).toMatch(/CABO \(690\.00 → 2\.2623\)/);
+    await imp.importarProdutos(linhas, { simular: false, importarEstoque: false });
+    expect(Number((await prisma.osItemProduto.findFirstOrThrow({ where: { osId: o.id } })).custoUnit)).toBeCloseTo(2.2623, 4);
   });
 
   it("importa clientes e fornecedores pelo documento", async () => {

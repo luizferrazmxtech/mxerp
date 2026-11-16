@@ -43,7 +43,7 @@ export const COLUNAS = {
   observacoes: ["observações", "observacoes", "obs"],
   // produtos
   gtin: ["código de barras", "codigo de barras", "codigo de barra", "gtin", "ean", "gtin/ean"],
-  unidade: ["unidade", "un", "unid", "sigla da unidade", "unidade de entrada"],
+  unidade: ["unidade", "un", "unid", "sigla da unidade", "unidade de saida", "unidade de entrada"],
   grupo: ["grupo", "grupo de produtos", "categoria"],
   preco: ["valor de venda", "valor varejo", "valor unitário", "valor unitario", "preço de venda", "preco de venda", "valor venda", "valor", "preço", "preco", "varejo"],
   custo: ["valor de custo", "preço de custo", "preco de custo", "custo", "custo médio", "custo medio"],
@@ -131,6 +131,7 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
   const negativos: string[] = [];
   const semNcm: string[] = [];
   const movimentados: string[] = [];
+  const custosCorrigidos: string[] = [];
   const vistos = new Set<string>();
 
   for (const [i, l] of linhas.entries()) {
@@ -158,7 +159,11 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
     const estoque = numeroBr(c(l, "estoque"));
     if (estoque < 0) negativos.push(`${codigo} (${estoque})`);
     const existente = await prisma.produto.findUnique({ where: { codigo } });
-    if (simular) { if (existente) r.atualizados++; else r.criados++; continue; }
+    if (simular) {
+      if (existente && Math.abs(Number(existente.custo) - dados.custo) > 0.00005) custosCorrigidos.push(`${codigo} (${Number(existente.custo).toFixed(2)} → ${dados.custo.toFixed(4)})`);
+      if (existente) r.atualizados++; else r.criados++;
+      continue;
+    }
 
     const grupoId = grupoNome
       ? (await prisma.grupoProduto.upsert({ where: { nome: grupoNome }, create: { nome: grupoNome }, update: {} })).id
@@ -173,6 +178,17 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
     const prod = existente
       ? await prisma.produto.update({ where: { id: existente.id }, data: { ...dados, grupoId } })
       : await prisma.produto.create({ data: { ...dados, codigo, grupoId, localPadraoId: locTxt ? local.id : null } });
+    // custo corrigido (ex.: era por caixa e passou a ser por metro): leva o custo novo às peças das OS, vendas e
+    // entradas de implantação que guardaram o custo antigo, para a margem e a DRE ficarem certas
+    if (existente && Math.abs(Number(existente.custo) - dados.custo) > 0.00005) {
+      const antigo = existente.custo;
+      const n = (await Promise.all([
+        prisma.osItemProduto.updateMany({ where: { produtoId: prod.id, custoUnit: antigo }, data: { custoUnit: dados.custo } }),
+        prisma.vendaItem.updateMany({ where: { produtoId: prod.id, custoUnit: antigo }, data: { custoUnit: dados.custo } }),
+        prisma.movimentoEstoque.updateMany({ where: { produtoId: prod.id, custoUnit: antigo }, data: { custoUnit: dados.custo } }),
+      ])).reduce((s, x) => s + x.count, 0);
+      custosCorrigidos.push(`${codigo} (${Number(antigo).toFixed(2)} → ${dados.custo.toFixed(4)}${n ? `, ${n} lançamentos` : ""})`);
+    }
     if (existente) r.atualizados++; else r.criados++;
 
     // o saldo só é ajustado enquanto o produto não teve movimento real no ERP (OS, venda, compra…)
@@ -189,6 +205,7 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
       });
     }
   }
+  if (custosCorrigidos.length) r.avisos.push(`${custosCorrigidos.length} produtos já cadastrados ${simular ? "terão" : "tiveram"} o custo corrigido, junto com as peças de OS e vendas que usavam o custo antigo: ${custosCorrigidos.slice(0, 40).join(", ")}${custosCorrigidos.length > 40 ? "…" : ""}`);
   if (negativos.length) r.avisos.push(`${negativos.length} produtos com estoque negativo no sistema antigo ${simular ? "entrarão" : "entraram"} com 0 — conte-os no inventário: ${negativos.slice(0, 30).join(", ")}${negativos.length > 30 ? "…" : ""}`);
   if (movimentados.length) r.avisos.push(`${movimentados.length} produtos já movimentados no ERP mantiveram o estoque atual: ${movimentados.slice(0, 30).join(", ")}${movimentados.length > 30 ? "…" : ""}`);
   if (semNcm.length) r.avisos.push(`${semNcm.length} produtos sem NCM válido (necessário para nota fiscal): ${semNcm.slice(0, 30).join(", ")}${semNcm.length > 30 ? "…" : ""}`);
