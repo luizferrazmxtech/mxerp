@@ -8,9 +8,40 @@ import { EstoqueError } from "@/lib/estoque/estoque";
 import { resultadoReserva } from "@/lib/estoque/resultado";
 import type { Resultado } from "@/components/AdicionarProduto";
 import type { Pagamento } from "@/lib/financeiro/lancamentos";
+import { exigirUsuario } from "@/lib/auth/atual";
+import { abrirCaixa, caixaAberto, fecharCaixa } from "@/lib/pdv/caixa";
+import type { DadosFormVenda } from "./FormVenda";
 
 const num = (x: FormDataEntryValue | null) => Number(String(x ?? "").replace(",", "."));
 const msg = (e: unknown, padrao: string) => (e instanceof Error && !(e as { code?: string }).code ? e.message : padrao);
+
+/** Cadastrar/editar pedido pelo formulário completo (padrão Gestão Click). */
+export async function salvarVendaForm(_: ResultadoSimples, form: FormData): Promise<ResultadoSimples> {
+  const u = await exigirUsuario();
+  let vendaId: string;
+  try {
+    const d = JSON.parse(String(form.get("dados"))) as DadosFormVenda;
+    if (!d.produtos.length) return { ok: false, mensagem: "Adicione ao menos um produto" };
+    const r = await v.salvarVenda({
+      vendaId: d.id,
+      situacao: d.situacao as SituacaoVenda,
+      usuarioId: u.id,
+      cabecalho: {
+        clienteId: d.cliente?.id ?? null,
+        vendedorId: d.vendedorId || null,
+        data: d.data ? new Date(`${d.data}T12:00:00-03:00`) : new Date(),
+        observacoes: d.observacoes.trim() || null,
+        frete: d.frete, desconto: d.desconto,
+      },
+      produtos: d.produtos.map((p) => ({ id: p.id, produtoId: p.produtoId, quantidade: p.quantidade, valorUnit: p.valorUnit })),
+    });
+    vendaId = r.vendaId;
+  } catch (e) {
+    return { ok: false, mensagem: msg(e, "Erro ao salvar a venda") };
+  }
+  revalidatePath("/vendas");
+  redirect(`/vendas/${vendaId}`);
+}
 
 export async function novaVenda(form: FormData) {
   const venda = await v.criarVenda({
@@ -77,11 +108,36 @@ export async function fecharBalcao(dados: {
   pagamentos: Pagamento[];
   desconto?: number;
 }): Promise<ResultadoSimples> {
+  const u = await exigirUsuario();
   try {
-    const venda = await v.vendaBalcao(dados);
+    const caixa = await caixaAberto(u.id);
+    if (!caixa) return { ok: false, mensagem: "Abra o caixa antes de vender" };
+    const venda = await v.vendaBalcao({ ...dados, usuarioId: u.id, caixaId: caixa.id });
     revalidatePath("/vendas");
     return { ok: true, mensagem: `Venda ${venda.numero} concluída.`, vendaId: venda.id, numero: venda.numero };
   } catch (e) {
     return { ok: false, mensagem: msg(e, "Erro ao fechar a venda") };
   }
+}
+
+export async function abrirCaixaAcao(_: ResultadoSimples, form: FormData): Promise<ResultadoSimples> {
+  const u = await exigirUsuario();
+  try {
+    await abrirCaixa(u.id, num(String(form.get("valor") || "0").replace(/\./g, "")), form.get("recebimento") === "on");
+  } catch (e) {
+    return { ok: false, mensagem: msg(e, "Erro ao abrir o caixa") };
+  }
+  revalidatePath("/pdv");
+  redirect("/pdv");
+}
+
+export async function fecharCaixaAcao(_: ResultadoSimples, form: FormData): Promise<ResultadoSimples> {
+  const u = await exigirUsuario();
+  try {
+    await fecharCaixa(String(form.get("caixaId")), u.id, num(String(form.get("valor") || "0").replace(/\./g, "")), String(form.get("observacao") || ""));
+  } catch (e) {
+    return { ok: false, mensagem: msg(e, "Erro ao fechar o caixa") };
+  }
+  revalidatePath("/pdv");
+  redirect("/vendas/balcao");
 }

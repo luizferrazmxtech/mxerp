@@ -156,18 +156,23 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
         (await tx.pessoa.findFirst({ where: { OR: [{ nome: { equals: o.cliente, mode: "insensitive" } }, { fantasia: { equals: o.cliente, mode: "insensitive" } }] } })) ||
         (await tx.pessoa.create({ data: { nome: o.cliente || "Cliente não informado", idLegado: `cliente-os:${o.cliente}`, observacoes: "Criado na migração a partir de uma OS" } }));
       const eq = equips.get(o["n da os"]) ?? [];
-      const e = eq[0] ?? {};
-      const extras = eq.slice(1).map((x) => `Equipamento: ${[x.equipamento, x.marca, x.modelo, x.serie].filter(Boolean).join(" ")}${x.defeitos ? ` — ${x.defeitos}` : ""}`);
       const os = await tx.ordemServico.create({
         data: {
           numero, idLegado: `os:${numero}`, clienteId: cliente.id,
           entrada: dataHoraBr(o["cadastrado em"]) ?? dataBr(o.data) ?? new Date(),
           previsao: dataBr(o["prazo de entrega"]),
-          equipamento: e.equipamento || null, marca: e.marca || null, modelo: e.modelo || null, numeroSerie: e.serie || null,
-          defeito: [e.defeitos, e.condicoes && `Condições: ${e.condicoes}`, e.acessorios && `Acessórios: ${e.acessorios}`].filter(Boolean).join("\n") || null,
-          laudo: [e.solucao, e["laudo tecnico"]].filter(Boolean).join("\n") || null,
-          observacoes: [o.observacoes, o["observacoes interna"], ...extras].filter(Boolean).join("\n") || null,
+          canal: o["canal de venda"] || "Presencial",
+          observacoes: o.observacoes || null,
+          observacaoInterna: o["observacoes interna"] || null,
           desconto: numeroBr(o["desconto valor"] ?? ""),
+          frete: numeroBr(o["valor frete"] ?? ""),
+          equipamentos: {
+            create: eq.filter((x) => x.equipamento || x.defeitos || x.marca || x.modelo).map((x, i) => ({
+              ordem: i + 1, equipamento: x.equipamento || "Equipamento", marca: x.marca || null, modelo: x.modelo || null, serie: x.serie || null,
+              condicoes: x.condicoes || null, defeitos: x.defeitos || null, acessorios: x.acessorios || null,
+              solucao: x.solucao || null, laudo: x["laudo tecnico"] || null, garantia: x["termos de garantia"] || null,
+            })),
+          },
         },
       });
       await tx.osHistorico.create({ data: { osId: os.id, descricao: `Migrada do Gestão Click (situação lá: ${atuais.get(o["n da os"])})` } });

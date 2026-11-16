@@ -1,29 +1,32 @@
+import { Pagina } from "@/components/ui/Pagina";
+import { usuarioAtual } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
-import { novaOs } from "../actions";
+import FormOs from "../FormOs";
+import { opcoesFormOs, paraCampo } from "../opcoesForm";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Adicionar OS" };
 
-export default async function NovaOs() {
-  const [clientes, tecnicos] = await Promise.all([
-    prisma.pessoa.findMany({ where: { cliente: true, ativo: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true }, take: 5000 }),
-    prisma.usuario.findMany({ where: { ativo: true, tecnico: true }, orderBy: { nome: "asc" } }),
+export default async function NovaOs({ searchParams }: { searchParams: Promise<{ cliente?: string }> }) {
+  const [{ cliente: clienteId }, op, u, seq] = await Promise.all([
+    searchParams, opcoesFormOs(), usuarioAtual(),
+    prisma.sequencia.findUnique({ where: { chave: "OS" } }),
   ]);
+  const cliente = clienteId ? await prisma.pessoa.findUnique({ where: { id: clienteId }, select: { id: true, nome: true, fantasia: true, documento: true, cidade: true } }) : null;
+  const eu = op.usuarios.find((x) => x.id === u?.id);
   return (
-    <div className="max-w-2xl space-y-4">
-      <h1 className="text-xl font-semibold">Nova ordem de serviço</h1>
-      <form action={novaOs} className="cartao space-y-3 p-4">
-        <select name="clienteId" required className="campo">
-          <option value="">Selecione o cliente…</option>
-          {clientes.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-        </select>
-        <select name="tecnicoId" className="campo">
-          <option value="">Técnico (opcional)</option>
-          {tecnicos.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
-        </select>
-        <input name="equipamento" className="campo" placeholder="Equipamento (ex.: DVR Intelbras 8 canais)" />
-        <textarea name="defeito" className="campo" rows={3} placeholder="Defeito relatado / serviço solicitado" />
-        <button className="btn">Criar OS</button>
-      </form>
-    </div>
+    <Pagina titulo="Adicionar OS" trilha={[{ rotulo: "Ordens de serviços", href: "/os" }, { rotulo: "Adicionar" }]}>
+      <FormOs
+        {...op}
+        produtosTravados={false}
+        inicial={{
+          numero: seq ? seq.valor + 1 : null,
+          cliente, situacao: "ABERTA", entrada: paraCampo(new Date()), saida: "", previsao: "",
+          canal: "Presencial", prioridade: "",
+          vendedorId: eu?.vendedor ? eu.id : "", tecnicoId: eu?.tecnico ? eu.id : "",
+          equipamentos: [], produtos: [], servicos: [], frete: 0, outros: 0, desconto: 0, observacoes: "", observacaoInterna: "",
+        }}
+      />
+    </Pagina>
   );
 }

@@ -11,10 +11,10 @@ export function estadoEstoqueVenda(s: SituacaoVenda): EstadoEstoque {
 }
 
 export const SITUACOES_VENDA: { valor: SituacaoVenda; rotulo: string; cor: string }[] = [
-  { valor: "ORCAMENTO", rotulo: "Orçamento", cor: "bg-sky-200 text-sky-900" },
-  { valor: "ABERTA", rotulo: "Em aberto (reservada)", cor: "bg-amber-200 text-amber-900" },
-  { valor: "CONCLUIDA", rotulo: "Concluída", cor: "bg-emerald-200 text-emerald-900" },
-  { valor: "CANCELADA", rotulo: "Cancelada", cor: "bg-red-200 text-red-900" },
+  { valor: "ORCAMENTO", rotulo: "Orçamento", cor: "border-sky-300 bg-sky-50 text-sky-700" },
+  { valor: "ABERTA", rotulo: "Em aberto", cor: "border-amber-300 bg-amber-50 text-amber-700" },
+  { valor: "CONCLUIDA", rotulo: "Concretizada", cor: "border-green-400 bg-green-50 text-green-700" },
+  { valor: "CANCELADA", rotulo: "Cancelada", cor: "border-red-300 bg-red-50 text-red-700" },
 ];
 
 const D = (v: number) => new Prisma.Decimal(v.toFixed(2));
@@ -115,11 +115,80 @@ export const concluirVenda = (vendaId: string, pagamentos: Pagamento[], opts?: {
 
 /** Troca entre orçamento / aberta / cancelada (concluir é por concluirVenda). */
 export async function alterarSituacaoVenda(vendaId: string, nova: Exclude<SituacaoVenda, "CONCLUIDA">, opts: { usuarioId?: string; forcar?: boolean } = {}) {
+  return prisma.$transaction((tx) => alterarSituacaoVendaTx(tx, vendaId, nova, opts));
+}
+
+async function alterarSituacaoVendaTx(tx: Tx, vendaId: string, nova: Exclude<SituacaoVenda, "CONCLUIDA">, opts: { usuarioId?: string; forcar?: boolean } = {}) {
+  const v = await travarVenda(tx, vendaId);
+  if (v.situacao === "CONCLUIDA") await cancelarRecebimentos(tx, "VENDA", vendaId, opts.forcar);
+  await transicionarEstoque(tx, "VENDA", vendaId, estadoEstoqueVenda(v.situacao), estadoEstoqueVenda(nova), itensDaVenda(tx, vendaId), opts);
+  return tx.venda.update({ where: { id: vendaId }, data: { situacao: nova } });
+}
+
+export type CabecalhoVenda = {
+  clienteId?: string | null; vendedorId?: string | null; data?: Date; observacoes?: string | null; frete?: number; desconto?: number;
+};
+export type ItemFormVenda = { id?: string; produtoId: string; quantidade: number; valorUnit: number };
+
+/**
+ * Salva o pedido vindo do formulário (cadastrar ou editar) numa transação só:
+ * cabeçalho, itens (reservando se estiver em aberto) e situação. Concretizar é por concluirVenda.
+ */
+export async function salvarVenda(args: {
+  vendaId?: string;
+  cabecalho: CabecalhoVenda;
+  situacao: Exclude<SituacaoVenda, "CONCLUIDA"> | "CONCLUIDA";
+  produtos: ItemFormVenda[];
+  usuarioId?: string;
+}) {
   return prisma.$transaction(async (tx) => {
-    const v = await travarVenda(tx, vendaId);
-    if (v.situacao === "CONCLUIDA") await cancelarRecebimentos(tx, "VENDA", vendaId, opts.forcar);
-    await transicionarEstoque(tx, "VENDA", vendaId, estadoEstoqueVenda(v.situacao), estadoEstoqueVenda(nova), itensDaVenda(tx, vendaId), opts);
-    return tx.venda.update({ where: { id: vendaId }, data: { situacao: nova } });
+    const { frete, desconto, ...resto } = args.cabecalho;
+    let vendaId = args.vendaId;
+    let atual: SituacaoVenda = "ORCAMENTO";
+    if (vendaId) {
+      atual = (await travarVenda(tx, vendaId)).situacao;
+      const existentes = await tx.vendaItem.findMany({ where: { vendaId } });
+      const mudaItens = existentes.length !== args.produtos.length || args.produtos.some((p) => {
+        const e = existentes.find((x) => x.id === p.id);
+        return !e || Number(e.quantidade) !== p.quantidade || Number(e.valorUnit) !== p.valorUnit;
+      });
+      if (atual === "CONCLUIDA") {
+        if (mudaItens || args.situacao !== "CONCLUIDA") throw new EstoqueError("Venda concretizada: para mudar os itens, altere a situação para Em aberto");
+        await tx.venda.update({ where: { id: vendaId }, data: resto });
+        return { vendaId };
+      }
+      if (args.situacao === "CONCLUIDA") throw new EstoqueError("Para concretizar, informe o pagamento na venda");
+      await tx.venda.update({ where: { id: vendaId }, data: { ...resto, frete: D(frete ?? 0), desconto: D(desconto ?? 0) } });
+      if (atual === "CANCELADA" && args.situacao !== "CANCELADA") { await alterarSituacaoVendaTx(tx, vendaId, args.situacao, args); atual = args.situacao; }
+      if (mudaItens) {
+        for (const e of existentes) if (!args.produtos.some((p) => p.id === e.id)) { await liberarItem(tx, e.id); await tx.vendaItem.delete({ where: { id: e.id } }); }
+        for (const p of args.produtos) {
+          if (!(p.quantidade > 0)) throw new EstoqueError("Informe a quantidade de todos os produtos");
+          const e = p.id ? existentes.find((x) => x.id === p.id) : undefined;
+          if (!e) await adicionarItemTx(tx, vendaId, p);
+          else if (Number(e.quantidade) !== p.quantidade || Number(e.valorUnit) !== p.valorUnit) {
+            await liberarItem(tx, e.id);
+            await tx.vendaItem.update({ where: { id: e.id }, data: { quantidade: p.quantidade, valorUnit: D(p.valorUnit), subtotal: D(p.quantidade * p.valorUnit - Number(e.desconto)) } });
+            if (estadoEstoqueVenda(atual) === "RESERVADO")
+              await reservarItem(tx, { produtoId: e.produtoId, quantidade: p.quantidade, origemTipo: "VENDA", origemId: vendaId, origemItemId: e.id });
+          }
+        }
+      }
+      await recalcular(tx, vendaId);
+      if (args.situacao !== atual) await alterarSituacaoVendaTx(tx, vendaId, args.situacao, args);
+      return { vendaId };
+    }
+    if (args.situacao === "CONCLUIDA" || args.situacao === "CANCELADA") throw new EstoqueError("Cadastre o pedido em aberto ou como orçamento");
+    const numero = await proximoNumero(tx, "VENDA");
+    vendaId = (await tx.venda.create({
+      data: { numero, tipo: "PEDIDO", situacao: args.situacao, ...resto, frete: D(frete ?? 0), desconto: D(desconto ?? 0) },
+    })).id;
+    for (const p of args.produtos) {
+      if (!(p.quantidade > 0)) throw new EstoqueError("Informe a quantidade de todos os produtos");
+      await adicionarItemTx(tx, vendaId, p);
+    }
+    await recalcular(tx, vendaId);
+    return { vendaId };
   });
 }
 
@@ -130,12 +199,13 @@ export async function vendaBalcao(args: {
   pagamentos: Pagamento[];
   desconto?: number;
   usuarioId?: string;
+  caixaId?: string;
 }) {
   if (!args.itens.length) throw new EstoqueError("Nenhum item");
   return prisma.$transaction(async (tx) => {
     const numero = await proximoNumero(tx, "VENDA");
     const venda = await tx.venda.create({
-      data: { numero, tipo: "BALCAO", situacao: "ABERTA", clienteId: args.clienteId, desconto: D(args.desconto ?? 0), vendedorId: args.usuarioId },
+      data: { numero, tipo: "BALCAO", situacao: "ABERTA", clienteId: args.clienteId, desconto: D(args.desconto ?? 0), vendedorId: args.usuarioId, caixaId: args.caixaId },
     });
     for (const i of args.itens) await adicionarItemTx(tx, venda.id, i);
     // no balcão a peça já está na mão do cliente: não bloqueia por falta de saldo
