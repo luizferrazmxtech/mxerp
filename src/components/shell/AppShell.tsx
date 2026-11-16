@@ -24,7 +24,8 @@ function ativo(href: string, caminho: string, busca: string) {
   if (busca.includes("entidade=") && p === "/campos-extras") return false; // campos extras de produtos ficam no menu Itens
   if (p === "/orcamentos") return caminho === p || (caminho.startsWith(p + "/") && !/^\/orcamentos\/(servicos|situacoes|mensagens|configuracoes)/.test(caminho));
   if (p === "/vendas") return caminho === p || (caminho.startsWith(p + "/") && !/^\/vendas\/(servicos|balcao|devolucoes|vales|situacoes|canais|mensagens|balancas|configuracoes)/.test(caminho));
-  if (p === "/estoque" || p === "/os" || p === "/financeiro") return caminho === p || (caminho.startsWith(p + "/") && !/\/(locais|balcao|painel|conciliacao|dre)/.test(caminho));
+  if (p === "/os") return caminho === p || (caminho.startsWith(p + "/") && !/^\/os\/(painel|situacoes|mensagens|configuracoes)/.test(caminho));
+  if (p === "/estoque" || p === "/financeiro") return caminho === p || (caminho.startsWith(p + "/") && !/\/(locais|balcao|painel|conciliacao|dre)/.test(caminho));
   return caminho === p || caminho.startsWith(p + "/");
 }
 

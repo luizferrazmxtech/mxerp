@@ -9,12 +9,15 @@ import GerenciarColunas from "@/components/ui/GerenciarColunas";
 import { LinhaToggle } from "@/components/itens/AbasVerticais";
 import { salvarOrcamentoForm, type Resultado } from "@/lib/orcamentos/acoes";
 import { salvarPedidoForm } from "@/lib/vendas/acoes";
+import { salvarOsForm } from "@/lib/os/acoes";
+import { CAMPOS_OS, PRIORIDADES, equipamentoVazio, totaisOs, type DadosOs, type EquipamentoForm } from "@/lib/os/tipos";
 import { CAMPOS_DADOS, CAMPOS_VENDA, COLUNAS_ITENS, gerarParcelas, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento, type LinhaProduto, type LinhaServico } from "@/lib/orcamentos/tipos";
 
-export type InicialOrcamento = DadosOrcamento & { id?: string; proximoNumero: number; anexos: { id: string; nome: string }[] };
+export type InicialOrcamento = DadosOrcamento & Partial<Omit<DadosOs, keyof DadosOrcamento>> & { id?: string; proximoNumero: number; anexos: { id: string; nome: string }[] };
 type Opcoes = {
   vendedores: { id: string; nome: string }[]; situacoes: { id: string; nome: string }[]; formas: { id: string; nome: string }[];
   tiposValor: { id: string; nome: string; padrao: boolean }[]; campos: { id: string; nome: string }[]; centros: string[]; canais: string[];
+  tecnicos?: { id: string; nome: string }[];
 };
 
 type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; valores: { tipoValorId: string; valor: number }[] };
@@ -33,18 +36,20 @@ function Desconto({ valor, pct, onValor, onPct }: { valor: string; pct: boolean;
   );
 }
 
-export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: { inicial: InicialOrcamento; op: Opcoes; vis: { dados: string[]; itens: string[] }; modo?: "orcamento" | "venda" }) {
-  const venda = modo === "venda";
-  const doc = venda ? "da venda" : "do orçamento";
-  const neste = venda ? "nesta venda" : "neste orçamento";
-  const base = venda ? (inicial.tipo === "SERVICO" ? "/vendas/servicos" : "/vendas") : inicial.tipo === "SERVICO" ? "/orcamentos/servicos" : "/orcamentos";
-  const raiz = venda ? "/vendas" : "/orcamentos";
+export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: { inicial: InicialOrcamento; op: Opcoes; vis: { dados: string[]; itens: string[] }; modo?: "orcamento" | "venda" | "os" }) {
+  const os = modo === "os";
+  // a OS segue as regras da venda (situação obrigatória, pagamento sempre), com blocos próprios
+  const venda = modo === "venda" || os;
+  const doc = os ? "da ordem de serviço" : venda ? "da venda" : "do orçamento";
+  const neste = os ? "nesta OS" : venda ? "nesta venda" : "neste orçamento";
+  const base = os ? "/os" : venda ? (inicial.tipo === "SERVICO" ? "/vendas/servicos" : "/vendas") : inicial.tipo === "SERVICO" ? "/orcamentos/servicos" : "/orcamentos";
+  const raiz = os ? "/os" : venda ? "/vendas" : "/orcamentos";
   const [d, setD] = useState(inicial);
   const [editNumero, setEditNumero] = useState(false);
   const [enderecos, setEnderecos] = useState<{ id: string; texto: string }[]>([]);
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(venda ? salvarPedidoForm : salvarOrcamentoForm, null);
+  const [estado, acao, pendente] = useActionState<Resultado, FormData>(os ? salvarOsForm : venda ? salvarPedidoForm : salvarOrcamentoForm, null);
   const set = <K extends keyof InicialOrcamento>(k: K, v: InicialOrcamento[K]) => setD((x) => ({ ...x, [k]: v }));
-  const tot = totais(d);
+  const tot = os ? totaisOs({ ...d, outros: d.outros ?? "" }) : { ...totais(d), outros: 0 };
   const ve = (c: string) => vis.dados.includes(c);
   const vi = (c: string) => vis.itens.includes(c);
   const padrao = op.tiposValor.find((t) => t.padrao)?.id ?? op.tiposValor[0]?.id ?? "";
@@ -60,8 +65,8 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
   const novoServico = (): LinhaServico => ({ servicoId: "", nome: "", codigo: "", detalhes: "", quantidade: "1", valorUnit: "0,00", desconto: "", descontoPct: false });
 
   const blocoProdutos = (
-    <Bloco key="p" icone="produtos" titulo={<>Adicione os <b>produtos</b> {doc}</>} subtitulo="Produto, quantidade, valor e desconto por linha." corpo="p-0"
-      acoes={<GerenciarColunas lista={venda ? "venda-itens" : "orcamento-itens"} colunas={COLUNAS_ITENS} visiveis={vis.itens} titulo="Gerenciar colunas" classe="btn-icone" />}>
+    <Bloco key="p" icone="produtos" titulo={os ? <>Adicione os <b>produtos e peças</b> {doc}</> : <>Adicione os <b>produtos</b> {doc}</>} subtitulo="Produto, quantidade, valor e desconto por linha." corpo="p-0"
+      acoes={<GerenciarColunas lista={os ? "os-itens" : venda ? "venda-itens" : "orcamento-itens"} colunas={COLUNAS_ITENS} visiveis={vis.itens} titulo="Gerenciar colunas" classe="btn-icone" />}>
       <div className="overflow-x-auto">
         <table className="tabela">
           <thead><tr>
@@ -105,7 +110,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
   );
 
   const blocoServicos = (
-    <Bloco key="s" icone="servicos" titulo={<>Adicione os <b>serviços</b> {doc}</>} subtitulo="Serviço, quantidade, valor e desconto por linha." corpo="p-0">
+    <Bloco key="s" icone="servicos" titulo={os ? <>Adicione os <b>serviços e mão de obra</b> {doc}</> : <>Adicione os <b>serviços</b> {doc}</>} subtitulo="Serviço, quantidade, valor e desconto por linha." corpo="p-0">
       <div className="overflow-x-auto">
         <table className="tabela">
           <thead><tr>
@@ -142,8 +147,8 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
     <form action={acao}>
       <input type="hidden" name="dados" value={JSON.stringify({ ...d, anexos: undefined, proximoNumero: undefined })} />
 
-      <Bloco icone="editar" titulo={<>Informe os <b>dados</b> {doc}</>} subtitulo={venda ? "Número, cliente, situação, vendedor e datas." : "Número, cliente, vendedor, datas e a introdução da proposta."}
-        acoes={<GerenciarColunas lista={venda ? "venda-campos" : "orcamento-campos"} colunas={venda ? CAMPOS_VENDA : CAMPOS_DADOS} visiveis={vis.dados} titulo="Gerenciar campos" classe="btn-icone" />}>
+      <Bloco icone="editar" titulo={<>Informe os <b>dados</b> {doc}</>} subtitulo={os ? "Número, cliente, situação, entrada e saída, canal e prioridade." : venda ? "Número, cliente, situação, vendedor e datas." : "Número, cliente, vendedor, datas e a introdução da proposta."}
+        acoes={<GerenciarColunas lista={os ? "os-campos" : venda ? "venda-campos" : "orcamento-campos"} colunas={os ? CAMPOS_OS : venda ? CAMPOS_VENDA : CAMPOS_DADOS} visiveis={vis.dados} titulo="Gerenciar campos" classe="btn-icone" />}>
         <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
           {ve("numero") && (
             <div><span className="rotulo">Número</span>
@@ -159,30 +164,79 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
               onEscolher={(p) => setD((x) => ({ ...x, clienteId: p?.id ?? "", clienteNome: p?.nome ?? "", enderecoEntregaId: "" }))} />
             <Link href="/clientes/adicionar" target="_blank" className="text-[11px] text-marca hover:underline">+ Adicionar novo</Link>
           </div>
-          <Campo rotulo="Data" obrigatorio><input type="date" className="campo" required value={d.data} onChange={(e) => set("data", e.target.value)} /></Campo>
+          {os && <Campo rotulo="Situação" obrigatorio><select className="campo" value={d.situacaoId} onChange={(e) => set("situacaoId", e.target.value)}>{op.situacoes.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select></Campo>}
+          {os ? (
+            <>
+              <Campo rotulo="Entrada" obrigatorio><input type="datetime-local" className="campo" required value={d.entrada ?? ""} onChange={(e) => set("entrada", e.target.value)} /></Campo>
+              {ve("saida") && <Campo rotulo="Saída"><input type="datetime-local" className="campo" value={d.saida ?? ""} onChange={(e) => set("saida", e.target.value)} /></Campo>}
+            </>
+          ) : <Campo rotulo="Data" obrigatorio><input type="date" className="campo" required value={d.data} onChange={(e) => set("data", e.target.value)} /></Campo>}
           {!venda && ve("validade") && <Campo rotulo="Validade"><input className="campo" placeholder="Ex.: 10 dias" value={d.validade} onChange={(e) => set("validade", e.target.value)} /></Campo>}
-          {ve("vendedor") && <Campo rotulo="Vendedor"><select className="campo" value={d.vendedorId} onChange={(e) => set("vendedorId", e.target.value)}><option value="">Selecione</option>{op.vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select></Campo>}
-          {ve("prazo") && <Campo rotulo="Prazo de entrega"><input type="date" className="campo" value={d.prazoEntrega} onChange={(e) => set("prazoEntrega", e.target.value)} /></Campo>}
+          {!os && ve("vendedor") && <Campo rotulo="Vendedor"><select className="campo" value={d.vendedorId} onChange={(e) => set("vendedorId", e.target.value)}><option value="">Selecione</option>{op.vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select></Campo>}
+          {!os && ve("prazo") && <Campo rotulo="Prazo de entrega"><input type="date" className="campo" value={d.prazoEntrega} onChange={(e) => set("prazoEntrega", e.target.value)} /></Campo>}
           {!venda && ve("cuidados") && <Campo rotulo="Aos cuidados de"><input className="campo" value={d.aosCuidados} onChange={(e) => set("aosCuidados", e.target.value)} /></Campo>}
           {ve("canal") && <Campo rotulo="Canal de venda" obrigatorio><select className="campo" value={d.canal} onChange={(e) => set("canal", e.target.value)}>{op.canais.map((c) => <option key={c}>{c}</option>)}</select></Campo>}
           {ve("centro") && <Campo rotulo="Centro de custo"><input className="campo" list="centros" value={d.centroCusto} onChange={(e) => set("centroCusto", e.target.value)} /><datalist id="centros">{op.centros.map((c) => <option key={c} value={c} />)}</datalist></Campo>}
-          {(venda || d.id) && <Campo rotulo="Situação" obrigatorio={venda}><select className="campo" value={d.situacaoId} onChange={(e) => set("situacaoId", e.target.value)}>{op.situacoes.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select></Campo>}
+          {os && ve("prioridade") && <Campo rotulo="Prioridade"><select className="campo" value={d.prioridade ?? ""} onChange={(e) => set("prioridade", e.target.value)}><option value="">Selecione</option>{PRIORIDADES.map(([v, r]) => <option key={v} value={v}>{r}</option>)}</select></Campo>}
+          {!os && (venda || d.id) && <Campo rotulo="Situação" obrigatorio={venda}><select className="campo" value={d.situacaoId} onChange={(e) => set("situacaoId", e.target.value)}>{op.situacoes.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select></Campo>}
           {!venda && ve("introducao") && <Campo rotulo="Introdução da proposta" className="sm:col-span-2 lg:col-span-4"><textarea rows={3} className="campo" placeholder="Texto que abre a proposta enviada ao cliente. Deixe em branco para não usar." value={d.introducao} onChange={(e) => set("introducao", e.target.value)} /></Campo>}
           {op.campos.map((c) => <Campo key={c.id} rotulo={c.nome}><input className="campo" value={d.camposExtras[c.id] ?? ""} onChange={(e) => set("camposExtras", { ...d.camposExtras, [c.id]: e.target.value })} /></Campo>)}
         </div>
       </Bloco>
 
-      {d.tipo === "SERVICO" ? [blocoServicos, blocoProdutos] : [blocoProdutos, blocoServicos]}
+      {os && (
+        <Bloco icone="pessoa" titulo={<>Defina os <b>responsáveis</b> pela ordem de serviço</>} subtitulo="Vendedor e um ou mais técnicos.">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Campo rotulo="Vendedor"><select className="campo" value={d.vendedorId} onChange={(e) => set("vendedorId", e.target.value)}><option value="">Selecione</option>{op.vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select></Campo>
+            {(d.tecnicoIds?.length ? d.tecnicoIds : [""]).map((tid, i, arr) => (
+              <div key={i}><span className="rotulo">Técnico{arr.length > 1 ? ` ${i + 1}` : ""}</span>
+                <div className="flex gap-1">
+                  <select className="campo" value={tid} onChange={(e) => set("tecnicoIds", arr.map((x, j) => (j === i ? e.target.value : x)))}><option value="">Selecione</option>{(op.tecnicos ?? op.vendedores).map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select>
+                  {arr.length > 1 && <button type="button" className="btn-icone text-red-600" title="Remover técnico" onClick={() => set("tecnicoIds", arr.filter((_, j) => j !== i))}><Icone nome="excluir" size={13} /></button>}
+                </div></div>
+            ))}
+          </div>
+          <button type="button" className="btn-sec mt-3" onClick={() => set("tecnicoIds", [...(d.tecnicoIds?.length ? d.tecnicoIds : [""]), ""])}><Icone nome="mais" size={14} /> Adicionar técnico</button>
+        </Bloco>
+      )}
 
-      <Bloco icone="frete" titulo={<>Informe o <b>transporte</b> {doc}</>}>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {os && (
+        <Bloco icone="os" titulo={<>Descreva os <b>equipamentos</b> da ordem de serviço</>} subtitulo="Equipamento, marca, modelo, série, defeitos, solução e laudo.">
+          {(d.equipamentos ?? []).map((e, i) => {
+            const up = (m: Partial<EquipamentoForm>) => set("equipamentos", (d.equipamentos ?? []).map((x, j) => (j === i ? { ...x, ...m } : x)));
+            const texto = (k: keyof EquipamentoForm, r: string) => <Campo rotulo={r}><textarea rows={2} className="campo" value={e[k]} onChange={(ev) => up({ [k]: ev.target.value })} /></Campo>;
+            return (
+              <div key={i} className="mb-3 rounded border border-slate-200 p-3">
+                <div className="mb-2 flex items-center"><b className="text-[12px] tracking-wide text-slate-500 uppercase">Equipamento {i + 1}</b>
+                  <button type="button" className="btn-icone ml-auto text-red-600" title="Remover equipamento" onClick={() => set("equipamentos", (d.equipamentos ?? []).filter((_, j) => j !== i))}><Icone nome="excluir" size={13} /></button></div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Campo rotulo="Equipamento" obrigatorio><input className="campo" value={e.equipamento} onChange={(ev) => up({ equipamento: ev.target.value })} placeholder="Ex.: Notebook" /></Campo>
+                  <Campo rotulo="Marca"><input className="campo" value={e.marca} onChange={(ev) => up({ marca: ev.target.value })} /></Campo>
+                  <Campo rotulo="Modelo"><input className="campo" value={e.modelo} onChange={(ev) => up({ modelo: ev.target.value })} /></Campo>
+                  <Campo rotulo="Série"><input className="campo" value={e.serie} onChange={(ev) => up({ serie: ev.target.value })} /></Campo>
+                </div>
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  {texto("condicoes", "Condições")}{texto("defeitos", "Defeitos")}{texto("acessorios", "Acessórios")}{texto("solucao", "Solução")}{texto("laudo", "Laudo")}{texto("garantia", "Termos de garantia")}
+                </div>
+              </div>
+            );
+          })}
+          {!(d.equipamentos ?? []).length && <p className="mb-3 text-[13px] text-slate-500">Nenhum equipamento nesta OS.</p>}
+          <button type="button" className="btn-sec" onClick={() => set("equipamentos", [...(d.equipamentos ?? []), equipamentoVazio(inicial.equipamentos?.[0]?.garantia ?? "")])}><Icone nome="mais" size={14} /> Adicionar equipamento</button>
+        </Bloco>
+      )}
+
+      {d.tipo === "SERVICO" && !os ? [blocoServicos, blocoProdutos] : [blocoProdutos, blocoServicos]}
+
+      <Bloco icone="frete" titulo={os ? <>Informe a <b>entrega</b> {doc}</> : <>Informe o <b>transporte</b> {doc}</>}>
+        {!os && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2"><span className="rotulo">Transportadora</span>
             <Busca<{ id: string; nome: string }> url={(q) => `/api/pessoas?papel=transportadora&q=${encodeURIComponent(q)}`}
               valor={d.transportadoraId ? { id: d.transportadoraId, nome: d.transportadoraNome } : null} rotulo={(p) => p.nome} linha={(p) => p.nome}
               onEscolher={(p) => setD((x) => ({ ...x, transportadoraId: p?.id ?? "", transportadoraNome: p?.nome ?? "" }))} /></div>
           <Campo rotulo="Valor do frete (R$)"><input className="campo text-right" value={d.frete} onChange={(e) => set("frete", e.target.value)} /></Campo>
-        </div>
-        <div className="mt-3 max-w-xl"><LinhaToggle titulo="Informar endereço de entrega" texto="Mostra o endereço de entrega no pedido." ligado={d.mostrarEntrega} onChange={(v) => set("mostrarEntrega", v)} /></div>
+        </div>}
+        <div className={os ? "max-w-xl" : "mt-3 max-w-xl"}><LinhaToggle titulo="Informar endereço de entrega" texto="Mostra o endereço de entrega no pedido." ligado={d.mostrarEntrega} onChange={(v) => set("mostrarEntrega", v)} /></div>
         {d.mostrarEntrega && (
           <div className="mt-3 max-w-xl">
             {d.clienteId ? (
@@ -196,13 +250,24 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
 
       <Bloco icone="caixa" titulo={<>Confira o <b>total</b> {doc}</>}>
         <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Campo rotulo="Produtos (R$)"><input className="campo text-right" readOnly value={n2(tot.produtos)} /></Campo>
-          <Campo rotulo="Serviços (R$)"><input className="campo text-right" readOnly value={n2(tot.servicos)} /></Campo>
+          {os ? (
+            <>
+              <Campo rotulo="Mão de obra (R$)"><input className="campo text-right" readOnly value={n2(tot.servicos)} /></Campo>
+              <Campo rotulo="Peças (R$)"><input className="campo text-right" readOnly value={n2(tot.produtos)} /></Campo>
+              <Campo rotulo="Frete (R$)"><input className="campo text-right" value={d.frete} onChange={(e) => set("frete", e.target.value)} /></Campo>
+              <Campo rotulo="Outros (R$)"><input className="campo text-right" value={d.outros ?? ""} onChange={(e) => set("outros", e.target.value)} /></Campo>
+            </>
+          ) : (
+            <>
+              <Campo rotulo="Produtos (R$)"><input className="campo text-right" readOnly value={n2(tot.produtos)} /></Campo>
+              <Campo rotulo="Serviços (R$)"><input className="campo text-right" readOnly value={n2(tot.servicos)} /></Campo>
+            </>
+          )}
           <div><span className="rotulo">Desconto</span><Desconto valor={d.desconto} pct={d.descontoPct} onValor={(v) => set("desconto", v)} onPct={(v) => set("descontoPct", v)} />
             {d.descontoPct && tot.desconto > 0 && <span className="text-[11px] text-slate-500">= {brl(tot.desconto)}</span>}</div>
           <Campo rotulo="Valor total (R$)" obrigatorio><input className="campo text-right text-[15px] font-semibold" readOnly value={n2(tot.total)} /></Campo>
         </div>
-        {!venda && <div className="mt-3 max-w-xl"><LinhaToggle titulo="Exibir valor total na impressão" texto="Desligado, a impressão sai sem o valor total." ligado={d.exibirTotal} onChange={(v) => set("exibirTotal", v)} /></div>}
+        {(!venda || os) && <div className="mt-3 max-w-xl"><LinhaToggle titulo="Exibir valor total na impressão" texto="Desligado, a impressão sai sem o valor total." ligado={d.exibirTotal} onChange={(v) => set("exibirTotal", v)} /></div>}
       </Bloco>
 
       <Bloco icone="dinheiro" titulo={<>Defina o <b>pagamento</b> {doc}</>}>

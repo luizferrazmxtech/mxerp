@@ -31,6 +31,8 @@ export const CORES: Record<string, { rotulo: string; pilula: string; ponto: stri
   laranja: { rotulo: "Laranja", pilula: "border-orange-300 bg-orange-50 text-orange-700", ponto: "bg-orange-500" },
   roxo: { rotulo: "Roxo", pilula: "border-violet-300 bg-violet-50 text-violet-700", ponto: "bg-violet-500" },
   preto: { rotulo: "Preto", pilula: "border-slate-700 bg-slate-800 text-white", ponto: "bg-slate-900" },
+  marrom: { rotulo: "Marrom", pilula: "border-amber-700 bg-amber-100 text-amber-900", ponto: "bg-amber-800" },
+  purpura: { rotulo: "Púrpura", pilula: "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-700", ponto: "bg-fuchsia-600" },
 };
 export const cor = (c: string) => CORES[c] ?? CORES.cinza;
 

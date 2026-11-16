@@ -196,6 +196,7 @@ model Pessoa {
   orcamentos      Orcamento[]      @relation("OrcamentoCliente")
   orcamentosFrete Orcamento[]      @relation("OrcamentoTransportadora")
   vendasFrete     Venda[]          @relation("VendaTransportadora")
+  osFrete         OrdemServico[]   @relation("OsTransportadora")
   vendas          Venda[]
   lancamentos     Lancamento[]
   compras         Compra[]
@@ -736,27 +737,50 @@ model OrdemServico {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
+  // padrão Gestão Click: situação configurável, vários técnicos, entrega e pagamento
+  situacaoId         String?
+  situacaoCfg        SituacaoOsConfig? @relation(fields: [situacaoId], references: [id])
+  tecnicoIds         String[]
+  centroCusto        String?
+  transportadoraId   String?
+  transportadora     Pessoa?           @relation("OsTransportadora", fields: [transportadoraId], references: [id])
+  mostrarEntrega     Boolean           @default(false)
+  enderecoEntregaId  String?
+  descontoPercentual Decimal?          @db.Decimal(7, 4)
+  exibirTotal        Boolean           @default(true)
+  condicao           String            @default("AVISTA") // AVISTA | PARCELADO
+  formaPagamentoId   String?
+  formaPagamento     FormaPagamento?   @relation("OsForma", fields: [formaPagamentoId], references: [id])
+  intervaloDias      Int               @default(30)
+  camposExtras       Json              @default("{}")
+  token              String            @unique @default(cuid()) // link de cobrança
+  criadoPorId        String?
+
   equipamentos OsEquipamento[]
   produtos     OsItemProduto[]
   servicos     OsItemServico[]
   historico    OsHistorico[]
+  parcelas     OsParcela[]
 
   @@index([situacao])
   @@index([clienteId])
 }
 
 model OsItemProduto {
-  id         String       @id @default(cuid())
-  osId       String
-  os         OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
-  produtoId  String
-  produto    Produto      @relation(fields: [produtoId], references: [id])
-  quantidade Decimal      @db.Decimal(14, 4)
-  valorUnit  Decimal      @db.Decimal(14, 2)
-  custoUnit  Decimal      @default(0) @db.Decimal(14, 4)
-  desconto   Decimal      @default(0) @db.Decimal(14, 2)
-  subtotal   Decimal      @db.Decimal(14, 2)
-  createdAt  DateTime     @default(now())
+  id          String       @id @default(cuid())
+  osId        String
+  os          OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
+  produtoId   String
+  produto     Produto      @relation(fields: [produtoId], references: [id])
+  quantidade  Decimal      @db.Decimal(14, 4)
+  valorUnit   Decimal      @db.Decimal(14, 2)
+  custoUnit   Decimal      @default(0) @db.Decimal(14, 4)
+  desconto    Decimal      @default(0) @db.Decimal(14, 2)
+  subtotal    Decimal      @db.Decimal(14, 2)
+  createdAt   DateTime     @default(now())
+  ordem       Int          @default(0)
+  detalhes    String?
+  tipoValorId String?
 }
 
 model OsItemServico {
@@ -770,15 +794,54 @@ model OsItemServico {
   desconto   Decimal      @default(0) @db.Decimal(14, 2)
   subtotal   Decimal      @db.Decimal(14, 2)
   createdAt  DateTime     @default(now())
+  ordem      Int          @default(0)
+  detalhes   String?
+}
+
+/// Situação de OS configurável (Opções auxiliares › Situações), como no Gestão Click.
+model SituacaoOsConfig {
+  id               String          @id @default(cuid())
+  nome             String          @unique
+  cor              String          @default("cinza")
+  ordem            Int             @default(0)
+  padrao           Boolean         @default(false)
+  permiteEdicao    Boolean         @default(true)
+  exibir           Boolean         @default(true)
+  exibirCobranca   Boolean         @default(true)
+  estoque          EstoqueSituacao @default(RESERVAR)
+  financeiro       Boolean         @default(false)
+  notaServico      NotaSituacao    @default(NAO)
+  enviarMensagem   Boolean         @default(false)
+  modeloMensagemId String?
+  gerarAssinatura  Boolean         @default(false)
+  preencherSaida   Boolean         @default(false)
+  bloqueados       PapelUsuario[]
+  ordens           OrdemServico[]
+}
+
+model OsParcela {
+  id               String          @id @default(cuid())
+  osId             String
+  os               OrdemServico    @relation(fields: [osId], references: [id], onDelete: Cascade)
+  numero           Int
+  vencimento       DateTime        @db.Date
+  valor            Decimal         @db.Decimal(14, 2)
+  formaPagamentoId String?
+  formaPagamento   FormaPagamento? @relation(fields: [formaPagamentoId], references: [id])
+  observacao       String?
+
+  @@index([osId])
 }
 
 model OsHistorico {
-  id        String       @id @default(cuid())
-  osId      String
-  os        OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
-  descricao String
-  usuarioId String?
-  createdAt DateTime     @default(now())
+  id          String       @id @default(cuid())
+  osId        String
+  os          OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
+  descricao   String
+  situacao    String?
+  usuarioNome String?
+  usuarioId   String?
+  createdAt   DateTime     @default(now())
 }
 
 // ───────────────────────── Vendas / PDV ─────────────────────────
@@ -1066,6 +1129,8 @@ model FormaPagamento {
   parcelasOrc OrcamentoParcela[]
   vendas      Venda[]            @relation("VendaForma")
   parcelasVen VendaParcela[]
+  ordens      OrdemServico[]     @relation("OsForma")
+  parcelasOs  OsParcela[]
 }
 
 /// Grupo da DRE gerencial para onde a categoria soma.

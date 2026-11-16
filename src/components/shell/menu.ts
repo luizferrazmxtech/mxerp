@@ -73,6 +73,14 @@ export const MENU: ItemMenu[] = [
     rotulo: "Ordens de serviços", icone: "os", filhos: [
       { rotulo: "Gerenciar O.S.", href: "/os", icone: "gerenciar" },
       { rotulo: "Painel", href: "/os/painel", icone: "painel" },
+      {
+        rotulo: "Opções auxiliares", href: "/os/situacoes", icone: "auxiliares", filhos: [
+          { rotulo: "Situações", href: "/os/situacoes", icone: "lista" },
+          { rotulo: "Campos extras", href: "/campos-extras?entidade=OS", icone: "ajustes" },
+          { rotulo: "Mensagens", href: "/os/mensagens", icone: "email" },
+          { rotulo: "Configurações", href: "/os/configuracoes", icone: "configuracoes" },
+        ],
+      },
     ],
   },
   {

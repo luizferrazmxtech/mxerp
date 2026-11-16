@@ -5,12 +5,13 @@ import { useActionState, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco } from "@/components/ui/Pagina";
 import { salvarCanalAcao, salvarConfigVendaAcao, salvarSituacaoVendaAcao, type Resultado } from "@/lib/vendas/acoes";
+import { salvarSituacaoOsAcao } from "@/lib/os/acoes";
 import { CORES } from "@/lib/orcamentos/tipos";
 import { PAPEIS, Radio, Rodape } from "@/components/orcamentos/FormsAuxOrc";
 
 export type SituacaoVendaForm = {
   id: string; nome: string; cor: string; padrao: boolean; permiteEdicao: boolean; exibir: boolean; exibirCobranca: boolean; estoque: string; financeiro: boolean;
-  notaProduto: string; notaServico: string; enviarMensagem: boolean; modeloMensagemId: string | null; gerarAssinatura: boolean; bloqueados: string[];
+  notaProduto?: string; notaServico: string; enviarMensagem: boolean; modeloMensagemId: string | null; gerarAssinatura: boolean; bloqueados: string[]; preencherSaida?: boolean;
 };
 
 const SimNao = ({ name, valor, rotulo, dica }: { name: string; valor: boolean; rotulo: string; dica?: string }) => (
@@ -19,8 +20,12 @@ const SimNao = ({ name, valor, rotulo, dica }: { name: string; valor: boolean; r
     {dica && <span className="text-[11px] text-slate-500">{dica}</span>}</label>
 );
 
-export function FormSituacaoVenda({ s, modelos, usada }: { s?: SituacaoVendaForm; modelos: { id: string; assunto: string }[]; usada: number }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarSituacaoVendaAcao, null);
+/** Situação de venda ou de OS (a da OS não tem NF-e de produto e tem "Preencher data de saída"). */
+export function FormSituacaoVenda({ s, modelos, usada, modulo = "venda" }: { s?: SituacaoVendaForm; modelos: { id: string; assunto: string }[]; usada: number; modulo?: "venda" | "os" }) {
+  const os = modulo === "os";
+  const doc = os ? "OS" : "venda";
+  const [r, acao, pendente] = useActionState<Resultado, FormData>(os ? salvarSituacaoOsAcao : salvarSituacaoVendaAcao, null);
+  const [saida, setSaida] = useState(s?.preencherSaida ? "1" : "0");
   const [corSel, setCor] = useState(s?.cor ?? "cinza");
   const [estoque, setEstoque] = useState(s?.estoque ?? "RESERVAR");
   const [fin, setFin] = useState(s?.financeiro ? "1" : "0");
@@ -34,7 +39,7 @@ export function FormSituacaoVenda({ s, modelos, usada }: { s?: SituacaoVendaForm
   return (
     <form action={acao}>
       {s && <input type="hidden" name="id" value={s.id} />}
-      <Bloco icone="editar" titulo={<>Informe a <b>situação</b> da venda</>} subtitulo="Nome, cor, se é a padrão das vendas novas e onde aparece.">
+      <Bloco icone="editar" titulo={<>Informe a <b>situação</b> da {doc}</>} subtitulo={`Nome, cor, se é a padrão das ${os ? "OS novas" : "vendas novas"} e onde aparece.`}>
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
           <label><span className="rotulo obrig">Nome</span><input name="nome" defaultValue={s?.nome} required autoFocus maxLength={60} className="campo" /></label>
           <div><span className="rotulo">Cor</span><input type="hidden" name="cor" value={corSel} />
@@ -43,15 +48,15 @@ export function FormSituacaoVenda({ s, modelos, usada }: { s?: SituacaoVendaForm
             ))}</div></div>
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <SimNao name="padrao" valor={!!s?.padrao} rotulo="Situação padrão" dica="Vem marcada nas vendas novas." />
-          <SimNao name="permiteEdicao" valor={s?.permiteEdicao ?? true} rotulo="Permite edição" dica="Com Não, a venda fica travada." />
+          <SimNao name="padrao" valor={!!s?.padrao} rotulo="Situação padrão" dica={os ? "Vem marcada nas OS novas." : "Vem marcada nas vendas novas."} />
+          <SimNao name="permiteEdicao" valor={s?.permiteEdicao ?? true} rotulo="Permite edição" dica={`Com Não, a ${doc} fica travada.`} />
           <SimNao name="exibir" valor={s?.exibir ?? true} rotulo="Exibir na listagem" />
           <SimNao name="exibirCobranca" valor={s?.exibirCobranca ?? true} rotulo="Exibir no link de cobrança" />
         </div>
       </Bloco>
 
-      <Bloco icone="urgente" titulo={<>Defina as <b>automações</b> desta situação</>} subtitulo="O que acontece quando uma venda entra nesta situação.">
-        {travado && <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-[12px] text-amber-800">{usada} venda(s) estão nesta situação: estoque e financeiro não podem mudar. Crie uma situação nova e mova as vendas, se precisar.</p>}
+      <Bloco icone="urgente" titulo={<>Defina as <b>automações</b> desta situação</>} subtitulo={`O que acontece quando uma ${doc} entra nesta situação.`}>
+        {travado && <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-[12px] text-amber-800">{usada} {os ? "OS" : "venda(s)"} estão nesta situação: estoque e financeiro não podem mudar. Crie uma situação nova e mova {os ? "as OS" : "as vendas"}, se precisar.</p>}
         <div className="space-y-4">
           <div><span className="rotulo">Estoque</span><input type="hidden" name="estoque" value={estoque} />
             <div className={`flex flex-wrap gap-2 ${travado ? "pointer-events-none opacity-60" : ""}`}>
@@ -64,13 +69,18 @@ export function FormSituacaoVenda({ s, modelos, usada }: { s?: SituacaoVendaForm
               <Radio name="_fin" valor="1" atual={fin} titulo="Lançar financeiro" onChange={(v) => { setFin(v); setEstoque("LANCAR"); }}>As parcelas viram contas a receber.</Radio>
               <Radio name="_fin" valor="0" atual={fin} titulo="Não lançar financeiro" onChange={setFin} />
             </div></div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <div><span className="rotulo">Nota de produto</span><input type="hidden" name="notaProduto" value={np} />
+          {os && <div><span className="rotulo">Preencher data de saída</span><input type="hidden" name="preencherSaida" value={saida} />
+            <div className="flex flex-wrap gap-2">
+              <Radio name="_saida" valor="1" atual={saida} titulo="Preencher data de saída" onChange={setSaida}>Preenche data e hora de saída da OS, se ainda vazias.</Radio>
+              <Radio name="_saida" valor="0" atual={saida} titulo="Não preencher" onChange={setSaida} />
+            </div></div>}
+          <div className={`grid gap-3 ${os ? "" : "lg:grid-cols-2"}`}>
+            {!os && <div><span className="rotulo">Nota de produto</span><input type="hidden" name="notaProduto" value={np} />
               <div className="flex flex-wrap gap-2">
                 <Radio name="_np" valor="NAO" atual={np} titulo="Não gerar NF-e" onChange={setNp} />
                 <Radio name="_np" valor="GERAR" atual={np} titulo="Gerar NF-e sem emitir" onChange={setNp} />
                 <Radio name="_np" valor="EMITIR" atual={np} titulo="Gerar e emitir NF-e" onChange={setNp} />
-              </div></div>
+              </div></div>}
             <div><span className="rotulo">Nota de serviço</span><input type="hidden" name="notaServico" value={ns} />
               <div className="flex flex-wrap gap-2">
                 <Radio name="_ns" valor="NAO" atual={ns} titulo="Não gerar NFS-e" onChange={setNs} />
@@ -106,7 +116,7 @@ export function FormSituacaoVenda({ s, modelos, usada }: { s?: SituacaoVendaForm
               <button type="button" onClick={() => setBloq(bloq.filter((x) => x !== p))} className="ml-auto text-red-600" title="Remover"><Icone nome="excluir" size={15} /></button></li>
           ))}</ul>)}
       </Bloco>
-      <Rodape r={r} pendente={pendente} voltar="/vendas/situacoes" editando={!!s} />
+      <Rodape r={r} pendente={pendente} voltar={os ? "/os/situacoes" : "/vendas/situacoes"} editando={!!s} />
     </form>
   );
 }
