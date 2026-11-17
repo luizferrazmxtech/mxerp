@@ -3,7 +3,17 @@ import { descontoLinha, subtotalProduto, type LinhaServico, type Parcela } from 
 
 /** Tipos e cálculos das compras que o formulário (cliente) também usa. */
 
-export type LinhaCompra = { produtoId: string; nome: string; codigo: string; unidade: string; detalhes: string; quantidade: string; valorUnit: string; desconto: string; descontoPct: boolean };
+/**
+ * Linha de produto da compra. `quantidade` e `valorUnit` estão na unidade da nota: se `unidadeCompra` estiver preenchida,
+ * cada uma vale `fator` unidades do produto (ex.: 1 CX = 305 MT); no estoque entra quantidade × fator, com o custo por MT.
+ * `codigoFornecedor` é o código do item na NF-e (vínculo aprendido ao salvar) e `salvarConversao` grava a conversão no produto.
+ */
+export type LinhaCompra = {
+  produtoId: string; nome: string; codigo: string; unidade: string; detalhes: string; quantidade: string; valorUnit: string; desconto: string; descontoPct: boolean;
+  unidadeCompra?: string; fator?: string; codigoFornecedor?: string; salvarConversao?: boolean;
+  /** conversão que está no cadastro do produto (para o formulário oferecer as duas unidades) */
+  conversaoProduto?: { unidade: string; fator: number } | null;
+};
 
 export type DadosCompra = {
   tipo: "PRODUTO" | "SERVICO"; numero: string; fornecedorId: string; fornecedorNome: string; data: string; situacaoId: string;
@@ -20,6 +30,20 @@ const n = (s: string) => lerNumero(s) ?? 0;
 const arred = (v: number) => Math.round(v * 100) / 100;
 
 export const subtotalCompra = subtotalProduto;
+
+/** Quantas unidades do produto vêm em cada unidade da linha (1 quando a linha está na própria unidade do produto). */
+export function fatorLinha(l: Pick<LinhaCompra, "unidadeCompra" | "fator">) {
+  if (!(l.unidadeCompra ?? "").trim()) return 1;
+  const f = lerNumero(l.fator ?? "");
+  return f && f > 0 ? f : 1;
+}
+/** Quantidade que entra no estoque, na unidade do produto. */
+export const qtdEstoqueLinha = (l: Pick<LinhaCompra, "unidadeCompra" | "fator" | "quantidade">) => n(l.quantidade) * fatorLinha(l);
+/** Custo por unidade do produto (subtotal com desconto ÷ quantidade convertida). */
+export function custoUnidadeVenda(l: LinhaCompra) {
+  const q = qtdEstoqueLinha(l);
+  return q > 0 ? subtotalCompra(l) / q : 0;
+}
 
 /** Totais: produtos e serviços − desconto, mais frete e impostos quando marcados para somar. */
 export function totaisCompra(d: Pick<DadosCompra, "produtos" | "servicos" | "desconto" | "descontoPct" | "frete" | "freteNoTotal" | "impostos" | "impostosNoTotal">) {

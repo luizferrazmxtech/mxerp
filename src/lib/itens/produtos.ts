@@ -69,7 +69,14 @@ export async function salvarProduto(d: DadosProduto, usuarioId: string | null, i
     if (id) {
       const antes = await tx.produto.findUniqueOrThrow({ where: { id }, include: { valores: { include: { tipoValor: true } } } });
       const hist: { campo: string; anterior: number; novo: number }[] = [];
-      if (Number(antes.custo) !== custo) hist.push({ campo: "Valor de custo", anterior: Number(antes.custo), novo: custo });
+      // trocou a conversão (ex.: 1 CX = 1 MT → 1 CX = 305 MT) sem mexer no custo: o custo da caixa continua o mesmo,
+      // então o custo por unidade de venda acompanha o novo fator (para corrigir compras já lançadas: Alterar conversão)
+      const fa = antes.unidadeCompra ? Number(antes.fatorConversao) : 1, fn = dados.unidadeCompra ? Number(dados.fatorConversao) : 1;
+      if (fa !== fn) {
+        hist.push({ campo: `Conversão (${dados.unidadeCompra ?? antes.unidadeCompra} → ${dados.unidade})`, anterior: fa, novo: fn });
+        if (Number(antes.custo) === custo && custo > 0) dados.custo = D(Math.round(((custo * fa) / fn) * 10000) / 10000)!;
+      }
+      if (Number(antes.custo) !== Number(dados.custo)) hist.push({ campo: "Valor de custo", anterior: Number(antes.custo), novo: Number(dados.custo) });
       for (const v of valores) {
         const a = antes.valores.find((x) => x.tipoValorId === v.tipoValorId);
         const novo = lerNumero(v.valor) ?? 0;

@@ -8,8 +8,9 @@ import Busca from "@/components/ui/Busca";
 import { lerCodigoAcao, registrarContagemAcao, resumoInventarioAcao, salvarAjusteForm, zerarEstoqueAcao, salvarInventarioForm, salvarTransferenciaForm, type Resultado } from "@/lib/compras/acoes";
 import type { DadosInventario, ItemAjuste } from "@/lib/estoque/documentos";
 import { lerNumero } from "@/lib/itens/tipos";
+import { ResumoConversao, SeletorUnidade } from "@/components/itens/CelulaConversao";
 
-type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; custo: number; fisico: number | null };
+type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; custo: number; fisico: number | null; unidadeCompra?: string | null; fatorConversao?: number };
 const n2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const n = (s: string) => lerNumero(s) ?? 0;
@@ -33,11 +34,12 @@ export function FormAjuste({ inicial }: { inicial?: { tipo: "ENTRADA" | "SAIDA";
   const [frete, setFrete] = useState(inicial?.frete ?? "0,00");
   const [obs, setObs] = useState(inicial?.observacoes ?? "");
   const [itens, setItens] = useState<ItemAjuste[]>(inicial?.itens ?? []);
+  const [atualizarCusto, setAtualizarCusto] = useState(false);
   const up = (i: number, m: Partial<ItemAjuste>) => setItens(itens.map((x, j) => (j === i ? { ...x, ...m } : x)));
   const total = itens.reduce((s, i) => s + n(i.quantidade) * n(i.custo), 0) + n(frete);
   return (
     <form action={acao}>
-      <input type="hidden" name="dados" value={JSON.stringify({ tipo, frete, observacoes: obs, itens })} />
+      <input type="hidden" name="dados" value={JSON.stringify({ tipo, frete, observacoes: obs, itens, atualizarCusto: tipo === "ENTRADA" && atualizarCusto })} />
       <Bloco icone="ajustes" titulo={<>Defina o <b>tipo do ajuste</b></>} subtitulo="Entrada soma ao estoque da loja; saída retira. Trocar o tipo limpa a lista de produtos.">
         <div className="grid items-end gap-3 sm:grid-cols-3">
           <Campo rotulo="Movimentação" obrigatorio><select className="campo" value={tipo} onChange={(e) => { setTipo(e.target.value as "ENTRADA" | "SAIDA"); setItens([]); }}><option value="">Selecione</option><option value="ENTRADA">Entrada</option><option value="SAIDA">Saída</option></select></Campo>
@@ -49,15 +51,20 @@ export function FormAjuste({ inicial }: { inicial?: { tipo: "ENTRADA" | "SAIDA";
         <Bloco icone="produtos" titulo={<>Informe os <b>produtos</b> do ajuste</>} corpo="p-0">
           <div className="overflow-x-auto">
             <table className="tabela">
-              <thead><tr><th className="min-w-72">Produto *</th><th className="w-28 text-right">Quantidade *</th><th className="w-20">Unidade *</th><th className="w-32 text-right">Custo *</th><th className="w-28 text-right">Total *</th><th className="w-12"></th></tr></thead>
+              <thead><tr><th className="min-w-72">Produto *</th><th className="w-28 text-right">Quantidade *</th><th className="w-28">Unidade *</th><th className="w-32 text-right">Custo *</th><th className="w-28 text-right">Total *</th><th className="w-12"></th></tr></thead>
               <tbody>
                 {itens.map((l, i) => (
                   <tr key={i}>
-                    <td><LinhaProduto item={l} onEscolher={(p) => up(i, { produtoId: p.id, nome: p.nome, codigo: p.codigo, unidade: p.unidade, custo: n2(p.custo) })} /></td>
+                    <td><LinhaProduto item={l} onEscolher={(p) => up(i, { produtoId: p.id, nome: p.nome, codigo: p.codigo, unidade: p.unidade, custo: n2(p.custo), conversaoProduto: p.unidadeCompra ? { unidade: p.unidadeCompra, fator: p.fatorConversao ?? 1 } : null })} /></td>
                     <td><input className="campo text-right" value={l.quantidade} onChange={(e) => up(i, { quantidade: e.target.value })} /></td>
-                    <td className="text-[12px]">{l.unidade}</td>
+                    <td className="text-[12px]">{l.produtoId && tipo === "ENTRADA" ? <SeletorUnidade l={{ ...l, unidade: l.unidade ?? "UN" }} onChange={(m) => {
+                      // trocar de unidade leva o custo junto (custo do metro × 305 = custo da caixa)
+                      const fa = (l.unidadeCompra ?? "").trim() ? n(l.fator ?? "") || 1 : 1;
+                      const fn = (m.unidadeCompra ?? l.unidadeCompra ?? "").trim() ? n(m.fator ?? l.fator ?? "") || fa : 1;
+                      up(i, { ...m, ...(fn !== fa && n(l.custo) > 0 ? { custo: n2((n(l.custo) / fa) * fn) } : {}) });
+                    }} /> : l.unidade}</td>
                     <td><input className="campo text-right" value={l.custo} onChange={(e) => up(i, { custo: e.target.value })} /></td>
-                    <td className="text-right font-semibold">{n2(n(l.quantidade) * n(l.custo))}</td>
+                    <td className="text-right font-semibold">{n2(n(l.quantidade) * n(l.custo))}{l.produtoId && <ResumoConversao l={{ ...l, unidade: l.unidade ?? "UN" }} quantidade={l.quantidade} subtotal={n(l.quantidade) * n(l.custo)} />}</td>
                     <td><button type="button" className="btn-icone text-red-600" title="Remover" onClick={() => setItens(itens.filter((_, j) => j !== i))}><Icone nome="excluir" size={13} /></button></td>
                   </tr>
                 ))}
@@ -67,6 +74,10 @@ export function FormAjuste({ inicial }: { inicial?: { tipo: "ENTRADA" | "SAIDA";
           </div>
           <div className="p-3"><button type="button" className="btn-sec" onClick={() => setItens([...itens, { produtoId: "", quantidade: "1", custo: "0,00" }])}><Icone nome="mais" size={14} /> Adicionar produto</button></div>
         </Bloco>
+      )}
+      {tipo === "ENTRADA" && (
+        <label className="cartao mb-3 flex items-start gap-2 p-3 text-[13px]"><input type="checkbox" className="mt-0.5" checked={atualizarCusto} onChange={(e) => setAtualizarCusto(e.target.checked)} />
+          <span><b>Atualizar o custo dos produtos</b> com o custo desta entrada (média ou último custo, como nas compras, conforme as configurações de estoque). Deixe desmarcado em correções de saldo.</span></label>
       )}
       <Bloco icone="notas" titulo={<>Anote as <b>observações</b> do ajuste</>}>
         <textarea rows={3} className="campo h-auto" value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Ex.: inventário, quebra, uso interno" />

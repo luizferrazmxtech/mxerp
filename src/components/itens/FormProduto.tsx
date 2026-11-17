@@ -119,6 +119,10 @@ export default function FormProduto({ inicial, op }: { inicial: InicialProduto; 
                   </>
                 )}
               </div>
+              {d.id && (
+                <p className="mt-2 text-[12px] text-slate-500">Mudou a conversão de um produto que já tem compras? Se o custo não for alterado aqui, ele é recalculado pelo novo fator ao salvar.
+                  Para corrigir também as compras já lançadas e o estoque que entrou por elas, use <a href={`/produtos/${d.id}?aba=estoque&acao=conversao`} className="text-marca hover:underline">Alterar conversão</a> na tela do produto.</p>
+              )}
               <datalist id="unidades">{op.unidades.map((u) => <option key={u.sigla} value={u.sigla}>{u.nome}</option>)}</datalist>
             </Bloco>
           </div>

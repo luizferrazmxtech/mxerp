@@ -88,9 +88,11 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Transferências", href: "/estoque/transferencias", icone: "lojas" },
       { rotulo: "Saldos e reservas", href: "/estoque", icone: "produtos" },
       { rotulo: "Locais (prateleiras)", href: "/estoque/locais", icone: "locais" },
+      { rotulo: "Custos e margens", href: "/estoque/custos", icone: "dinheiro" },
       {
         rotulo: "Compras", href: "/compras", icone: "carrinho", filhos: [
           { rotulo: "Produtos", href: "/compras", icone: "produtos" },
+          { rotulo: "Entrada por XML", href: "/compras/importar-xml", icone: "importar" },
           { rotulo: "Serviços", href: "/compras/servicos", icone: "servicos" },
           { rotulo: "Cotações", href: "/compras/cotacoes", icone: "cotacao" },
         ],

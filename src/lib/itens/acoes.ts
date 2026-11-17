@@ -137,3 +137,30 @@ export async function excluirServicosAcao(_: Resultado, form: FormData): Promise
   revalidatePath("/servicos");
   return { ok: true, mensagem: rs.map((r) => r.mensagem).join(" ") };
 }
+
+// ---------- conversão de unidade (Alterar conversão, na aba Estoque do produto)
+
+export async function simularConversaoAcao(produtoId: string, unidadeCompra: string, fator: string) {
+  await exigirUsuario([...EDITA]);
+  const { simularConversao } = await import("./conversao");
+  const r = await simularConversao(produtoId, unidadeCompra, fator);
+  return { ...r, compras: r.compras.map((c) => ({ ...c, data: c.data.toISOString().slice(0, 10) })) };
+}
+
+export async function alterarConversaoForm(_: Resultado, form: FormData): Promise<Resultado> {
+  const u = await exigirUsuario([...EDITA]);
+  const { alterarConversao } = await import("./conversao");
+  const id = String(form.get("produtoId"));
+  let destino: string;
+  try {
+    const base = String(form.get("base") ?? "PROPORCIONAL") as "PROPORCIONAL" | "ULTIMA" | "MEDIA" | "MANTER";
+    const r = await alterarConversao(id, {
+      unidadeCompra: form.get("converte") ? String(form.get("unidadeCompra") ?? "") : "", fator: String(form.get("fator") ?? ""), base,
+      corrigirCompras: !!form.get("corrigirCompras"), corrigirLancados: !!form.get("corrigirLancados"),
+    }, u);
+    revalidatePath(`/produtos/${id}`);
+    const msg = [`Custo ${r.custoAntes.toFixed(4)} → ${r.custo.toFixed(4)}`, r.corrigidas ? `${r.corrigidas} compra(s) corrigida(s)` : "", r.lancados ? `${r.lancados} lançamento(s) com custo atualizado` : "", ...r.avisos].filter(Boolean).join(". ");
+    destino = `/produtos/${id}?aba=estoque&ok=${encodeURIComponent(msg)}`;
+  } catch (e) { return erro(e); }
+  redirect(destino);
+}

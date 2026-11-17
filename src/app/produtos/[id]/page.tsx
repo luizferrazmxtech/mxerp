@@ -9,6 +9,7 @@ import Suspenso from "@/components/ui/Suspenso";
 import { LinkSuspenso } from "@/components/ui/BarraLista";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import Icone from "@/components/Icone";
+import AlterarConversao from "@/components/itens/AlterarConversao";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar produto" };
@@ -26,7 +27,7 @@ function Selo({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return <div className={`flex items-center gap-1.5 text-[12px] ${ok ? "text-emerald-700" : "text-slate-400 line-through"}`}><Icone nome={ok ? "ok" : "fechar"} size={13} /> {children}</div>;
 }
 
-export default async function VerProduto({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; de?: string; ate?: string }> }) {
+export default async function VerProduto({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; de?: string; ate?: string; acao?: string; ok?: string }> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const p = await prisma.produto.findUnique({
     where: { id },
@@ -141,11 +142,19 @@ export default async function VerProduto({ params, searchParams }: { params: Pro
                 <div className="mt-2 text-slate-600">Físico {qtd(fisico)} · Reservado {qtd(reservado._sum.quantidade ?? 0)} · Disponível {qtd(fisico - Number(reservado._sum.quantidade ?? 0))}</div>
                 <Link href={`/estoque/produto/${id}`} className="mt-2 inline-block text-marca hover:underline">Ajustar ou transferir estoque</Link>
               </div>
-              <div className="cartao p-4 text-[13px]">
-                <h3 className="mb-2 font-semibold">Conversão de unidade</h3>
-                <div>Unidade de compra: <b>1 {p.unidadeCompra ?? p.unidade}</b></div>
-                <div>Unidade de venda: <b>{qtd(p.unidadeCompra ? p.fatorConversao : 1)} {p.unidade}</b></div>
-              </div>
+              {sp.ok && <div className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800">Conversão gravada. {sp.ok}</div>}
+              {sp.acao === "conversao" ? (
+                <AlterarConversao produto={{ id, nome: p.nome, unidade: p.unidade, unidadeCompra: p.unidadeCompra, fator: Number(p.fatorConversao) }} />
+              ) : (
+                <div className="cartao p-4 text-[13px]">
+                  <h3 className="mb-2 font-semibold">Conversão de unidade</h3>
+                  <div>Unidade de compra: <b>1 {p.unidadeCompra ?? p.unidade}</b></div>
+                  <div>Unidade de venda: <b>{qtd(p.unidadeCompra ? p.fatorConversao : 1)} {p.unidade}</b></div>
+                  <div className="mt-1 text-slate-600">Custo: <b>{brl(p.custo)}</b> por {p.unidade}{p.unidadeCompra && <> · {brl(Number(p.custo) * Number(p.fatorConversao))} por {p.unidadeCompra}</>}</div>
+                  <div className="mt-2 flex gap-3"><Link href={`${base}?aba=estoque&acao=conversao`} className="text-marca hover:underline">Alterar conversão e recalcular custos</Link>
+                    <Link href={`/estoque/custos?q=${encodeURIComponent(p.codigo)}&visao=compras`} className="text-marca hover:underline">Ver custos das compras</Link></div>
+                </div>
+              )}
             </div>
           )}
 
