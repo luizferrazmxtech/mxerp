@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Prisma, type EstoqueSituacao, type NotaSituacao, type PapelUsuario } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { exigirUsuario } from "@/lib/auth/atual";
+import { avisoBoletos, boletosDoDocumento } from "@/lib/financeiro/boletos";
 import { emitirNfseOs, emitirNotaOs } from "@/lib/fiscal/emissao";
 import { configOs } from "./config";
 import { alterarSituacaoOrdem, clonarOrdem, excluirOrdem, salvarOrdem } from "./ordens";
@@ -21,6 +22,7 @@ export async function salvarOsForm(_: Resultado, form: FormData): Promise<Result
   try {
     const d = JSON.parse(String(form.get("dados"))) as DadosOs & { id?: string };
     const o = await salvarOrdem(d, u, d.id, { permitirNegativo: (await configOs()).estoqueNegativo });
+    await boletosDoDocumento({ origemTipo: "OS", origemId: o.id });
     const anexos = form.getAll("anexos").filter((a): a is File => a instanceof File && a.size > 0);
     for (const a of anexos) {
       if (a.size > 5 * 1024 * 1024) throw new Error(`O anexo ${a.name} passa de 5 MB`);
@@ -36,8 +38,9 @@ export async function alterarSituacaoOsAcao(_: Resultado, form: FormData): Promi
   const u = await exigirUsuario(ATENDE);
   try {
     const r = await alterarSituacaoOrdem(String(form.get("id")), String(form.get("situacaoId")), u, { observacao: String(form.get("observacao") ?? ""), forcar: form.get("forcar") === "1", permitirNegativo: (await configOs()).estoqueNegativo });
+    const bol = avisoBoletos(await boletosDoDocumento({ origemTipo: "OS", origemId: String(form.get("id")) }));
     revalidatePath("/os", "layout");
-    return { ok: true, mensagem: `Situação alterada para ${r.para.nome}.` };
+    return { ok: true, mensagem: `Situação alterada para ${r.para.nome}.${bol ? ` ${bol}` : ""}` };
   } catch (e) { return erro(e); }
 }
 
@@ -48,7 +51,7 @@ export async function situacaoOsEmMassaAcao(_: Resultado, form: FormData): Promi
   const sit = String(form.get("situacaoId") ?? "");
   if (!sit) return { ok: false, mensagem: "Escolha a situação" };
   let ok = 0; const falhas: string[] = [];
-  for (const id of ids) { try { await alterarSituacaoOrdem(id, sit, u, { permitirNegativo: true }); ok++; } catch (e) { falhas.push(e instanceof Error ? e.message : String(e)); } }
+  for (const id of ids) { try { await alterarSituacaoOrdem(id, sit, u, { permitirNegativo: true }); await boletosDoDocumento({ origemTipo: "OS", origemId: id }); ok++; } catch (e) { falhas.push(e instanceof Error ? e.message : String(e)); } }
   revalidatePath("/os", "layout");
   return { ok: true, mensagem: `${ok} OS alterada(s).${falhas.length ? ` ${falhas.length} não puderam: ${falhas[0]}` : ""}` };
 }
@@ -62,7 +65,7 @@ export async function clonarOsAcao(id: string) {
 
 export async function excluirOsAcao(id: string) {
   await exigirUsuario(GER);
-  try { const n = await excluirOrdem(id); revalidatePath("/os", "layout"); return { ok: true, mensagem: `OS nº ${n} excluída.` }; } catch (e) { return erro(e); }
+  try { const n = await excluirOrdem(id); await boletosDoDocumento({ lancamentoIds: [] }); revalidatePath("/os", "layout"); return { ok: true, mensagem: `OS nº ${n} excluída.` }; } catch (e) { return erro(e); }
 }
 
 export async function excluirOsEVoltarAcao(id: string) {
@@ -77,6 +80,7 @@ export async function excluirVariasOsAcao(_: Resultado, form: FormData): Promise
   if (!ids.length) return { ok: false, mensagem: "Marque as OS na lista" };
   let ok = 0; const falhas: string[] = [];
   for (const id of ids) { try { await excluirOrdem(id); ok++; } catch (e) { falhas.push(e instanceof Error ? e.message : String(e)); } }
+  await boletosDoDocumento({ lancamentoIds: [] });
   revalidatePath("/os", "layout");
   return { ok: true, mensagem: `${ok} OS excluída(s).${falhas.length ? ` ${falhas.length} não puderam: ${falhas[0]}` : ""}` };
 }

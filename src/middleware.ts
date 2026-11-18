@@ -2,12 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { COOKIE, usuarioDoToken } from "@/lib/auth/sessao";
 import { podeAcessar } from "@/lib/auth/permissoes";
 
-/** Toda página, ação e API exige login, menos a tela de login e a rota do agendador (que tem senha própria). */
+/** Toda página, ação e API exige login, menos a tela de login, a rota do agendador e o webhook do Inter (que têm senha própria). */
 const LIVRES = ["/login", "/api/inter/sincronizar"];
 
 export async function middleware(req: NextRequest) {
   const caminho = req.nextUrl.pathname;
-  if (LIVRES.includes(caminho) || ["/proposta/", "/cobranca/", "/compra/", "/cotacao/"].some((p) => caminho.startsWith(p))) return NextResponse.next(); // links públicos (proposta, cobrança, compra e cotação)
+  if (LIVRES.includes(caminho) || caminho.startsWith("/api/inter/webhook/") || ["/proposta/", "/cobranca/", "/compra/", "/cotacao/"].some((p) => caminho.startsWith(p))) return NextResponse.next(); // links públicos (proposta, cobrança, compra e cotação)
   const usuario = await usuarioDoToken(req.cookies.get(COOKIE)?.value);
   const api = caminho.startsWith("/api/");
   if (!usuario) {

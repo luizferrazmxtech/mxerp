@@ -64,15 +64,17 @@ describe("extrato", () => {
     await lanc("RECEBER", 590, "2026-06-01", "Antiga");
 
     const r = await ext.importarExtrato(conta, ext.lerOfx(OFX));
-    expect(r).toMatchObject({ lidas: 4, novas: 4, baixadas: 2 });
+    expect(r).toMatchObject({ lidas: 4, novas: 4, baixadas: 1 });
     const c = await prisma.lancamento.findUniqueOrThrow({ where: { id: compra.id } });
     expect(c.pagoEm?.toISOString().slice(0, 10)).toBe("2026-11-05");
     expect(c.contaBancariaId).toBe(conta);
-    expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: os.id } })).pagoEm).not.toBeNull();
+    // conta a receber não é baixada por valor/data, mesmo com o nome batendo: fica só como sugestão
+    expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: os.id } })).pagoEm).toBeNull();
 
     const sug = await ext.sugestoes(conta);
-    expect(sug).toHaveLength(1);
-    expect(sug[0].confianca).toBe("media");
+    expect(sug).toHaveLength(2);
+    expect(sug.every((x) => x.confianca === "media")).toBe(true);
+    expect(sug.find((x) => x.lancamentoId === os.id)?.tipo).toBe("RECEBER");
 
     const r2 = await ext.importarExtrato(conta, ext.lerOfx(OFX));
     expect(r2).toMatchObject({ novas: 0, repetidas: 4 });
@@ -108,7 +110,7 @@ describe("Banco Inter", async () => {
 
   it("autentica, pagina o extrato completo e concilia", async () => {
     const chamadas: string[] = [];
-    const fake = async (metodo: "GET" | "POST", url: string, headers: Record<string, string>, corpo: string | null) => {
+    const fake = async (metodo: string, url: string, headers: Record<string, string>, corpo: string | null) => {
       chamadas.push(`${metodo} ${url.replace(/\?.*/, "")}`);
       if (url.endsWith("/oauth/v2/token")) {
         expect(corpo).toContain("grant_type=client_credentials");
@@ -126,15 +128,15 @@ describe("Banco Inter", async () => {
     const compra = await lanc("PAGAR", 781.74, "2026-11-04", "Compra de nº 5", "PASSALACQUA TECH LTDA");
     const os = await lanc("RECEBER", 590, "2026-11-06", "OS 7001", "FOLK COMERCIO LTDA");
     const r = await sincronizarInter({ cliente: new ClienteInter(cfg, fake), dias: 10 });
-    expect(r).toMatchObject({ conta: "INTER MXTECH", novas: 2, baixadas: 2 });
+    expect(r).toMatchObject({ conta: "INTER MXTECH", novas: 2, baixadas: 1 });
     expect(chamadas.filter((c) => c.includes("token"))).toHaveLength(1); // token reaproveitado
     expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: compra.id } })).pagoEm).not.toBeNull();
-    expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: os.id } })).pagoEm).not.toBeNull();
+    expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: os.id } })).pagoEm).toBeNull(); // receber: só pelo boleto
     expect((await prisma.transacaoBancaria.findFirstOrThrow({ where: { chave: "inter:T2" } })).descricao).toContain("FOLK");
   });
 
   it("cai no extrato simples quando o completo não está liberado", async () => {
-    const fake = async (_m: "GET" | "POST", url: string) => {
+    const fake = async (_m: string, url: string) => {
       if (url.endsWith("/oauth/v2/token")) return { status: 200, corpo: JSON.stringify({ access_token: "tok" }) };
       if (url.includes("/completo")) return { status: 403, corpo: "{}" };
       return { status: 200, corpo: JSON.stringify({ transacoes: [
@@ -207,7 +209,7 @@ describe("Banco Inter configurado pela tela", async () => {
     expect(cfg).toMatchObject({ clientId: "cid", clientSecret: "csec", key: a.key, conta: "999", contaErp: "INTER PJ", origem: "tela" });
     expect(await inter.interConfigurado()).toBe(true);
 
-    const fake = async (_m: "GET" | "POST", url: string, headers: Record<string, string>, corpo: string | null) => {
+    const fake = async (_m: string, url: string, headers: Record<string, string>, corpo: string | null) => {
       if (url.endsWith("/oauth/v2/token")) {
         expect(corpo).toContain("client_secret=csec");
         return { status: 200, corpo: JSON.stringify({ access_token: "tok" }) };

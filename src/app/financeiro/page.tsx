@@ -1,4 +1,6 @@
 import Link from "next/link";
+import BoletoParcela from "@/components/BoletoParcela";
+import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
@@ -28,7 +30,7 @@ export default async function Financeiro({ searchParams }: {
   if (sp.q) where.OR = [{ descricao: { contains: sp.q, mode: "insensitive" } }, { pessoa: { nome: { contains: sp.q, mode: "insensitive" } } }];
 
   const [lista, contas, categorias, formas, saldos, resumo] = await Promise.all([
-    prisma.lancamento.findMany({ where, include: { pessoa: true, categoria: true, contaBancaria: true }, orderBy: [{ vencimento: "asc" }], take: 300 }),
+    prisma.lancamento.findMany({ where, include: { pessoa: true, categoria: true, contaBancaria: true, formaPagamento: true, boletos: { orderBy: { createdAt: "desc" } } }, orderBy: [{ vencimento: "asc" }], take: 300 }),
     prisma.contaBancaria.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } }),
     prisma.categoriaFinanceira.findMany({ where: { tipo }, orderBy: { nome: "asc" } }),
     prisma.formaPagamento.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } }),
@@ -40,6 +42,7 @@ export default async function Financeiro({ searchParams }: {
              COALESCE(SUM(valor) FILTER (WHERE vencimento > ${hoje} AND vencimento <= ${somarDias(hoje, 7)}), 0)::float prox7
         FROM "Lancamento" WHERE "pagoEm" IS NULL GROUP BY tipo`,
   ]);
+  const [interAtivo, baseCliente] = await Promise.all([boletosDisponiveis(), baseLinks()]);
   const r = (t: string) => resumo.find((x) => x.tipo === t) ?? { vencido: 0, hoje: 0, prox7: 0 };
   const total = lista.reduce((s, l) => s + Number(l.valor), 0);
   const link = (p: Record<string, string>) => `/financeiro?${new URLSearchParams({ tipo, f, ...p })}`;
@@ -120,6 +123,7 @@ export default async function Financeiro({ searchParams }: {
                         <button className="btn px-2 py-1 text-xs">{tipo === "PAGAR" ? "Pagar" : "Receber"}</button>
                       </form>
                     )}
+                    {l.tipo === "RECEBER" && (l.boletos.length > 0 || l.formaPagamento?.boletoInter) && <BoletoParcela parcela={l} cliente={l.pessoa} base={baseCliente} interAtivo={interAtivo} compacto />}
                     {!l.pagoEm && !l.origemTipo && (
                       <form action={excluir}><input type="hidden" name="id" value={l.id} /><button className="text-xs text-red-600 hover:underline">excluir</button></form>
                     )}

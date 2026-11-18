@@ -21,9 +21,14 @@ export const URL_INTER = {
 } as const;
 
 export const ESCOPO_EXTRATO = "extrato.read";
+/** Emitir, consultar, baixar o PDF e cancelar boletos/BolePix (API de Cobrança v3). */
+export const ESCOPOS_COBRANCA = "boleto-cobranca.read boleto-cobranca.write";
+export const ESCOPOS_PADRAO = `${ESCOPO_EXTRATO} ${ESCOPOS_COBRANCA}`;
+export const temCobranca = (escopos?: string | null) => (escopos ?? "").split(/\s+/).includes("boleto-cobranca.write");
 
 export type RespostaInter = { status: number; corpo: string };
-export type TransporteInter = (metodo: "GET" | "POST", url: string, headers: Record<string, string>, corpo: string | null) => Promise<RespostaInter>;
+export type MetodoHttp = "GET" | "POST" | "PUT" | "DELETE";
+export type TransporteInter = (metodo: MetodoHttp, url: string, headers: Record<string, string>, corpo: string | null) => Promise<RespostaInter>;
 
 export type ConfigInter = {
   clientId: string; clientSecret: string; cert: string; key: string; conta: string | null; base: string;
@@ -40,7 +45,7 @@ export function configInterServidor(): ConfigInter | null {
     clientId: e.INTER_CLIENT_ID, clientSecret: e.INTER_CLIENT_SECRET,
     cert: fs.readFileSync(e.INTER_CERT_FILE, "utf8"), key: fs.readFileSync(e.INTER_KEY_FILE, "utf8"),
     conta: e.INTER_CONTA || null, base: e.INTER_AMBIENTE === "sandbox" ? URL_INTER.sandbox : URL_INTER.producao,
-    escopos: ESCOPO_EXTRATO, contaErp: e.INTER_CONTA_ERP || "INTER MXTECH", origem: "servidor",
+    escopos: e.INTER_ESCOPOS || ESCOPO_EXTRATO, contaErp: e.INTER_CONTA_ERP || "INTER MXTECH", origem: "servidor",
   };
 }
 
@@ -120,24 +125,34 @@ export function infoCertificado(pem: string) {
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 export class ClienteInter {
-  private token: { valor: string; expira: number } | null = null;
+  /** Um token por conjunto de escopos: se a integração não tiver a permissão de boletos, o extrato continua funcionando. */
+  private tokens = new Map<string, { valor: string; expira: number }>();
   constructor(private cfg: Config, private transporte: TransporteInter = transporteMtls(cfg)) {}
 
-  private async obterToken() {
-    if (this.token && this.token.expira > Date.now() + 60000) return this.token.valor;
-    const corpo = new URLSearchParams({ client_id: this.cfg.clientId, client_secret: this.cfg.clientSecret, grant_type: "client_credentials", scope: this.cfg.escopos || ESCOPO_EXTRATO }).toString();
+  get configuracao() { return this.cfg; }
+
+  private async obterToken(escopo = ESCOPO_EXTRATO) {
+    const t = this.tokens.get(escopo);
+    if (t && t.expira > Date.now() + 60000) return t.valor;
+    const corpo = new URLSearchParams({ client_id: this.cfg.clientId, client_secret: this.cfg.clientSecret, grant_type: "client_credentials", scope: escopo }).toString();
     const r = await this.transporte("POST", `${this.cfg.base}/oauth/v2/token`, { "Content-Type": "application/x-www-form-urlencoded" }, corpo);
-    if (r.status !== 200) throw new Error(`Inter recusou a autenticação (HTTP ${r.status}): ${explicar(r)}`);
+    if (r.status !== 200) throw new Error(`Inter recusou a autenticação (HTTP ${r.status}): ${explicar(r, escopo)}`);
     const j = JSON.parse(r.corpo) as { access_token: string; expires_in?: number };
-    this.token = { valor: j.access_token, expira: Date.now() + (j.expires_in ?? 3600) * 1000 };
+    this.tokens.set(escopo, { valor: j.access_token, expira: Date.now() + (j.expires_in ?? 3600) * 1000 });
     return j.access_token;
   }
 
-  private async get(caminho: string, params: Record<string, string | number>) {
-    const headers: Record<string, string> = { Authorization: `Bearer ${await this.obterToken()}`, Accept: "application/json" };
+  /** Chamada autenticada à API (o corpo vai em JSON). */
+  async chamar(metodo: MetodoHttp, caminho: string, opts: { escopo?: string; params?: Record<string, string | number>; json?: unknown } = {}) {
+    const headers: Record<string, string> = { Authorization: `Bearer ${await this.obterToken(opts.escopo)}`, Accept: "application/json" };
     if (this.cfg.conta) headers["x-conta-corrente"] = this.cfg.conta;
-    const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)])).toString();
-    return this.transporte("GET", `${this.cfg.base}${caminho}?${qs}`, headers, null);
+    if (opts.json !== undefined) headers["Content-Type"] = "application/json";
+    const qs = opts.params ? "?" + new URLSearchParams(Object.entries(opts.params).map(([k, v]) => [k, String(v)])).toString() : "";
+    return this.transporte(metodo, `${this.cfg.base}${caminho}${qs}`, headers, opts.json !== undefined ? JSON.stringify(opts.json) : null);
+  }
+
+  private get(caminho: string, params: Record<string, string | number>) {
+    return this.chamar("GET", caminho, { params });
   }
 
   /** Saldo da conta: usado no teste de conexão (pede o escopo extrato.read). */
@@ -198,11 +213,16 @@ function converter(t: TransacaoInter): TransacaoExtrato {
   };
 }
 
-function explicar(r: RespostaInter) {
+export function explicar(r: RespostaInter, escopo = ESCOPO_EXTRATO) {
+  const boleto = escopo.includes("boleto-cobranca");
   const dica =
     r.status === 401 ? " (confira o Client ID, o Client Secret e se o certificado é desta integração)" :
-    r.status === 403 ? " (a integração precisa da permissão \"Consultar extrato e saldo\" no Inter Empresas; confira também a conta corrente)" :
-    r.status === 400 ? " (confira os escopos: a integração precisa ter todos os escopos pedidos)" : "";
+    r.status === 403 ? (boleto
+      ? " (a integração precisa da permissão \"Emitir e cancelar boletos/cobranças\" e \"Consultar boletos/cobranças\" no Inter Empresas)"
+      : " (a integração precisa da permissão \"Consultar extrato e saldo\" no Inter Empresas; confira também a conta corrente)") :
+    r.status === 400 ? (boleto
+      ? " (a integração no Inter Empresas não tem a permissão de boletos/cobrança: edite a integração e marque \"Emitir e cancelar boletos\" e \"Consultar boletos\")"
+      : " (confira os escopos: a integração precisa ter todos os escopos pedidos)") : "";
   return `${r.corpo.slice(0, 300)}${dica}`;
 }
 
@@ -212,9 +232,17 @@ export async function testarInter(opts: { cliente?: ClienteInter } = {}) {
   try {
     const cfg = await lerConfigInter();
     if (!cfg && !opts.cliente) throw new Error("Integração com o Banco Inter ainda não configurada");
-    const saldo = await (opts.cliente ?? new ClienteInter(cfg!)).saldo();
+    const cliente = opts.cliente ?? new ClienteInter(cfg!);
+    const saldo = await cliente.saldo();
     ok = true;
-    mensagem = `Conexão OK. Saldo disponível: ${saldo.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`;
+    mensagem = `Conexão OK. Saldo disponível: ${saldo.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`;
+    if (temCobranca(cliente.configuracao.escopos)) {
+      // a permissão de boletos é testada à parte: sem ela o extrato continua funcionando
+      const hoje = iso(new Date());
+      const r = await cliente.chamar("GET", "/cobranca/v3/cobrancas", { escopo: ESCOPOS_COBRANCA, params: { dataInicial: hoje, dataFinal: hoje, "paginacao.itensPorPagina": 1 } }).catch((e) => ({ status: 0, corpo: mensagemErro(e) }));
+      if (r.status === 200) mensagem += " Boletos: OK.";
+      else { ok = false; mensagem += ` Boletos: sem acesso (HTTP ${r.status}): ${explicar(r, ESCOPOS_COBRANCA)}`; }
+    }
   } catch (e) {
     mensagem = mensagemErro(e);
   }
@@ -222,7 +250,7 @@ export async function testarInter(opts: { cliente?: ClienteInter } = {}) {
   return { ok, mensagem };
 }
 
-function mensagemErro(e: unknown) {
+export function mensagemErro(e: unknown) {
   const m = e instanceof Error ? e.message : String(e);
   const code = (e as { code?: string })?.code;
   if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "Sem acesso ao servidor do Banco Inter (verifique a internet do computador do ERP)";

@@ -48,9 +48,11 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
         <Link href="/financeiro" className="btn-sec">Voltar ao financeiro</Link>
       </div>
       <p className="max-w-3xl text-sm text-slate-600">
-        Cada transação do extrato é casada com uma conta em aberto de mesmo valor e data próxima. O que casa sem dúvida
-        (nome bate, ou só existe uma conta possível) é baixado na hora, com a data e a conta do extrato. O resto fica abaixo
-        para você confirmar, escolher outra conta, lançar como despesa/receita avulsa (tarifa, rendimento) ou ignorar.
+        Cada saída do extrato é casada com uma conta a pagar em aberto de mesmo valor e data próxima. O que casa sem dúvida
+        (nome bate, ou só existe uma conta possível) é baixado na hora, com a data e a conta do extrato. Contas a receber
+        não são baixadas por valor e data: as de boleto são baixadas sozinhas quando o Inter avisa o pagamento (e a entrada
+        do extrato é amarrada pelo nosso número). O resto fica abaixo para você confirmar, escolher outra conta, lançar como
+        despesa/receita avulsa (tarifa, rendimento) ou ignorar.
       </p>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -65,7 +67,7 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
       <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">A conciliar ({pendentes.length})</h2>
-          <ConfirmarSugestoes n={sug.length} />
+          <ConfirmarSugestoes n={sug.filter((x) => x.tipo === "PAGAR").length} />
         </div>
         {pendentes.length === 0 ? (
           <p className="cartao p-4 text-sm text-slate-600">Nada pendente.</p>
