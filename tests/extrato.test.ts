@@ -104,7 +104,7 @@ describe("extrato", () => {
 
 describe("Banco Inter", async () => {
   const { ClienteInter, sincronizarInter } = await import("@/lib/financeiro/inter");
-  const cfg = { clientId: "id", clientSecret: "seg", certFile: "", keyFile: "", conta: "123", base: "https://inter.teste", contaErp: "INTER MXTECH" };
+  const cfg = { clientId: "id", clientSecret: "seg", cert: "", key: "", conta: "123", base: "https://inter.teste", contaErp: "INTER MXTECH" };
 
   it("autentica, pagina o extrato completo e concilia", async () => {
     const chamadas: string[] = [];
@@ -150,5 +150,84 @@ describe("Banco Inter", async () => {
   it("erro de autenticação vira mensagem clara", async () => {
     const fake = async () => ({ status: 401, corpo: '{"title":"invalid_client"}' });
     await expect(new ClienteInter(cfg, fake).extrato(new Date(), new Date())).rejects.toThrow(/recusou a autenticação/);
+  });
+});
+
+describe("Banco Inter configurado pela tela", async () => {
+  const forge = (await import("node-forge")).default;
+  const JSZip = (await import("jszip")).default;
+  const inter = await import("@/lib/financeiro/inter");
+  const { cifrar, decifrar } = await import("@/lib/seguranca/segredos");
+  process.env.CRON_SECRET ??= "segredo-de-teste-com-mais-de-16";
+
+  function par(cn: string) {
+    const k = forge.pki.rsa.generateKeyPair(1024);
+    const c = forge.pki.createCertificate();
+    c.publicKey = k.publicKey; c.serialNumber = "01";
+    c.validity.notBefore = new Date(); c.validity.notAfter = new Date(Date.now() + 365 * 86400000);
+    c.setSubject([{ name: "commonName", value: cn }]); c.setIssuer([{ name: "commonName", value: cn }]);
+    c.sign(k.privateKey, forge.md.sha256.create());
+    return { cert: forge.pki.certificateToPem(c), key: forge.pki.privateKeyToPem(k.privateKey) };
+  }
+  const a = par("MXTECH INTEGRACAO");
+  const b = par("OUTRA");
+
+  it("cifra e decifra segredos; texto cifrado não contém o segredo", () => {
+    const g = cifrar("meu-client-secret");
+    expect(g).not.toContain("meu-client-secret");
+    expect(g).not.toBe(cifrar("meu-client-secret")); // IV aleatório
+    expect(decifrar(g)).toBe("meu-client-secret");
+    const antes = process.env.CHAVE_SEGREDOS;
+    process.env.CHAVE_SEGREDOS = "outra-chave-bem-comprida-aqui";
+    expect(() => decifrar(g)).toThrow(/chave do servidor/);
+    if (antes === undefined) delete process.env.CHAVE_SEGREDOS; else process.env.CHAVE_SEGREDOS = antes;
+  });
+
+  it("lê .crt e .key soltos ou dentro do .zip e confere o par", async () => {
+    const soltos = await inter.lerArquivosInter([
+      { nome: "Inter_API_Certificado.crt", bytes: Buffer.from(a.cert) }, { nome: "Inter_API_Chave.key", bytes: Buffer.from(a.key) },
+    ]);
+    expect(soltos.info?.titular).toBe("MXTECH INTEGRACAO");
+    const zip = new JSZip();
+    zip.file("pasta/Inter API_Certificado.crt", a.cert); zip.file("pasta/Inter API_Chave.key", a.key);
+    const doZip = await inter.lerArquivosInter([{ nome: "integracao.zip", bytes: await zip.generateAsync({ type: "nodebuffer" }) }]);
+    expect(doZip.cert).toBe(soltos.cert);
+    expect(doZip.key).toBe(soltos.key);
+    await expect(inter.lerArquivosInter([{ nome: "c.crt", bytes: Buffer.from(a.cert) }, { nome: "k.key", bytes: Buffer.from(b.key) }])).rejects.toThrow(/mesmo par/);
+    await expect(inter.lerArquivosInter([{ nome: "c.crt", bytes: Buffer.from("-----BEGIN CERTIFICATE-----\nxx\n-----END CERTIFICATE-----") }])).rejects.toThrow(/não é um certificado/);
+  });
+
+  it("usa a configuração salva no banco (segredos cifrados), testa a conexão e grava o resultado", async () => {
+    const outra = await prisma.contaBancaria.create({ data: { nome: "INTER PJ" } });
+    await prisma.integracaoInter.create({ data: {
+      clientId: "cid", clientSecretCifrado: cifrar("csec"), certificado: a.cert, chaveCifrada: cifrar(a.key),
+      contaCorrente: "999", escopos: "extrato.read", contaBancariaId: outra.id,
+    } });
+    const cfg = (await inter.lerConfigInter())!;
+    expect(cfg).toMatchObject({ clientId: "cid", clientSecret: "csec", key: a.key, conta: "999", contaErp: "INTER PJ", origem: "tela" });
+    expect(await inter.interConfigurado()).toBe(true);
+
+    const fake = async (_m: "GET" | "POST", url: string, headers: Record<string, string>, corpo: string | null) => {
+      if (url.endsWith("/oauth/v2/token")) {
+        expect(corpo).toContain("client_secret=csec");
+        return { status: 200, corpo: JSON.stringify({ access_token: "tok" }) };
+      }
+      expect(headers["x-conta-corrente"]).toBe("999");
+      if (url.includes("/saldo")) return { status: 200, corpo: JSON.stringify({ disponivel: 1234.5 }) };
+      return { status: 200, corpo: JSON.stringify({ transacoes: [{ idTransacao: "Z1", dataTransacao: "2026-11-07", tipoOperacao: "C", valor: "10", titulo: "Pix" }] }) };
+    };
+    const t = await inter.testarInter({ cliente: new inter.ClienteInter(cfg, fake) });
+    expect(t.ok).toBe(true);
+    expect(t.mensagem).toMatch(/1\.234,50/);
+    expect((await prisma.integracaoInter.findUniqueOrThrow({ where: { id: "inter" } })).ultimoTesteOk).toBe(true);
+
+    const r = await inter.sincronizarInter({ cliente: new inter.ClienteInter(cfg, fake) });
+    expect(r.conta).toBe("INTER PJ"); // extrato vai para a conta escolhida na tela
+    expect((await prisma.integracaoInter.findUniqueOrThrow({ where: { id: "inter" } })).ultimaSincMsg).toMatch(/1 novas/);
+
+    const ruim = async () => ({ status: 403, corpo: "{}" });
+    const t2 = await inter.testarInter({ cliente: new inter.ClienteInter({ ...cfg, }, async (m, u, h, c) => (u.endsWith("/token") ? fake(m, u, h, c) : ruim())) });
+    expect(t2.ok).toBe(false);
+    expect(t2.mensagem).toMatch(/Consultar extrato e saldo/);
   });
 });

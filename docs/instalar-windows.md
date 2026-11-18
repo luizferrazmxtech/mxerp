@@ -68,10 +68,9 @@ A senha fica só nesse arquivo, no seu computador. Ela não vai para o banco de 
 
 ## 8. Banco Inter (extrato automático)
 
-1. No Inter Empresas, crie a integração (ou gere um **Client Secret novo** na que já existe) com permissão de consultar extrato. Veja `docs/banco-inter.md`.
-2. Copie o certificado e a chave da integração para `C:\mxerp\certificados\inter.crt` e `C:\mxerp\certificados\inter.key`.
-3. No `.env`, preencha `INTER_CLIENT_ID`, `INTER_CLIENT_SECRET` e, se tiver mais de uma conta, `INTER_CONTA`.
-4. `docker compose up -d`. Em **Financeiro → Conciliação**, o quadro do Inter passa a mostrar o botão *Buscar extrato*; a busca automática roda de hora em hora, das 8h às 20h.
+1. No Inter Empresas, crie a integração com a permissão **Consultar extrato e saldo**, anote o Client ID e o Client Secret e baixe o .zip com o certificado e a chave.
+2. No ERP, em **Financeiro → Conciliação → Configurar**, preencha os dados, envie o .zip e clique em **Salvar e testar conexão**. Não precisa mexer no `.env` nem copiar arquivos. Detalhes em `docs/banco-inter.md`.
+3. A busca automática roda de hora em hora, das 8h às 20h, e pode ser desligada na mesma tela.
 
 ## 9. Cópias de segurança
 

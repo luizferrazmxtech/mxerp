@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { confirmarSugestoes, enviarExtrato, puxarInter, type Estado } from "./actions";
 
@@ -25,11 +26,14 @@ export function EnviarExtrato({ contas }: { contas: { id: string; nome: string }
   );
 }
 
-export function PuxarInter({ configurado }: { configurado: boolean }) {
+export function PuxarInter({ configurado, aviso, ultima }: { configurado: boolean; aviso?: string | null; ultima?: string | null }) {
   const [e, act, p] = useActionState<Estado, FormData>(puxarInter, null);
   return (
     <form action={act} className="cartao space-y-2 p-4">
-      <div className="text-sm font-medium">Banco Inter (API)</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-medium">Banco Inter (API)</div>
+        <Link href="/financeiro/conciliacao/inter" className="text-sm underline">{configurado ? "Configuração" : "Configurar"}</Link>
+      </div>
       {configurado ? (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           Puxar os últimos
@@ -39,8 +43,13 @@ export function PuxarInter({ configurado }: { configurado: boolean }) {
           <button className="btn" disabled={p}>{p ? "Buscando…" : "Buscar extrato"}</button>
         </div>
       ) : (
-        <p className="text-sm text-slate-600">Ainda não configurada no servidor. Crie a integração no Inter Empresas e instale o certificado e as chaves (veja docs/banco-inter.md).</p>
+        <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+          Ainda não configurada.
+          <Link href="/financeiro/conciliacao/inter" className="btn">Configurar Banco Inter</Link>
+        </div>
       )}
+      {configurado && aviso && <p className="text-sm text-red-700">Último teste falhou: {aviso}</p>}
+      {configurado && ultima && <p className="text-xs text-slate-500">{ultima}</p>}
       <Msg e={e} />
     </form>
   );

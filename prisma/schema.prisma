@@ -1362,6 +1362,29 @@ model ContaBancaria {
   ativa        Boolean             @default(true)
   lancamentos  Lancamento[]
   transacoes   TransacaoBancaria[]
+  integracoesInter IntegracaoInter[]
+}
+
+/// Integração com a API PJ do Banco Inter, cadastrada pela tela (uma só, id "inter").
+/// Client secret e chave privada ficam cifrados (AES-256-GCM) com a chave do servidor (CHAVE_SEGREDOS ou CRON_SECRET do .env).
+model IntegracaoInter {
+  id                  String         @id @default("inter")
+  clientId            String
+  clientSecretCifrado String
+  certificado         String // PEM do .crt (público)
+  chaveCifrada        String // PEM do .key, cifrado
+  contaCorrente       String?
+  ambiente            String         @default("producao") // producao | sandbox
+  escopos             String         @default("extrato.read")
+  contaBancariaId     String?
+  contaBancaria       ContaBancaria? @relation(fields: [contaBancariaId], references: [id], onDelete: SetNull)
+  sincronizarAuto     Boolean        @default(true)
+  ultimoTesteEm       DateTime?
+  ultimoTesteOk       Boolean?
+  ultimoTesteMsg      String?
+  ultimaSincEm        DateTime?
+  ultimaSincMsg       String?
+  atualizadoEm        DateTime       @updatedAt
 }
 
 model FormaPagamento {

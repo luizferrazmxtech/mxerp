@@ -123,6 +123,7 @@ export const MENU: ItemMenu[] = [
   {
     rotulo: "Configurações", icone: "configuracoes", filhos: [
       { rotulo: "Usuários e permissões", href: "/usuarios", icone: "funcionarios" },
+      { rotulo: "Banco Inter (API)", href: "/financeiro/conciliacao/inter", icone: "conciliacao" },
       { rotulo: "Migração", href: "/migracao", icone: "migracao" },
       { rotulo: "Minha senha", href: "/conta", icone: "senha" },
     ],

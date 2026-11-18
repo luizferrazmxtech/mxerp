@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sugestoes } from "@/lib/financeiro/extrato";
-import { configInter } from "@/lib/financeiro/inter";
+import { interConfigurado } from "@/lib/financeiro/inter";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
 import { brl, data } from "@/lib/ui/format";
 import { conciliar, desfazer, ignorar, lancarAvulso } from "./actions";
@@ -15,7 +15,7 @@ const DIA = 86400000;
 export default async function Conciliacao({ searchParams }: { searchParams: Promise<{ ver?: string }> }) {
   const sp = await searchParams;
   await prisma.$transaction((tx) => garantirPadroes(tx));
-  const [contas, pendentes, recentes, categorias, sug] = await Promise.all([
+  const [contas, pendentes, recentes, categorias, sug, inter] = await Promise.all([
     prisma.contaBancaria.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } }),
     prisma.transacaoBancaria.findMany({ where: { situacao: "PENDENTE" }, include: { contaBancaria: true }, orderBy: { data: "asc" }, take: 300 }),
     prisma.transacaoBancaria.findMany({
@@ -24,7 +24,9 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
     }),
     prisma.categoriaFinanceira.findMany({ orderBy: { nome: "asc" } }),
     sugestoes(),
+    prisma.integracaoInter.findUnique({ where: { id: "inter" }, select: { ultimoTesteOk: true, ultimoTesteMsg: true, ultimaSincEm: true, ultimaSincMsg: true } }),
   ]);
+  const configurado = await interConfigurado();
   const sugPor = new Map(sug.map((s) => [s.transacaoId, s]));
   // candidatos para escolha manual: contas em aberto do mesmo tipo, valor até 10% de diferença, vencimento perto
   const abertos = pendentes.length
@@ -53,7 +55,11 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
 
       <div className="grid gap-3 md:grid-cols-2">
         <EnviarExtrato contas={contas} />
-        <PuxarInter configurado={!!configInter()} />
+        <PuxarInter
+          configurado={configurado}
+          aviso={inter?.ultimoTesteOk === false ? inter.ultimoTesteMsg : null}
+          ultima={inter?.ultimaSincEm ? `Última busca: ${inter.ultimaSincEm.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" })} · ${inter.ultimaSincMsg ?? ""}` : null}
+        />
       </div>
 
       <section className="space-y-2">
