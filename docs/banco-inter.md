@@ -18,27 +18,25 @@ O extrato entra de duas formas:
 
 1. No **Inter Empresas** (internet banking), vá em *Soluções para sua empresa → Nova integração* (precisa ser o administrador da conta).
 2. Dê um nome (ex.: MXERP) e marque a permissão **Consultar extrato e saldo** (escopo `extrato.read`).
-3. Baixe a chave e o certificado gerados (`.key` e `.crt`) e anote o **Client ID** e o **Client Secret**.
-4. Copie os dois arquivos para o servidor do ERP, numa pasta só de leitura do usuário do sistema (ex.: `/etc/mxerp/inter/`).
-5. Coloque no `.env` do servidor (nunca no banco de dados nem no repositório):
+3. Anote o **Client ID** e o **Client Secret** e baixe a chave e o certificado (`.key` e `.crt`, vêm num .zip).
+4. No ERP, entre como administrador em **Financeiro → Conciliação → Configurar** (ou *Configurações → Banco Inter (API)*) e preencha:
+   - Client ID e Client Secret;
+   - o .zip baixado do Inter (ou o `.crt` e o `.key` juntos);
+   - conta corrente, só se a empresa tiver mais de uma conta no Inter;
+   - a conta bancária do ERP que recebe o extrato.
+5. Clique em **Salvar e testar conexão**. O sistema confere se a chave é do mesmo par do certificado, pega o token no Inter e lê o saldo da conta. A tela mostra o resultado, a validade do certificado e a última busca do extrato.
 
-```
-INTER_CLIENT_ID=...
-INTER_CLIENT_SECRET=...
-INTER_CERT_FILE=/etc/mxerp/inter/Inter_API_Certificado.crt
-INTER_KEY_FILE=/etc/mxerp/inter/Inter_API_Chave.key
-INTER_CONTA=          # número da conta corrente, se a integração tiver mais de uma
-INTER_CONTA_ERP=INTER MXTECH   # nome da conta bancária no ERP
-CRON_SECRET=...       # senha longa e aleatória para o agendador
-```
+A busca automática roda de hora em hora (8h às 20h) pelo serviço `agendador` do Docker e pode ser desligada na mesma tela.
 
-6. Agende a busca (cron do servidor), por exemplo de hora em hora em horário comercial:
+### Onde ficam as credenciais
 
-```
-0 8-19 * * 1-6  curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/inter/sincronizar
-```
+O Client Secret e a chave `.key` ficam no banco **cifrados (AES-256-GCM)** com uma chave que fica só no `.env` do servidor: `CHAVE_SEGREDOS`, ou o `CRON_SECRET` gerado na instalação se ela estiver vazia. Um backup do banco sozinho não abre as credenciais, e elas nunca voltam para a tela. Se essa chave do `.env` mudar, é só salvar as credenciais de novo na tela.
 
-O certificado da integração vence (em geral em 1 ano); o Inter avisa e é só baixar o novo e trocar os arquivos.
+O certificado da integração vence (em geral em 1 ano). Quando vencer, baixe o novo no Inter e envie na mesma tela; o resto não precisa ser redigitado.
+
+### Jeito antigo (pelo .env)
+
+Ainda funciona, se não houver nada salvo na tela: `INTER_CLIENT_ID`, `INTER_CLIENT_SECRET`, `INTER_CERT_FILE`, `INTER_KEY_FILE`, `INTER_CONTA`, `INTER_AMBIENTE=sandbox` e `INTER_CONTA_ERP`. A configuração da tela tem prioridade.
 
 ## Contas trazidas do Gestão Click
 

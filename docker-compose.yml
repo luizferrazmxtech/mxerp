@@ -61,21 +61,21 @@ services:
           sleep 30
         done
 
-  # busca o extrato do Banco Inter de hora em hora (8h às 20h); fica parado se a integração não estiver configurada
+  # busca o extrato do Banco Inter de hora em hora (8h às 20h); o sistema ignora a chamada se a integração
+  # não estiver configurada (Financeiro → Conciliação → Configurar Banco Inter) ou se a busca automática estiver desligada
   agendador:
     image: curlimages/curl:8.11.1
     restart: unless-stopped
     depends_on: [app]
     environment:
       CRON_SECRET: ${CRON_SECRET:-}
-      INTER_CLIENT_ID: ${INTER_CLIENT_ID:-}
       TZ: America/Sao_Paulo
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         while true; do
           h=$$(date +%H)
-          if [ -n "$$INTER_CLIENT_ID" ] && [ -n "$$CRON_SECRET" ] && [ "$$h" -ge 8 ] && [ "$$h" -le 20 ]; then
+          if [ -n "$$CRON_SECRET" ] && [ "$$h" -ge 8 ] && [ "$$h" -le 20 ]; then
             curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/inter/sincronizar; echo
           fi
           sleep 3600
