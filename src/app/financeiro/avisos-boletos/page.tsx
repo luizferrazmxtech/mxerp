@@ -33,7 +33,7 @@ export default async function AvisosBoletos() {
           subtitulo={`${MOTIVO_AVISO[a.motivo] ?? a.motivo} · ${a.pagadorDocumento ? `${doc(a.pagadorDocumento)} · ` : ""}nosso nº ${a.nossoNumero ?? "—"} · seu nº ${a.seuNumero ?? "—"}${a.origemRecebimento ? ` · via ${a.origemRecebimento}` : ""}`}>
           {a.motivo === "CONTA_JA_PAGA" && a.lancamento && (
             <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
-              A conta <Link className="underline" href={`/financeiro?q=${encodeURIComponent(a.lancamento.descricao)}`}>{a.lancamento.descricao}</Link> já
+              A conta <Link className="underline" href={`/financeiro?periodo=todos&q=${encodeURIComponent(a.lancamento.descricao)}`}>{a.lancamento.descricao}</Link> já
               estava baixada em {a.lancamento.pagoEm ? data(a.lancamento.pagoEm) : "—"} ({brl(Number(a.lancamento.valorPago ?? 0))}). Confira com o cliente se pagou duas vezes.
             </p>
           )}

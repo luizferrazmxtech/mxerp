@@ -52,7 +52,7 @@ export function FormSituacaoOrc({ s, modelos }: { s?: SituacaoForm; modelos: { i
           <label><span className="rotulo">Exibir na listagem</span>
             <select name="exibir" defaultValue={s && !s.exibir ? "0" : "1"} className="campo w-32"><option value="1">Sim</option><option value="0">Não</option></select></label>
         </div>
-        <p className="mt-3 text-[12px] text-slate-500">Prévia: <span className={`pilula ${CORES[corSel].pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${CORES[corSel].ponto}`} />{s?.nome || "Situação"}</span></p>
+        <p className="mt-3 text-[12px] text-slate-500">Prévia: <span className={`pilula ${CORES[corSel].pilula}`}>{s?.nome || "Situação"}</span></p>
       </Bloco>
 
       <Bloco icone="urgente" titulo="Defina as automações desta situação" subtitulo="O que acontece quando um orçamento entra nesta situação.">

@@ -88,7 +88,7 @@ export default async function VerCompra({ params, searchParams }: { params: Prom
           <Suspenso direita classe="btn-laranja" botao={<><Icone nome="editar" size={15} /> Editar <Icone nome="abaixo" size={13} /></>}>
             {podeEditar && <LinkSuspenso href={`${base}/editar`} icone="editar">Editar compra</LinkSuspenso>}
             <LinkSuspenso href={`${base}?situacao=1`} icone="atualizar">Alterar situação</LinkSuspenso>
-            <LinkSuspenso href={`/financeiro?tipo=PAGAR&q=${encodeURIComponent(`Compra de nº ${c.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+            <LinkSuspenso href={`/financeiro?tipo=PAGAR&periodo=todos&q=${encodeURIComponent(`Compra de nº ${c.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
             <LinkSuspenso href={`${base}?aba=anexos`} icone="anexos">Documentos</LinkSuspenso>
             <BotaoAcao acao={clonarCompraAcao.bind(null, id)} icone="copiar">Cópia</BotaoAcao>
             <BotaoExcluir acao={excluirCompraEVoltarAcao.bind(null, id, baseCompras(c.tipo))} pergunta={`Excluir a compra nº ${c.numero}? O estoque lançado sai e as contas a pagar em aberto são apagadas.`} rotulo="Excluir compra" />
@@ -134,7 +134,7 @@ export default async function VerCompra({ params, searchParams }: { params: Prom
               <div className="px-4 pt-3"><b>Produtos</b><p className="text-[12px] text-slate-500">{c.itens.length} produto(s) nesta compra{c.recebida ? ", com entrada no estoque" : ", ainda sem entrada no estoque"}.</p></div>
               <table className="tabela">
                 <thead><tr><th>Produto</th><th>Local</th><th className="text-right">Quantidade</th><th className="text-right">Custo unit.</th><th className="text-right">Desconto</th><th className="text-right">Total</th></tr></thead>
-                <tbody>{c.itens.map((l) => <tr key={l.id}><td><Link href={`/produtos/${l.produto.id}`} className="font-semibold uppercase underline decoration-slate-300 hover:decoration-slate-700">{l.produto.nome}</Link><div className="font-mono text-[11px] text-slate-500">{l.produto.codigo}</div>{l.detalhes && <div className="text-[11px] text-slate-500">{l.detalhes}</div>}</td>
+                <tbody>{c.itens.map((l) => <tr key={l.id}><td><Link href={`/produtos/${l.produto.id}`} className="font-semibold uppercase sublinhado">{l.produto.nome}</Link><div className="font-mono text-[11px] text-slate-500">{l.produto.codigo}</div>{l.detalhes && <div className="text-[11px] text-slate-500">{l.detalhes}</div>}</td>
                   <td className="text-[12px] text-slate-600">{l.localId ? localDe.get(l.localId) : "—"}</td>
                   <td className="text-right">{qtd(l.quantidade)} {l.unidadeCompra ?? l.produto.unidade}{l.unidadeCompra && <div className="text-[11px] text-slate-500">= {qtd(Number(l.quantidade) * Number(l.fator))} {l.produto.unidade} (1 {l.unidadeCompra} = {qtd(l.fator)} {l.produto.unidade})</div>}</td>
                   <td className="text-right">{num2(l.custoUnit)}{l.unidadeCompra && Number(l.fator) > 0 && <div className="text-[11px] text-slate-500">{num2(Number(l.subtotal) / (Number(l.quantidade) * Number(l.fator)))}/{l.produto.unidade}</div>}</td><td className="text-right">{Number(l.desconto) ? num2(l.desconto) : ""}</td><td className="text-right font-semibold">{num2(l.subtotal)}</td></tr>)}</tbody>

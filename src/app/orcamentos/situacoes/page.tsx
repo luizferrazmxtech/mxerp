@@ -28,7 +28,7 @@ export default async function Situacoes({ searchParams }: { searchParams: Promis
               <tr key={s.id}>
                 <td><MoverSituacao id={s.id} primeira={i === 0} ultima={i === lista.length - 1} /></td>
                 <td>{s.nome}{s.geraVenda && <span className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] text-emerald-700">Gera venda</span>}</td>
-                <td><span className={`pilula ${c.pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${c.ponto}`} />{c.rotulo}</span></td>
+                <td><span className={`pilula ${c.pilula}`}>{c.rotulo}</span></td>
                 <td>{s.exibir ? "Exibe" : "Oculta"}</td>
                 <td>{s._count.orcamentos}</td>
                 <td><AcoesLinha ver={`/orcamentos/situacoes/${s.id}`} editar={`/orcamentos/situacoes/${s.id}`} excluir={<BotaoExcluir acao={excluirSituacaoAcao.bind(null, s.id)} pergunta={`Excluir a situação ${s.nome}?`} />} /></td>

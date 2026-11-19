@@ -80,7 +80,7 @@ export default async function VerOrcamento({ params, searchParams }: { params: P
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="notas" size={18} /> Orçamento #{o.numero}
-            <span className={`pilula ${c.pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${c.ponto}`} />{o.situacao.nome}</span></h2>
+            <span className={`pilula ${c.pilula}`}>{o.situacao.nome}</span></h2>
           <p className="text-[12px] text-slate-500">Criado em {o.createdAt.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Sao_Paulo" })}{criador ? ` por ${criador.nome.toUpperCase()}` : ""}</p>
         </div>
         <div className="ml-auto flex gap-2">

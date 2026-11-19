@@ -29,7 +29,7 @@ export default async function Situacoes({ searchParams }: { searchParams: Promis
               <tr key={s.id}>
                 <td><MoverSituacao id={s.id} primeira={i === 0} ultima={i === lista.length - 1} acao={moverSituacaoCompraAcao} /></td>
                 <td>{s.nome}{s.padrao && <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-[11px] text-sky-700">Padrão</span>}</td>
-                <td><span className={`pilula ${c.pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${c.ponto}`} />{c.rotulo}</span></td>
+                <td><span className={`pilula ${c.pilula}`}>{c.rotulo}</span></td>
                 <td>{rotuloLancamento(s.lancamento)}</td>
                 <td>{s.permiteEdicao ? "Permite" : "Bloqueia"}</td>
                 <td>{s.exibir ? "Exibe" : "Oculta"}</td>

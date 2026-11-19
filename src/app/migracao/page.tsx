@@ -1,3 +1,4 @@
+import { Pagina } from "@/components/ui/Pagina";
 import Importador from "./Importador";
 import ImportadorBackup from "./ImportadorBackup";
 
@@ -5,8 +6,8 @@ export const metadata = { title: "Migração de dados" };
 
 export default function Migracao() {
   return (
+    <Pagina titulo="Migração de dados" icone="migracao" trilha={[{ rotulo: "Migração de dados" }]}>
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Migração de dados</h1>
 
       <section className="space-y-3">
         <h2 className="font-semibold">Backup completo do Gestão Click</h2>
@@ -28,5 +29,6 @@ export default function Migracao() {
         <Importador />
       </section>
     </div>
+    </Pagina>
   );
 }

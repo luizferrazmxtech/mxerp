@@ -75,7 +75,7 @@ export default async function ListaOrcamentos({ sp }: { sp: ParamsOrcamentos }) 
               <tr key={o.id}>
                 {selecao && <td><input type="checkbox" name="ids" value={o.id} /></td>}
                 {tem("numero") && <td>{o.numero}</td>}
-                {tem("cliente") && <td><Link href={`/clientes/${o.cliente.id}`} className="underline decoration-slate-300 hover:decoration-slate-700">{o.cliente.nome}</Link>{o.cliente.fantasia && <i className="block text-[11px] text-slate-500">{o.cliente.fantasia}</i>}</td>}
+                {tem("cliente") && <td><Link href={`/clientes/${o.cliente.id}`} className="sublinhado">{o.cliente.nome}</Link>{o.cliente.fantasia && <i className="block text-[11px] text-slate-500">{o.cliente.fantasia}</i>}</td>}
                 {tem("data") && <td>{dataBr(o.data)}</td>}
                 {tem("entrega") && <td>{dataBr(o.prazoEntrega)}</td>}
                 {tem("situacao") && <td><span className={`pilula ${c.pilula}`}>{o.situacao.nome}</span></td>}

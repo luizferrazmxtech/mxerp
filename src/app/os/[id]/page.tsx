@@ -101,7 +101,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="os" size={18} /> OS #{o.numero}
-            <span className={`pilula ${c.pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${c.ponto}`} />{o.situacaoCfg?.nome ?? o.situacao}</span>
+            <span className={`pilula ${c.pilula}`}>{o.situacaoCfg?.nome ?? o.situacao}</span>
             {emFalta && <span className="pilula border-red-300 bg-red-50 text-red-700">Peça em falta</span>}</h2>
           <p className="text-[12px] text-slate-500">Criado em {o.createdAt.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Sao_Paulo" })}{criador ? ` por ${criador.nome.toUpperCase()}` : ""}</p>
         </div>
@@ -113,7 +113,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             {concluida && o.servicos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da OS nº ${o.numero}?`}>Emitir NFS-e</BotaoAcao>}
             {concluida && o.produtos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFE")} icone="notas" confirmar={`Emitir a NF-e das peças da OS nº ${o.numero}?`}>Emitir NF-e</BotaoAcao>}
             <LinkSuspenso href={`${base}/separacao`} icone="locais">Lista de separação</LinkSuspenso>
-            <LinkSuspenso href={`/financeiro?tipo=RECEBER&q=${encodeURIComponent(`OS de nº ${o.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+            <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&q=${encodeURIComponent(`OS de nº ${o.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
             <BotaoExcluir acao={excluirOsEVoltarAcao.bind(null, id)} pergunta={`Excluir a OS nº ${o.numero}? As peças voltam ao estoque e as contas a receber em aberto são apagadas.`} rotulo="Excluir OS" />
           </Suspenso>
           <Suspenso direita classe="btn bg-emerald-600 hover:bg-emerald-700" botao={<><Icone nome="compartilhar" size={15} /> Compartilhar <Icone nome="abaixo" size={13} /></>}>

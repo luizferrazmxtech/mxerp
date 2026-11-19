@@ -94,7 +94,7 @@ export default async function Fluxo({ searchParams }: { searchParams: Promise<Re
       {(f.atrasadoReceber > 0 || f.atrasadoPagar > 0) && (
         <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
           Contas vencidas antes do período ainda em aberto (fora do previsto): a receber {brl(f.atrasadoReceber)} · a pagar {brl(f.atrasadoPagar)}.
-          {" "}<Link href="/financeiro?f=vencidos" className="underline">Ver vencidos</Link>
+          {" "}<Link href="/financeiro?periodo=todos&f=vencidos" className="underline">Ver vencidos</Link>
         </p>
       )}
       {filtro.contaId === undefined && <p className="mb-3 text-[11px] text-slate-500">Com todas as contas, as transferências entre contas não entram (o dinheiro só mudou de lugar). Escolha uma conta para ver o extrato dela com as transferências.</p>}

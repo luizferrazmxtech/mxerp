@@ -1,3 +1,4 @@
+import { Pagina } from "@/components/ui/Pagina";
 import { exigirArea } from "@/lib/auth/atual";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
@@ -27,9 +28,9 @@ export default async function Fiscal() {
         .flat().reduce((s, f) => s + f.fim - f.inicio + 1, 0)
     : 0;
   return (
+    <Pagina titulo="Notas fiscais" icone="notas" trilha={[{ rotulo: "Notas fiscais", href: "/fiscal" }, { rotulo: "Listar" }]}>
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">Notas fiscais</h1>
         <Link href="/fiscal/inutilizacao" className="btn-sec">Inutilizar numeração{pendentes > 0 && <span className="ml-1 rounded bg-red-600 px-1.5 text-[11px] text-white">{pendentes}</span>}</Link>
       </div>
       <div className="grid gap-3 md:grid-cols-3">
@@ -68,5 +69,6 @@ export default async function Fiscal() {
 
       <ConfigEmpresa e={e} />
     </div>
+    </Pagina>
   );
 }

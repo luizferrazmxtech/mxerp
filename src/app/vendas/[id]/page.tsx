@@ -99,7 +99,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome={balcao ? "balcao" : "carrinho"} size={18} /> Venda #{v.numero}
-            <span className={`pilula ${c.pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${c.ponto}`} />{v.situacaoCfg?.nome ?? v.situacao}</span></h2>
+            <span className={`pilula ${c.pilula}`}>{v.situacaoCfg?.nome ?? v.situacao}</span></h2>
           <p className="text-[12px] text-slate-500">Criado em {v.createdAt.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Sao_Paulo" })}{criador ? ` por ${criador.nome.toUpperCase()}` : ""}{balcao ? " · Balcão (PDV)" : ""}</p>
         </div>
         <div className="no-print ml-auto flex gap-2">
@@ -109,7 +109,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
             {!balcao && <BotaoAcao acao={clonarVendaAcao.bind(null, id)} icone="copiar">Gerar cópia</BotaoAcao>}
             {concluida && v.itens.length > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, id, "NFE")} icone="notas" confirmar={`Emitir a NF-e da venda nº ${v.numero}?`}>Emitir NF-e</BotaoAcao>}
             {concluida && v.servicos.length > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da venda nº ${v.numero}?`}>Emitir NFS-e</BotaoAcao>}
-            <LinkSuspenso href={`/financeiro?tipo=RECEBER&q=${encodeURIComponent(`Venda de nº ${v.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+            <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&q=${encodeURIComponent(`Venda de nº ${v.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
             {concluida && v.itens.length > 0 && <LinkSuspenso href={`/vendas/devolucoes/adicionar?venda=${v.numero}`} icone="atualizar">Troca ou devolução</LinkSuspenso>}
             <BotaoExcluir acao={excluirVendaEVoltarAcao.bind(null, id, baseVendas(tl))} pergunta={`Excluir a venda nº ${v.numero}? O estoque volta e as contas a receber em aberto são apagadas.`} rotulo="Excluir venda" />
           </Suspenso>

@@ -1,211 +1,274 @@
 import Link from "next/link";
-import BoletoParcela from "@/components/BoletoParcela";
-import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
-import type { Prisma } from "@prisma/client";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
-import { saldosContas } from "@/lib/financeiro/lancamentos";
-import { diaSP, somarDias } from "@/lib/datas";
-import { brl, data } from "@/lib/ui/format";
 import { planoDeContas } from "@/lib/financeiro/plano";
 import { avisosPendentes } from "@/lib/financeiro/avisosBoleto";
-import { baixar, estornar, excluir, novoLancamento } from "./actions";
+import { ROTULO_BOLETO } from "@/lib/financeiro/boletos";
+import { diaSP, periodoDia } from "@/lib/datas";
+import { brl, num2 } from "@/lib/ui/format";
+import { contaAvulsa, iconeForma, ordemContas, origemConta, situacaoConta, whereContas, whereSituacao, type ParamsContas } from "@/lib/financeiro/lista";
+import { baixarVariasAcao, estornarContaAcao, excluirContaAcao, excluirVariasAcao } from "./actions";
+import { Pagina } from "@/components/ui/Pagina";
+import { LinkSuspenso, urlCom } from "@/components/ui/BarraLista";
+import Paginacao, { Ordenar, lerPagina } from "@/components/ui/Paginacao";
+import Resumo from "@/components/ui/Resumo";
+import Suspenso from "@/components/ui/Suspenso";
+import SeletorPeriodo from "@/components/ui/SeletorPeriodo";
+import FormSelecao from "@/components/ui/FormSelecao";
+import BotaoAcao from "@/components/ui/BotaoAcao";
+import BotaoExcluir from "@/components/ui/BotaoExcluir";
+import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
+import Icone from "@/components/Icone";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Financeiro" };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
+const diaBr = (d: Date) => d.toLocaleDateString("pt-BR", { timeZone: "UTC" });
 
-export default async function Financeiro({ searchParams }: {
-  searchParams: Promise<{ tipo?: string; f?: string; de?: string; ate?: string; q?: string; cat?: string; centro?: string; conta?: string }>;
-}) {
+/** Contas a receber e contas a pagar no padrão do Gestão Click: cartões de resumo, mês, tabela e ações. */
+export default async function Contas({ searchParams }: { searchParams: Promise<ParamsContas> }) {
   const sp = await searchParams;
+  // endereços antigos (?de=&ate=, ?f=vencidos, ?q=): converte para o seletor de período
+  if (sp.de || sp.ate) {
+    redirect(urlCom("/financeiro", sp, { de: undefined, ate: undefined, periodo: "periodo", pde: sp.de ?? sp.ate, pate: sp.ate ?? sp.de }));
+  }
   const tipo = sp.tipo === "PAGAR" ? "PAGAR" : "RECEBER";
-  const f = sp.f ?? "abertos";
+  const pagar = tipo === "PAGAR";
+  const base = "/financeiro";
+  const params: ParamsContas = { ...sp, tipo };
   const hoje = diaSP();
   await prisma.$transaction((tx) => garantirPadroes(tx));
 
-  const where: Prisma.LancamentoWhereInput = { tipo };
-  if (f === "abertos") where.pagoEm = null;
-  if (f === "vencidos") Object.assign(where, { pagoEm: null, vencimento: { lt: hoje } });
-  if (f === "pagos") where.pagoEm = { not: null };
-  if (sp.de || sp.ate) where.vencimento = { ...(sp.de ? { gte: new Date(sp.de + "T00:00:00Z") } : {}), ...(sp.ate ? { lte: new Date(sp.ate + "T00:00:00Z") } : {}) };
-  if (sp.cat) where.OR = [{ categoriaId: sp.cat }, { categoria: { paiId: sp.cat } }, { rateio: { some: { categoriaId: sp.cat } } }];
-  if (sp.centro) where.centroCustoId = sp.centro;
-  if (sp.conta) where.contaBancariaId = sp.conta;
-  if (sp.q) where.AND = { OR: [{ descricao: { contains: sp.q, mode: "insensitive" } }, { pessoa: { nome: { contains: sp.q, mode: "insensitive" } } }] };
+  const filtro = whereContas(tipo, params);
+  const where = { AND: [filtro, whereSituacao(sp.f, hoje)] };
+  const { pagina, porPagina, skip, take } = lerPagina(sp);
+  const soma = (w: object) => prisma.lancamento.aggregate({ where: { AND: [filtro, w] }, _sum: { valor: true }, _count: true });
+  const periodo = periodoDia(sp.periodo, sp.pde, sp.pate);
 
-  const [lista, contas, categorias, formas, saldos, resumo, centros] = await Promise.all([
-    prisma.lancamento.findMany({ where, include: { pessoa: true, categoria: true, centroCusto: true, contaBancaria: true, formaPagamento: true, boletos: { orderBy: { createdAt: "desc" } } }, orderBy: [{ vencimento: "asc" }], take: 300 }),
-    prisma.contaBancaria.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } }),
+  const [lista, total, somaFiltro, totPeriodo, totVenc, totHoje, totAVencer, totPagos, vencAntes, contas, categorias, formas, centros, avisos, pessoa] = await Promise.all([
+    prisma.lancamento.findMany({
+      where, orderBy: ordemContas(sp.o), skip, take,
+      include: {
+        pessoa: { select: { id: true, nome: true, fantasia: true, cliente: true, fornecedor: true } }, formaPagamento: true, contaBancaria: { select: { nome: true } },
+        categoria: { select: { nome: true, codigo: true } }, boletos: { orderBy: { createdAt: "desc" }, take: 1, select: { situacao: true } },
+      },
+    }),
+    prisma.lancamento.count({ where }),
+    prisma.lancamento.aggregate({ where, _sum: { valor: true } }),
+    soma({}), soma(whereSituacao("vencidos", hoje)), soma(whereSituacao("hoje", hoje)), soma(whereSituacao("avencer", hoje)), soma(whereSituacao("pagos", hoje)),
+    // vencidos de antes do período escolhido (melhoria: o Gestão Click só mostra os do mês)
+    periodo ? prisma.lancamento.aggregate({ where: { tipo, pagoEm: null, vencimento: { lt: periodo.de < hoje ? periodo.de : hoje } }, _sum: { valor: true }, _count: true }) : null,
+    prisma.contaBancaria.findMany({ where: { ativa: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
     prisma.$transaction((tx) => planoDeContas(tx, { tipo, ativas: true })),
-    prisma.formaPagamento.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } }),
-    prisma.$transaction((tx) => saldosContas(tx)),
-    prisma.$queryRaw<{ tipo: string; vencido: number; hoje: number; prox7: number }[]>`
-      SELECT tipo::text,
-             COALESCE(SUM(valor) FILTER (WHERE vencimento < ${hoje}), 0)::float vencido,
-             COALESCE(SUM(valor) FILTER (WHERE vencimento = ${hoje}), 0)::float hoje,
-             COALESCE(SUM(valor) FILTER (WHERE vencimento > ${hoje} AND vencimento <= ${somarDias(hoje, 7)}), 0)::float prox7
-        FROM "Lancamento" WHERE "pagoEm" IS NULL GROUP BY tipo`,
-    prisma.centroCusto.findMany({ where: { ativo: true }, orderBy: { nome: "asc" } }),
+    prisma.formaPagamento.findMany({ where: { ativa: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
+    prisma.centroCusto.findMany({ where: { ativo: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
+    pagar ? 0 : avisosPendentes(),
+    sp.cli ? prisma.pessoa.findUnique({ where: { id: sp.cli }, select: { id: true, nome: true } }) : null,
   ]);
-  const [interAtivo, baseCliente, avisos] = await Promise.all([boletosDisponiveis(), baseLinks(), avisosPendentes()]);
-  const r = (t: string) => resumo.find((x) => x.tipo === t) ?? { vencido: 0, hoje: 0, prox7: 0 };
-  // a tabela mostra até 300 linhas, mas o total e a contagem são de tudo o que o filtro achou
-  const agg = await prisma.lancamento.aggregate({ where, _sum: { valor: true }, _count: true });
-  const total = Number(agg._sum.valor ?? 0);
-  const cortado = agg._count > lista.length;
-  const filtros = Object.fromEntries(Object.entries({ de: sp.de, ate: sp.ate, q: sp.q, cat: sp.cat, centro: sp.centro, conta: sp.conta }).filter(([, v]) => v)) as Record<string, string>;
-  const link = (p: Record<string, string>) => `/financeiro?${new URLSearchParams({ tipo, f, ...filtros, ...p })}`;
+
+  // NF-e e NFS-e do documento que gerou a conta
+  const origens = lista.filter((l) => l.origemId && (l.origemTipo === "VENDA" || l.origemTipo === "OS")).map((l) => l.origemId!);
+  const compras = lista.filter((l) => l.origemId && l.origemTipo === "COMPRA").map((l) => l.origemId!);
+  const [notas, nfCompras] = await Promise.all([
+    origens.length ? prisma.notaFiscal.findMany({ where: { origemId: { in: origens }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true, modelo: true } }) : [],
+    compras.length ? prisma.compra.findMany({ where: { id: { in: compras } }, select: { id: true, numeroNfe: true } }) : [],
+  ]);
+  const nfe = (id: string | null) => notas.find((n) => n.origemId === id && n.modelo !== "NFSE");
+  const nfse = (id: string | null) => notas.find((n) => n.origemId === id && n.modelo === "NFSE");
+  const nfCompra = new Map(nfCompras.map((c) => [c.id, c.numeroNfe]));
+
+  const v = (a: { _sum: { valor: unknown } }) => Number(a._sum.valor ?? 0);
+  const totalV = v(totPeriodo);
+  const pct = (x: number) => (totalV > 0 ? (x / totalV) * 100 : 0);
+  const cartao = (f: string) => ({ href: urlCom(base, params, { f: sp.f === f ? undefined : f, p: undefined }), ativo: sp.f === f });
+  const plural = (n: number) => `${n} conta${n === 1 ? "" : "s"}`;
+  const titulo = pagar ? "Contas a pagar" : "Contas a receber";
+  const modo = sp.acao;
+  const selecao = modo === "baixar" || modo === "excluir";
+  const sem = urlCom(base, params, { acao: undefined });
   const rotuloCat = (c: { codigo: string | null; nome: string }) => (c.codigo ? `${c.codigo} ${c.nome}` : c.nome);
+  const linkPessoa = (p: { id: string; cliente: boolean; fornecedor: boolean }) => (pagar ? (p.fornecedor ? `/fornecedores/${p.id}` : `/clientes/${p.id}`) : (p.cliente || !p.fornecedor ? `/clientes/${p.id}` : `/fornecedores/${p.id}`));
+
+  const tabela = (
+    <div className="cartao overflow-x-auto">
+      <table className="tabela">
+        <thead><tr>
+          {selecao && <th className="w-8"></th>}
+          <Ordenar base={base} params={params} campo="descricao">Descrição</Ordenar>
+          <Ordenar base={base} params={params} campo="entidade">Entidade</Ordenar>
+          <th className="w-44">Pagamento</th>
+          <Ordenar base={base} params={params} campo="vencimento" className="w-28">Vencimento</Ordenar>
+          <th className="w-16">NF-e</th>
+          {!pagar && <th className="w-16">NFS-e</th>}
+          <th className="w-28 text-center">Situação</th>
+          <Ordenar base={base} params={params} campo="valor" className="w-28 text-right">Valor</Ordenar>
+          <th className="w-28 text-right">Ações</th>
+        </tr></thead>
+        <tbody>
+          {lista.map((l) => {
+            const s = situacaoConta(l, hoje);
+            const ic = iconeForma(l.formaPagamento);
+            const orig = origemConta(l);
+            const nf = nfe(l.origemId), ns = nfse(l.origemId);
+            const nfc = l.origemId ? nfCompra.get(l.origemId) : null;
+            const bol = l.boletos[0];
+            return (
+              <tr key={l.id}>
+                {selecao && <td><input type="checkbox" name="ids" value={l.id} disabled={modo === "baixar" ? !!l.pagoEm : !!l.pagoEm || !contaAvulsa(l)} /></td>}
+                <td>
+                  <Link href={`/financeiro/lancamentos/${l.id}`} className="hover:underline">{l.descricao}</Link>
+                  {orig && <Link href={orig.href} title={orig.rotulo} className="ml-1.5 inline-block align-[-2px] text-slate-500 hover:text-slate-900"><Icone nome={orig.icone} size={13} /></Link>}
+                  <div className="text-[11px] text-slate-500">{rotuloCat(l.categoria)}</div>
+                </td>
+                <td>
+                  {l.pessoa
+                    ? <><Link href={linkPessoa(l.pessoa)} className="sublinhado">{l.pessoa.nome}</Link>{l.pessoa.fantasia && l.pessoa.fantasia !== l.pessoa.nome && <i className="block text-[11px] text-slate-500">({l.pessoa.fantasia})</i>}</>
+                    : <span className="text-slate-400">—</span>}
+                </td>
+                <td>
+                  {l.formaPagamento ? <span className="inline-flex items-center gap-1.5">{l.formaPagamento.nome}{ic && <Icone nome={ic.nome} size={14} className={ic.cor} />}</span> : <span className="text-slate-400">—</span>}
+                  {bol && <div className="text-[11px] text-slate-500">boleto: {(ROTULO_BOLETO[bol.situacao] ?? bol.situacao).toLowerCase()}</div>}
+                </td>
+                <td>
+                  {diaBr(l.vencimento)}
+                  {l.pagoEm && <div className="text-[11px] text-emerald-700">{pagar ? "pago" : "recebido"} {diaBr(l.pagoEm)}</div>}
+                </td>
+                <td>{nf ? <Link href={`/fiscal/${nf.id}`} className="sublinhado">{nf.numero}</Link> : nfc ? nfc : <span className="text-slate-400">—</span>}</td>
+                {!pagar && <td>{ns ? <Link href={`/fiscal/${ns.id}`} className="sublinhado">{ns.numero}</Link> : <span className="text-slate-400">—</span>}</td>}
+                <td className="text-center"><span className={`pilula ${s.pilula}`}>{s.rotulo}</span></td>
+                <td className="text-right">
+                  {num2(l.valor)}
+                  {l.pagoEm && l.valorPago != null && Number(l.valorPago) !== Number(l.valor) && <div className="text-[11px] text-slate-500">pago {num2(l.valorPago)}</div>}
+                </td>
+                <td>
+                  <div className="flex justify-end gap-1">
+                    <Link href={`/financeiro/lancamentos/${l.id}`} className="btn-icone" title="Visualizar"><Icone nome="ver" size={13} /></Link>
+                    {l.pagoEm
+                      ? <span className="btn-icone cursor-not-allowed opacity-40" title="Conta baixada: estorne para editar"><Icone nome="editar" size={13} /></span>
+                      : <Link href={`/financeiro/lancamentos/${l.id}/editar`} className="btn-icone" title="Editar"><Icone nome="editar" size={13} /></Link>}
+                    <Suspenso direita classe="btn-icone" botao={<Icone nome="opcoes" size={13} />}>
+                      {!l.pagoEm && <LinkSuspenso href={`/financeiro/lancamentos/${l.id}#baixa`} icone="confirmado">{pagar ? "Confirmar pagamento" : "Confirmar recebimento"}</LinkSuspenso>}
+                      {l.pagoEm && !l.transferenciaId && <BotaoAcao acao={estornarContaAcao.bind(null, l.id)} icone="atualizar" confirmar={`Estornar a baixa de "${l.descricao}"? A conta volta a ficar em aberto.`}>Estornar baixa</BotaoAcao>}
+                      {!pagar && !l.pagoEm && <LinkSuspenso href={`/financeiro/lancamentos/${l.id}#boleto`} icone="boleto">Boleto (emitir, imprimir, enviar)</LinkSuspenso>}
+                      {orig && <LinkSuspenso href={orig.href} icone={orig.icone}>{orig.rotulo}</LinkSuspenso>}
+                      <LinkSuspenso href={`/financeiro/adicionar?tipo=${tipo}&copia=${l.id}`} icone="copiar">Duplicar</LinkSuspenso>
+                      {!l.pagoEm && contaAvulsa(l) && <BotaoExcluir acao={excluirContaAcao.bind(null, l.id)} pergunta={`Excluir "${l.descricao}" (${brl(l.valor)})?`} rotulo="Excluir" />}
+                    </Suspenso>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+          {!lista.length && <tr><td colSpan={10} className="py-10 text-center text-slate-500">Nenhuma conta {pagar ? "a pagar" : "a receber"} {periodo ? "no período" : "encontrada"}.</td></tr>}
+        </tbody>
+        {lista.length > 0 && (
+          <tfoot><tr><td colSpan={10} className="text-right text-[12px] text-slate-600">
+            Total das {total} conta(s) filtrada(s): <b>{brl(somaFiltro._sum.valor)}</b>
+          </td></tr></tfoot>
+        )}
+      </table>
+      <Paginacao base={base} params={params} total={total} pagina={pagina} porPagina={porPagina} />
+    </div>
+  );
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">Financeiro</h1>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/financeiro/fluxo" className="btn-sec">Fluxo de caixa</Link>
-          <Link href="/financeiro/transferencias" className="btn-sec">Transferir entre contas</Link>
-          <Link href="/financeiro/conciliacao" className="btn-sec">Conciliação bancária</Link>
-          <Link href="/financeiro/dre" className="btn-sec">DRE gerencial</Link>
+    <Pagina titulo={titulo} icone={pagar ? "pagar" : "receber"} trilha={[{ rotulo: titulo, href: `${base}?tipo=${tipo}` }, { rotulo: "Listar" }]}>
+      <div className="no-print mb-3 flex flex-wrap items-center gap-2">
+        <Link href={`/financeiro/adicionar?tipo=${tipo}`} className="btn"><Icone nome="mais" size={15} /> Adicionar</Link>
+        <Suspenso classe="btn-sec" botao={<><Icone nome="ajustes" size={15} /> Mais ações <Icone nome="abaixo" size={13} /></>}>
+          <LinkSuspenso href={urlCom(base, params, { acao: "baixar" })} icone="confirmado">{pagar ? "Pagar várias" : "Receber várias"}</LinkSuspenso>
+          <LinkSuspenso href={urlCom(base, params, { acao: "excluir" })} icone="excluir">Excluir várias</LinkSuspenso>
+          <div className="my-1 border-t" />
+          <LinkSuspenso href={`/financeiro?tipo=${pagar ? "RECEBER" : "PAGAR"}`} icone={pagar ? "receber" : "pagar"}>{pagar ? "Contas a receber" : "Contas a pagar"}</LinkSuspenso>
+          <LinkSuspenso href="/financeiro/fluxo" icone="grafico">Fluxo de caixa</LinkSuspenso>
+          <LinkSuspenso href="/financeiro/transferencias" icone="transferir">Transferir entre contas</LinkSuspenso>
+          <LinkSuspenso href="/financeiro/conciliacao" icone="conciliacao">Conciliação bancária</LinkSuspenso>
+          <LinkSuspenso href="/financeiro/dre" icone="dre">DRE gerencial</LinkSuspenso>
+          <LinkSuspenso href="/financeiro/contas" icone="financeiro">Contas bancárias e saldos</LinkSuspenso>
+          <LinkSuspenso href="/financeiro/plano-contas" icone="lista">Plano de contas</LinkSuspenso>
+        </Suspenso>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <SeletorPeriodo base={base} params={params} />
+          <form action={base} className="flex">
+            {Object.entries(params).filter(([k, x]) => x && !["q", "p"].includes(k)).map(([k, x]) => <input key={k} type="hidden" name={k} value={x} />)}
+            <input name="q" defaultValue={sp.q} placeholder="Descrição, entidade ou valor" className="campo w-60 rounded-r-none" />
+            <button className="btn rounded-l-none px-2.5" title="Buscar"><Icone nome="buscar" size={15} /></button>
+          </form>
+          <Link href={urlCom(base, params, { busca: sp.busca === "1" ? undefined : "1" })} className={sp.busca === "1" ? "btn-sec" : "btn"} title="Busca avançada"><Icone nome="filtro" size={15} /></Link>
         </div>
       </div>
+
       {avisos > 0 && (
-        <Link href="/financeiro/avisos-boletos" className="block rounded border border-amber-300 bg-amber-50 px-4 py-2 text-[13px] text-amber-800 hover:bg-amber-100">
-          <b>{avisos} boleto(s) pago(s) no Inter sem conta no sistema.</b> O dinheiro entrou, mas nenhuma conta foi baixada: clique para resolver.
+        <Link href="/financeiro/avisos-boletos" className="no-print mb-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-[13px] text-amber-800 hover:bg-amber-100">
+          <Icone nome="alerta" size={16} /><span><b>{avisos} boleto(s) pago(s) no Inter sem conta no sistema.</b> O dinheiro entrou, mas nenhuma conta foi baixada: clique para resolver.</span>
         </Link>
       )}
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="cartao p-4">
-          <div className="mb-1 text-xs text-slate-500">Saldos</div>
-          {saldos.map((c) => (
-            <div key={c.id} className="flex justify-between text-sm"><span>{c.nome}</span><span className={c.saldo < 0 ? "text-red-600" : ""}>{brl(c.saldo)}</span></div>
-          ))}
-          <div className="mt-1 flex justify-between border-t pt-1 text-sm font-semibold"><span>Total</span><span>{brl(saldos.reduce((s, c) => s + c.saldo, 0))}</span></div>
-        </div>
-        {(["RECEBER", "PAGAR"] as const).map((t) => (
-          <div key={t} className="cartao p-4 text-sm">
-            <div className="mb-1 text-xs text-slate-500">{t === "RECEBER" ? "A receber" : "A pagar"}</div>
-            <div className="flex justify-between"><span>Vencido</span><span className="text-red-600">{brl(r(t).vencido)}</span></div>
-            <div className="flex justify-between"><span>Hoje</span><span>{brl(r(t).hoje)}</span></div>
-            <div className="flex justify-between"><span>Próximos 7 dias</span><span>{brl(r(t).prox7)}</span></div>
+      {sp.busca === "1" && (
+        <form action={base} className="cartao no-print mb-3 p-4">
+          <input type="hidden" name="tipo" value={tipo} /><input type="hidden" name="busca" value="1" />
+          {sp.periodo && <input type="hidden" name="periodo" value={sp.periodo} />}
+          {sp.pde && <input type="hidden" name="pde" value={sp.pde} />}{sp.pate && <input type="hidden" name="pate" value={sp.pate} />}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div><span className="rotulo">{pagar ? "Fornecedor" : "Cliente"}</span><BuscaPessoa nome="cli" papel={pagar ? "fornecedor" : "cliente"} inicial={pessoa} /></div>
+            <label><span className="rotulo">Situação</span>
+              <select name="f" defaultValue={sp.f ?? ""} className="campo">
+                <option value="">Todas</option><option value="abertos">Em aberto (todas)</option><option value="vencidos">Atrasadas</option>
+                <option value="hoje">Vencem hoje</option><option value="avencer">A vencer</option><option value="pagos">{pagar ? "Pagas" : "Recebidas"}</option>
+              </select>
+            </label>
+            <label><span className="rotulo">Plano de contas</span>
+              <select name="cat" defaultValue={sp.cat ?? ""} className="campo"><option value="">Todos</option>{categorias.map((c) => <option key={c.id} value={c.id}>{"  ".repeat(c.nivel)}{rotuloCat(c)}</option>)}</select>
+            </label>
+            <label><span className="rotulo">Forma de pagamento</span>
+              <select name="forma" defaultValue={sp.forma ?? ""} className="campo"><option value="">Todas</option>{formas.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}</select>
+            </label>
+            <label><span className="rotulo">Conta bancária</span>
+              <select name="conta" defaultValue={sp.conta ?? ""} className="campo"><option value="">Todas</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
+            </label>
+            {centros.length > 0 && (
+              <label><span className="rotulo">Centro de custo</span>
+                <select name="centro" defaultValue={sp.centro ?? ""} className="campo"><option value="">Todos</option>{centros.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
+              </label>
+            )}
+            <label><span className="rotulo">Descrição, entidade ou valor</span><input name="q" defaultValue={sp.q} className="campo" /></label>
           </div>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {(["RECEBER", "PAGAR"] as const).map((t) => (
-          <Link key={t} href={`/financeiro?tipo=${t}&f=${f}`} className={t === tipo ? "btn" : "btn-sec"}>{t === "RECEBER" ? "Contas a receber" : "Contas a pagar"}</Link>
-        ))}
-        <span className="mx-2 text-slate-300">|</span>
-        {[["abertos", "Em aberto"], ["vencidos", "Vencidos"], ["pagos", tipo === "PAGAR" ? "Pagos" : "Recebidos"], ["todos", "Todos"]].map(([k, rot]) => (
-          <Link key={k} href={link({ f: k })} className={`rounded px-2 py-1 text-sm ${k === f ? "bg-slate-200 font-medium" : "text-slate-600 hover:bg-slate-100"}`}>{rot}</Link>
-        ))}
-        <form className="ml-auto flex gap-2">
-          <input type="hidden" name="tipo" value={tipo} /><input type="hidden" name="f" value={f} />
-          <select name="cat" defaultValue={sp.cat ?? ""} className="campo w-44" aria-label="Plano de contas">
-            <option value="">Plano de contas</option>
-            {categorias.map((c) => <option key={c.id} value={c.id}>{"\u00a0\u00a0".repeat(c.nivel)}{rotuloCat(c)}</option>)}
-          </select>
-          {centros.length > 0 && (
-            <select name="centro" defaultValue={sp.centro ?? ""} className="campo w-36" aria-label="Centro de custo">
-              <option value="">Centro de custo</option>
-              {centros.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </select>
-          )}
-          <select name="conta" defaultValue={sp.conta ?? ""} className="campo w-32" aria-label="Conta bancária">
-            <option value="">Conta</option>
-            {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
-          <input type="date" name="de" defaultValue={sp.de} className="campo w-40" aria-label="De" />
-          <input type="date" name="ate" defaultValue={sp.ate} className="campo w-40" aria-label="Até" />
-          <input name="q" defaultValue={sp.q} placeholder="Descrição ou pessoa" className="campo w-48" />
-          <button className="btn-sec">Filtrar</button>
+          <div className="mt-3 flex gap-2"><button className="btn"><Icone nome="buscar" size={14} /> Buscar</button><Link href={`${base}?tipo=${tipo}&busca=1`} className="btn-sec"><Icone nome="fechar" size={14} /> Limpar</Link></div>
         </form>
-      </div>
+      )}
 
-      <div className="cartao overflow-x-auto">
-        <table className="tabela">
-          <thead><tr><th>Vencimento</th><th>Descrição</th><th>Pessoa</th><th>Categoria</th><th className="text-right">Valor</th><th>Situação</th></tr></thead>
-          <tbody>
-            {lista.map((l) => {
-              const vencido = !l.pagoEm && l.vencimento < hoje;
-              return (
-                <tr key={l.id}>
-                  <td className={vencido ? "font-semibold text-red-600" : ""}>{data(l.vencimento)}</td>
-                  <td>{l.descricao}</td>
-                  <td className="text-slate-600">{l.pessoa?.nome}</td>
-                  <td className="text-xs text-slate-600">{rotuloCat(l.categoria)}{l.centroCusto && <div className="text-slate-400">{l.centroCusto.nome}</div>}</td>
-                  <td className="text-right">{brl(l.valor)}</td>
-                  <td className="min-w-80">
-                    {l.pagoEm ? (
-                      <form action={estornar} className="flex items-center gap-2 text-xs">
-                        <input type="hidden" name="id" value={l.id} />
-                        <span className="text-emerald-700">{tipo === "PAGAR" ? "pago" : "recebido"} {data(l.pagoEm)} · {brl(l.valorPago)} · {l.contaBancaria?.nome}</span>
-                        {l.transferenciaId ? <Link href="/financeiro/transferencias" className="text-slate-500 hover:underline">transferência</Link> : <button className="text-slate-500 hover:underline">estornar</button>}
-                      </form>
-                    ) : (
-                      <form action={baixar} className="flex items-center gap-1">
-                        <input type="hidden" name="id" value={l.id} />
-                        <input type="date" name="data" defaultValue={iso(hoje)} className="campo w-36 py-1" aria-label="Data" />
-                        <select name="contaBancariaId" defaultValue={l.contaBancariaId ?? contas[0]?.id} className="campo w-28 py-1" aria-label="Conta">
-                          {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                        </select>
-                        <input name="juros" placeholder="juros" className="campo w-16 py-1" />
-                        <button className="btn px-2 py-1 text-xs">{tipo === "PAGAR" ? "Pagar" : "Receber"}</button>
-                      </form>
-                    )}
-                    {l.tipo === "RECEBER" && (l.boletos.length > 0 || l.formaPagamento?.boletoInter) && <BoletoParcela parcela={l} cliente={l.pessoa} base={baseCliente} interAtivo={interAtivo} compacto />}
-                    {!l.pagoEm && !l.origemTipo && (
-                      <form action={excluir}><input type="hidden" name="id" value={l.id} /><button className="text-xs text-red-600 hover:underline">excluir</button></form>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {!lista.length && <tr><td colSpan={6} className="py-8 text-center text-slate-500">Nada por aqui.</td></tr>}
-          </tbody>
-          <tfoot><tr><td colSpan={4} className="px-3 py-2 text-right text-sm font-semibold">{cortado ? `Mostrando ${lista.length} de ${agg._count} (use as datas para ver o resto) · Total de todos` : "Total"}</td><td className="px-3 py-2 text-right font-semibold">{brl(total)}</td><td></td></tr></tfoot>
-        </table>
-      </div>
+      <Resumo cartoes={[
+        { rotulo: "Total do período", valor: brl(totalV), legenda: `${plural(totPeriodo._count)} ${periodo ? "no período" : "no total"}`, icone: "dinheiro", cor: "tinta", pct: totalV > 0 ? 100 : 0, href: urlCom(base, params, { f: undefined, p: undefined }), ativo: false },
+        {
+          rotulo: "Vencidos", valor: brl(v(totVenc)), icone: "atrasado", cor: "vermelho", pct: pct(v(totVenc)), ...cartao("vencidos"),
+          legenda: "passaram do vencimento",
+        },
+        { rotulo: "Vencem hoje", valor: brl(v(totHoje)), legenda: "até o fim do dia", icone: "hoje", cor: "amarelo", pct: pct(v(totHoje)), ...cartao("hoje") },
+        { rotulo: "A vencer", valor: brl(v(totAVencer)), legenda: "ainda no prazo", icone: "calendario", cor: "azul", pct: pct(v(totAVencer)), ...cartao("avencer") },
+        { rotulo: pagar ? "Pagos" : "Recebidos", valor: brl(v(totPagos)), legenda: "confirmados no período", icone: "confirmado", cor: "verde", pct: pct(v(totPagos)), ...cartao("pagos") },
+      ]} />
 
-      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-        <form action={novoLancamento} className="cartao grid gap-2 p-4 md:grid-cols-3">
-          <h2 className="font-semibold md:col-span-3">Nova conta {tipo === "PAGAR" ? "a pagar" : "a receber"}</h2>
-          <input type="hidden" name="tipo" value={tipo} />
-          <input name="descricao" required className="campo md:col-span-2" placeholder="Descrição" />
-          <input name="valor" required className="campo" placeholder="Valor total" />
-          <select name="categoriaId" required className="campo" aria-label="Plano de contas">
-            {categorias.filter((c) => c.grupoDre !== "NAO_OPERACIONAL" || !c.nome.startsWith("Transferência")).map((c) => <option key={c.id} value={c.id}>{"\u00a0\u00a0".repeat(c.nivel)}{rotuloCat(c)}</option>)}
-          </select>
-          <label className="text-[11px] text-slate-500">Vencimento<input type="date" name="vencimento" required defaultValue={iso(hoje)} className="campo" /></label>
-          <label className="text-[11px] text-slate-500">Competência (DRE)<input type="date" name="competencia" className="campo" title="Em branco = data do vencimento" /></label>
-          <select name="centroCustoId" className="campo" aria-label="Centro de custo">
-            <option value="">Centro de custo</option>
-            {centros.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
-          <select name="contaBancariaId" className="campo" aria-label="Conta bancária">
-            <option value="">Conta bancária (na baixa)</option>
-            {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
-          <select name="parcelas" className="campo" defaultValue="1">
-            {Array.from({ length: 24 }, (_, i) => <option key={i} value={i + 1}>{i + 1}x mensal</option>)}
-          </select>
-          <select name="formaPagamentoId" className="campo">
-            <option value="">Forma de pagamento</option>
-            {formas.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
-          </select>
-          <input name="observacao" className="campo md:col-span-2" placeholder="Observação" />
-          <button className="btn">Lançar</button>
-        </form>
-        <div className="cartao space-y-2 p-4 text-sm">
-          <h2 className="font-semibold">Cadastros do financeiro</h2>
-          <Link href="/financeiro/contas" className="block text-marca hover:underline">Contas bancárias</Link>
-          <Link href="/financeiro/plano-contas" className="block text-marca hover:underline">Plano de contas</Link>
-          <Link href="/financeiro/centros-custo" className="block text-marca hover:underline">Centros de custo</Link>
-          <Link href="/financeiro/transferencias" className="block text-marca hover:underline">Transferências entre contas</Link>
-        </div>
-      </div>
-    </div>
+      {vencAntes && vencAntes._count > 0 && (
+        <Link href={urlCom(base, params, { periodo: "todos", pde: undefined, pate: undefined, f: "vencidos", p: undefined })}
+          className="no-print mb-3 flex items-center gap-2 rounded-lg border border-[#dee2e6] bg-white px-4 py-2.5 text-[13px] text-[#495057] hover:bg-slate-50">
+          <Icone nome="atrasado" size={15} className="text-[#a8323e]" />
+          Fora deste período ainda há <b className="text-[#a8323e]">{brl(vencAntes._sum.valor)}</b> vencidos em {vencAntes._count} conta(s) de antes.
+          <span className="ml-auto font-semibold text-[#0c1b25] underline">Ver todos os vencidos</span>
+        </Link>
+      )}
+
+      {modo === "baixar" ? (
+        <FormSelecao acao={baixarVariasAcao} titulo={pagar ? "Pagar várias contas" : "Receber várias contas"} botao="Baixar marcadas" voltar={sem}
+          confirmar="Baixar as contas marcadas pelo valor de cada uma, na data e conta escolhidas?"
+          campos={<>
+            <label className="text-[12px]">Data<input type="date" name="data" defaultValue={iso(hoje)} className="campo" required /></label>
+            <label className="text-[12px]">Conta bancária<select name="contaBancariaId" className="campo" required><option value="">Escolha</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></label>
+          </>}>{tabela}</FormSelecao>
+      ) : modo === "excluir" ? (
+        <FormSelecao acao={excluirVariasAcao} perigo titulo="Excluir contas" botao="Excluir marcadas" voltar={sem} confirmar="Excluir as contas marcadas? Só saem as em aberto lançadas no financeiro.">{tabela}</FormSelecao>
+      ) : tabela}
+    </Pagina>
   );
 }

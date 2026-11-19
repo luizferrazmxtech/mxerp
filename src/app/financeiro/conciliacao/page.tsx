@@ -1,3 +1,4 @@
+import { Pagina } from "@/components/ui/Pagina";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { sugestoes } from "@/lib/financeiro/extrato";
@@ -42,9 +43,9 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
   const sugeridos = new Map(abertos.map((l) => [l.id, l]));
 
   return (
+    <Pagina titulo="Conciliação bancária" icone="conciliacao" trilha={[{ rotulo: "Financeiro", href: "/financeiro" }, { rotulo: "Conciliação bancária" }]}>
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">Conciliação bancária</h1>
         <Link href="/financeiro" className="btn-sec">Voltar ao financeiro</Link>
       </div>
       <p className="max-w-3xl text-sm text-slate-600">
@@ -154,5 +155,6 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
         </div>
       </section>
     </div>
+    </Pagina>
   );
 }

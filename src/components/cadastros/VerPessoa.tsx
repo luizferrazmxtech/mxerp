@@ -180,7 +180,7 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
       id: l.id,
       icone: l.origemTipo === "OS" ? "os" : l.origemTipo === "VENDA" ? "notas" : "dinheiro",
       titulo: (l.origemId && nums.get(l.origemId)) || l.descricao,
-      href: l.origemTipo === "OS" ? `/os/${l.origemId}` : l.origemTipo === "VENDA" ? `/vendas/${l.origemId}` : `/financeiro?tipo=${tipoLanc}`,
+      href: l.origemTipo === "OS" ? `/os/${l.origemId}` : l.origemTipo === "VENDA" ? `/vendas/${l.origemId}` : `/financeiro/lancamentos/${l.id}`,
       pilula: l.pagoEm ? { r: "Confirmado", c: "border-emerald-300 bg-emerald-50 text-emerald-700" } : l.vencimento < hoje ? { r: "Atrasado", c: "border-red-300 bg-red-50 text-red-700" } : { r: "Em aberto", c: "border-slate-300 bg-white text-slate-600" },
       extra: l.formaPagamento?.nome ?? undefined,
       data: l.pagoEm ?? l.vencimento,

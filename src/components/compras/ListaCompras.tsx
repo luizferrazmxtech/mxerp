@@ -78,7 +78,7 @@ export default async function ListaCompras({ tipo, sp }: { tipo: "PRODUTO" | "SE
               <tr key={c.id}>
                 {selecao && <td><input type="checkbox" name="ids" value={c.id} /></td>}
                 {tem("codigo") && <td>{c.numero}</td>}
-                {tem("fornecedor") && <td><Link href={`/fornecedores/${c.fornecedor.id}`} className="underline decoration-slate-300 hover:decoration-slate-700">{c.fornecedor.nome}</Link>{c.fornecedor.fantasia && <i className="block text-[11px] text-slate-500">{c.fornecedor.fantasia}</i>}</td>}
+                {tem("fornecedor") && <td><Link href={`/fornecedores/${c.fornecedor.id}`} className="sublinhado">{c.fornecedor.nome}</Link>{c.fornecedor.fantasia && <i className="block text-[11px] text-slate-500">{c.fornecedor.fantasia}</i>}</td>}
                 {tem("data") && <td>{dataUtc(c.data)}</td>}
                 {tem("situacao") && <td className="text-center"><span className={`pilula ${k.pilula}`}>{c.situacaoCfg?.nome ?? "—"}</span></td>}
                 {tem("valor") && <td className="text-right">{num2(c.total)}</td>}
@@ -91,7 +91,7 @@ export default async function ListaCompras({ tipo, sp }: { tipo: "PRODUTO" | "SE
                     <Link href={`/compras/${c.id}/editar`} className="btn-icone" title="Editar"><Icone nome="editar" size={13} /></Link>
                     <Suspenso direita classe="btn-icone" botao={<Icone nome="opcoes" size={13} />}>
                       <LinkSuspenso href={urlCom(base, sp, { situacao: c.id })} icone="atualizar">Alterar situação</LinkSuspenso>
-                      <LinkSuspenso href={`/financeiro?tipo=PAGAR&q=${encodeURIComponent(`Compra de nº ${c.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+                      <LinkSuspenso href={`/financeiro?tipo=PAGAR&periodo=todos&q=${encodeURIComponent(`Compra de nº ${c.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
                       <LinkSuspenso href={`/compras/${c.id}?compartilhar=1`} icone="compartilhar">Compartilhar</LinkSuspenso>
                       <a href={`/compras/${c.id}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> Imprimir</a>
                       <LinkSuspenso href={`/compras/${c.id}?aba=anexos`} icone="anexos">Documentos</LinkSuspenso>

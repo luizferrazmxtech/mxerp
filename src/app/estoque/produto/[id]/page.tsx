@@ -1,3 +1,4 @@
+import { Pagina } from "@/components/ui/Pagina";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -25,10 +26,9 @@ export default async function ProdutoEstoque({ params }: { params: Promise<{ id:
   const numeroOs = new Map(oss.map((o) => [o.id, o.numero]));
 
   return (
+    <Pagina titulo={produto.nome} icone="produtos" trilha={[{ rotulo: "Estoque", href: "/estoque" }, { rotulo: "Produto" }]}>
     <div className="space-y-4">
       <div>
-        <Link href="/estoque" className="text-sm text-slate-500 hover:underline">← Estoque</Link>
-        <h1 className="text-xl font-semibold">{produto.nome}</h1>
         <p className="text-sm text-slate-500">
           {produto.codigo} · {brl(produto.precoVenda)} · local padrão: {produto.localPadrao?.codigo ?? "não definido"}
         </p>
@@ -152,6 +152,7 @@ export default async function ProdutoEstoque({ params }: { params: Promise<{ id:
         </table>
       </section>
     </div>
+    </Pagina>
   );
 }
 
