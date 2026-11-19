@@ -214,6 +214,79 @@ export class ClienteSefaz {
       retornoXml: recortar(bruto, "retEvento"),
     };
   }
+  /**
+   * Inutilização de numeração (nfeInutilizacaoNF): avisa a SEFAZ que os números de nNFIni a nNFFin da série
+   * não serão usados (nota rejeitada ou número pulado). cStat 102 = inutilização homologada.
+   */
+  async inutilizar(p: { modelo: 55 | 65; serie: number; inicio: number; fim: number; justificativa: string; cnpj: string; ano?: number }) {
+    const xml = montarInutilizacao({ ...p, uf: this.uf, tpAmb: this.amb });
+    const assinado = assinarXml(xml, this.cert, { tag: "infInut", pai: "inutNFe" });
+    const { obj, bruto } = await this.chamar(p.modelo, "Inutilizacao", assinado.replace(/^<\?xml[^>]*>/, ""));
+    const inf = achar(achar(obj, "retInutNFe"), "infInut");
+    const cStat = String(inf?.cStat ?? "");
+    return {
+      ok: cStat === "102",
+      cStat,
+      xMotivo: String(inf?.xMotivo ?? ""),
+      protocolo: (inf?.nProt as string) ?? null,
+      xml: assinado + (recortar(bruto, "retInutNFe") ?? ""),
+    };
+  }
+
+  /** Carta de correção eletrônica (evento 110110), só NF-e. nSeqEvento de 1 a 20; cada nova CC-e substitui a anterior. */
+  async cartaCorrecao(p: { chave: string; correcao: string; sequencia: number; cnpj: string; idLote: number; data?: Date }) {
+    const xml = montarCartaCorrecao({ ...p, tpAmb: this.amb });
+    const assinado = assinarXml(xml, this.cert, { tag: "infEvento", pai: "evento" });
+    const corpo = `<envEvento xmlns="${NS_NFE}" versao="1.00"><idLote>${p.idLote}</idLote>${assinado}</envEvento>`;
+    const { obj, bruto } = await this.chamar(55, "RecepcaoEvento", corpo);
+    const inf = achar(achar(obj, "retEvento"), "infEvento");
+    const cStat = String(inf?.cStat ?? achar(obj, "retEnvEvento")?.cStat ?? "");
+    return {
+      ok: cStat === "135" || cStat === "136",
+      cStat,
+      xMotivo: String(inf?.xMotivo ?? achar(obj, "retEnvEvento")?.xMotivo ?? ""),
+      protocolo: (inf?.nProt as string) ?? null,
+      eventoXml: assinado,
+      retornoXml: recortar(bruto, "retEvento"),
+    };
+  }
+}
+
+/** Texto fixo exigido na CC-e (versão sem acentos aceita pelo schema). */
+export const CONDICAO_USO_CCE =
+  "A Carta de Correcao e disciplinada pelo paragrafo 1o-A do art. 7o do Convenio S/N, de 15 de dezembro de 1970 e pode ser utilizada para regularizacao de erro ocorrido na emissao de documento fiscal, desde que o erro nao esteja relacionado com: I - as variaveis que determinam o valor do imposto tais como: base de calculo, aliquota, diferenca de preco, quantidade, valor da operacao ou da prestacao; II - a correcao de dados cadastrais que implique mudanca do remetente ou do destinatario; III - a data de emissao ou de saida.";
+
+/** Tira acentos e caracteres fora do aceito pela SEFAZ, e espaços repetidos. */
+export const textoSefaz = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, " ").replace(/\s+/g, " ").trim();
+
+export function montarInutilizacao(p: { modelo: 55 | 65; serie: number; inicio: number; fim: number; justificativa: string; cnpj: string; uf: string; tpAmb: Ambiente; ano?: number }) {
+  const just = textoSefaz(p.justificativa);
+  if (just.length < 15) throw new Error("Justificativa precisa de pelo menos 15 caracteres");
+  if (!(p.inicio >= 1 && p.fim >= p.inicio && p.fim <= 999999999)) throw new Error("Faixa de numeração inválida");
+  const cUF = codigoUf(p.uf);
+  const ano = String((p.ano ?? new Date().getFullYear()) % 100).padStart(2, "0");
+  const cnpj = p.cnpj.replace(/\D/g, "");
+  const id = `ID${cUF}${ano}${cnpj}${p.modelo}${String(p.serie).padStart(3, "0")}${String(p.inicio).padStart(9, "0")}${String(p.fim).padStart(9, "0")}`;
+  const inf = g("infInut", [
+    t("tpAmb", p.tpAmb), t("xServ", "INUTILIZAR"), t("cUF", cUF), t("ano", ano), t("CNPJ", cnpj), t("mod", p.modelo),
+    t("serie", p.serie), t("nNFIni", p.inicio), t("nNFFin", p.fim), t("xJust", just.slice(0, 255)),
+  ], { Id: id });
+  return `<inutNFe xmlns="${NS_NFE}" versao="${VERSAO}">${inf}</inutNFe>`;
+}
+
+export function montarCartaCorrecao(p: { chave: string; correcao: string; sequencia: number; cnpj: string; tpAmb: Ambiente; data?: Date }) {
+  const texto = textoSefaz(p.correcao);
+  if (texto.length < 15) throw new Error("A correção precisa de pelo menos 15 caracteres");
+  if (texto.length > 1000) throw new Error("A correção pode ter no máximo 1000 caracteres");
+  if (!(p.sequencia >= 1 && p.sequencia <= 20)) throw new Error("Limite de 20 cartas de correção por nota");
+  const tpEvento = "110110";
+  const id = `ID${tpEvento}${p.chave}${String(p.sequencia).padStart(2, "0")}`;
+  const infEvento = g("infEvento", [
+    t("cOrgao", p.chave.slice(0, 2)), t("tpAmb", p.tpAmb), t("CNPJ", p.cnpj.replace(/\D/g, "")), t("chNFe", p.chave),
+    t("dhEvento", dataHoraTz(p.data)), t("tpEvento", tpEvento), t("nSeqEvento", p.sequencia), t("verEvento", "1.00"),
+    g("detEvento", [t("descEvento", "Carta de Correcao"), t("xCorrecao", texto), t("xCondUso", CONDICAO_USO_CCE)], { versao: "1.00" }),
+  ], { Id: id });
+  return `<evento xmlns="${NS_NFE}" versao="1.00">${infEvento}</evento>`;
 }
 
 export function montarEventoCancelamento(p: { chave: string; protocolo: string; justificativa: string; cnpj: string; tpAmb: Ambiente; data?: Date }) {

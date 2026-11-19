@@ -137,6 +137,7 @@ export const MENU: ItemMenu[] = [
   {
     rotulo: "Fiscal", icone: "fiscal", filhos: [
       { rotulo: "Notas fiscais", href: "/fiscal", icone: "notas" },
+      { rotulo: "Inutilizar numeração", href: "/fiscal/inutilizacao", icone: "excluir" },
     ],
   },
   {

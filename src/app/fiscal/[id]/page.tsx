@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
 import BotaoImprimir from "@/app/os/[id]/separacao/BotaoImprimir";
-import { cancelar, cancelarServico, consultarNotaAcao } from "../actions";
+import { cancelar, cancelarServico, cartaCorrecaoAcao, consultarNotaAcao } from "../actions";
 import { URL_DANFSE } from "@/lib/fiscal/nfse";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ type Det = { prod: { cProd: string; xProd: string; qCom: string; uCom: string; v
 
 export default async function Nota({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const n = await prisma.notaFiscal.findUnique({ where: { id } });
+  const n = await prisma.notaFiscal.findUnique({ where: { id }, include: { eventos: { orderBy: [{ createdAt: "asc" }] } } });
   if (!n) notFound();
   const doc = n.xml ? new XMLParser({ ignoreAttributes: true, parseTagValue: false }).parse(n.xml) : null;
   const inf = doc?.nfeProc?.NFe?.infNFe ?? doc?.NFe?.infNFe;
@@ -106,6 +106,37 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
           <h2 className="mb-2 font-semibold">Aguardando a SEFAZ</h2>
           <p className="mb-2 text-xs text-slate-500">A nota foi enviada e a SEFAZ não devolveu o resultado. Consulte antes de emitir outra, para não duplicar a venda.</p>
           <BotaoAcao acao={consultarNotaAcao} campos={{ notaId: n.id }} rotulo="Consultar na SEFAZ" />
+        </div>
+      )}
+
+      {n.modelo === "NFE" && n.status === "AUTORIZADA" && (
+        <div className="no-print cartao mx-auto max-w-md p-4">
+          <h2 className="mb-2 font-semibold">Carta de correção</h2>
+          <p className="mb-2 text-xs text-slate-500">
+            Corrige dados que não mudam imposto, valor, quantidade, remetente/destinatário nem a data. Cada nova carta substitui a anterior:
+            escreva todas as correções de novo.
+          </p>
+          <BotaoAcao acao={cartaCorrecaoAcao} campos={{ notaId: n.id }} rotulo="Enviar carta de correção" secundario>
+            <textarea name="correcao" minLength={15} maxLength={1000} required rows={3} className="campo"
+              defaultValue={n.eventos.filter((x) => x.tipo === "110110").at(-1)?.texto ?? ""} placeholder="ex.: Onde se lê endereço de entrega Rua A, 10, leia-se Rua B, 20" />
+          </BotaoAcao>
+        </div>
+      )}
+
+      {n.eventos.length > 0 && (
+        <div className="no-print cartao mx-auto max-w-md p-4 text-sm">
+          <h2 className="mb-2 font-semibold">Eventos da nota</h2>
+          {n.eventos.map((ev) => (
+            <div key={ev.id} className="mb-2 border-b pb-2 last:border-0">
+              <div className="flex justify-between"><b>{ev.tipo === "110110" ? `Carta de correção ${ev.sequencia}` : ev.tipo === "110111" ? "Cancelamento" : ev.tipo}</b><span className="text-xs text-slate-500">{dataHora(ev.createdAt)}</span></div>
+              {ev.texto && <p className="text-xs text-slate-600">{ev.texto}</p>}
+              <div className="flex gap-3 text-xs">
+                <span className="text-slate-500">Protocolo {ev.protocolo}</span>
+                {ev.xml && <a className="text-marca hover:underline" href={`/api/notas/eventos/${ev.id}`}>XML</a>}
+                {ev.tipo === "110110" && <Link className="text-marca hover:underline" href={`/fiscal/${n.id}/cce/${ev.id}`}>Imprimir</Link>}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

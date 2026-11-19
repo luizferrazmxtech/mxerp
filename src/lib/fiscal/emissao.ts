@@ -92,7 +92,7 @@ export function dividirDesconto(produtos: number, servicos: number, desconto: nu
 }
 
 /** Numeração: um contador por modelo, série e ambiente. */
-const chaveSeq = (modelo: 55 | 65, serie: number, amb: 1 | 2) => `NF-${modelo}-${serie}-${amb === 1 ? "P" : "H"}`;
+export const chaveSeq = (modelo: 55 | 65, serie: number, amb: 1 | 2) => `NF-${modelo}-${serie}-${amb === 1 ? "P" : "H"}`;
 
 async function emitir(args: {
   modelo: 55 | 65;

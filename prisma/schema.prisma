@@ -1595,12 +1595,32 @@ model NotaFiscal {
   @@index([origemTipo, origemId])
 }
 
+/// Faixa de numeração de NF-e/NFC-e inutilizada na SEFAZ (números rejeitados ou pulados).
+model InutilizacaoNumeracao {
+  id            String         @id @default(cuid())
+  modelo        ModeloNota
+  serie         Int
+  ambiente      AmbienteFiscal
+  numeroInicial Int
+  numeroFinal   Int
+  justificativa String
+  status        String // HOMOLOGADA | REJEITADA
+  protocolo     String?
+  motivo        String?
+  xml           String?
+  usuarioId     String?
+  createdAt     DateTime       @default(now())
+
+  @@index([modelo, serie, ambiente])
+}
+
 model NotaEvento {
   id        String     @id @default(cuid())
   notaId    String
   nota      NotaFiscal @relation(fields: [notaId], references: [id], onDelete: Cascade)
   tipo      String // 110111 cancelamento, 110110 CC-e...
   sequencia Int        @default(1)
+  texto     String? // correção da CC-e / justificativa
   xml       String?
   protocolo String?
   createdAt DateTime   @default(now())
