@@ -124,6 +124,7 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Contas a pagar", href: "/financeiro?tipo=PAGAR", icone: "pagar" },
       { rotulo: "Fluxo de caixa", href: "/financeiro/fluxo", icone: "grafico" },
       { rotulo: "Conciliação bancária", href: "/financeiro/conciliacao", icone: "conciliacao" },
+      { rotulo: "Boletos pagos sem conta", href: "/financeiro/avisos-boletos", icone: "alerta" },
       { rotulo: "DRE", href: "/financeiro/dre", icone: "dre" },
       {
         rotulo: "Opções auxiliares", href: "/financeiro/contas", icone: "auxiliares", filhos: [

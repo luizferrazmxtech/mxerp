@@ -1549,6 +1549,7 @@ model Lancamento {
   observacao       String?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
+  avisosBoleto     AvisoBoleto[]
 
   @@index([tipo, vencimento])
   @@index([competencia])
@@ -1987,4 +1988,30 @@ model ContratoHistorico {
   descricao   String
   usuarioNome String?
   createdAt   DateTime @default(now())
+}
+
+/// Boleto pago no Inter sem conta a receber correspondente em aberto no sistema (precisa de alguém olhar).
+model AvisoBoleto {
+  id                String      @id @default(cuid())
+  codigoSolicitacao String      @unique
+  boletoId          String?
+  /// NAO_EMITIDO (boleto não foi gerado pelo MXERP), SEM_CONTA (a conta foi excluída), CONTA_JA_PAGA (possível pagamento em dobro)
+  motivo            String
+  seuNumero         String?
+  nossoNumero       String?
+  pagadorNome       String?
+  pagadorDocumento  String?
+  valor             Decimal?    @db.Decimal(14, 2)
+  valorRecebido     Decimal?    @db.Decimal(14, 2)
+  pagoEm            DateTime?   @db.Date
+  origemRecebimento String?
+  /// a conta envolvida (a que já estava paga, ou a que foi lançada/baixada ao resolver)
+  lancamentoId      String?
+  lancamento        Lancamento? @relation(fields: [lancamentoId], references: [id], onDelete: SetNull)
+  resolvidoEm       DateTime?
+  resolvidoPor      String?
+  resolucao         String?
+  createdAt         DateTime    @default(now())
+
+  @@index([resolvidoEm])
 }

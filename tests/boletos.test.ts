@@ -9,6 +9,7 @@ const { garantirPadroes } = await import("@/lib/financeiro/padroes");
 const { ClienteInter, ESCOPOS_PADRAO } = await import("@/lib/financeiro/inter");
 const bol = await import("@/lib/financeiro/boletos");
 const ext = await import("@/lib/financeiro/extrato");
+const avisos = await import("@/lib/financeiro/avisosBoleto");
 const { diaSP, somarDias } = await import("@/lib/datas");
 
 beforeAll(() => {
@@ -66,7 +67,7 @@ function interFalso() {
 
 let boleto: string, pix: string, cat: string, cliente: string;
 beforeEach(async () => {
-  await prisma.$executeRawUnsafe(`TRUNCATE "Boleto","Lancamento","TransacaoBancaria","Pessoa","FormaPagamento","CategoriaFinanceira","ContaBancaria","IntegracaoInter" CASCADE`);
+  await prisma.$executeRawUnsafe(`TRUNCATE "AvisoBoleto","Boleto","Lancamento","TransacaoBancaria","Pessoa","FormaPagamento","CategoriaFinanceira","ContaBancaria","IntegracaoInter" CASCADE`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Sequencia" WHERE chave = 'BOLETO'`);
   await prisma.$transaction((tx) => garantirPadroes(tx));
   boleto = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "Boleto" } })).id;
@@ -227,5 +228,64 @@ describe("boletos do Inter", () => {
     const pouco = await parcela({ valor: 2, parcela: 2 });
     await expect(bol.emitirBoleto(pouco.id, { cliente: f.cliente() })).rejects.toThrow(/2,50/);
     expect(f.chamadas.filter((c) => c.metodo === "POST")).toHaveLength(0);
+  });
+
+  it("boleto pago sem conta no sistema vira aviso, uma vez só, e é resolvido lançando ou baixando", async () => {
+    const f = interFalso();
+    // 1) boleto emitido fora do MXERP (app do banco) e pago
+    f.cobrancas.set("externo-1", {
+      cobranca: { codigoSolicitacao: "externo-1", seuNumero: "A9", situacao: "RECEBIDO", valorNominal: 80, valorTotalRecebido: 80, dataSituacao: iso(hoje), origemRecebimento: "BOLETO", pagador: { nome: "FOLK COMERCIO LTDA", cpfCnpj: "12.345.678/0001-95" } },
+      boleto: { nossoNumero: "99901" }, pix: {},
+    });
+    // 2) conta excluída depois de emitir o boleto
+    const l1 = await parcela();
+    const b1 = await bol.emitirBoleto(l1.id, { cliente: f.cliente() });
+    await prisma.lancamento.delete({ where: { id: l1.id } });
+    await prisma.boleto.update({ where: { id: b1.id }, data: { situacao: "A_RECEBER" } });
+    f.pagar(b1.codigoSolicitacao!, 100, iso(hoje));
+    // 3) conta recebida à mão e o cliente pagou o boleto também
+    const l2 = await parcela({ parcela: 2 });
+    const b2 = await bol.emitirBoleto(l2.id, { cliente: f.cliente() });
+    const caixa = await prisma.contaBancaria.findUniqueOrThrow({ where: { nome: "Caixa" } });
+    await prisma.lancamento.update({ where: { id: l2.id }, data: { pagoEm: hoje, valorPago: 100, contaBancariaId: caixa.id } });
+    f.pagar(b2.codigoSolicitacao!, 100, iso(hoje));
+    // 4) boleto normal pago: baixa sem aviso
+    const l3 = await parcela({ origemId: "venda-90" });
+    const b3 = await bol.emitirBoleto(l3.id, { cliente: f.cliente() });
+    f.pagar(b3.codigoSolicitacao!, 100, iso(hoje));
+
+    const r = await bol.sincronizarBoletos({ cliente: f.cliente() });
+    expect(r).toMatchObject({ avisos: 3, baixados: 1, erros: [] });
+    const lista = await prisma.avisoBoleto.findMany({ orderBy: { motivo: "asc" } });
+    expect(lista.map((a) => a.motivo)).toEqual(["CONTA_JA_PAGA", "NAO_EMITIDO", "SEM_CONTA"]);
+    expect(lista[0].lancamentoId).toBe(l2.id);
+    expect(lista[1]).toMatchObject({ pagadorDocumento: "12345678000195", nossoNumero: "99901" });
+    expect((await bol.sincronizarBoletos({ cliente: f.cliente() }))!.avisos).toBe(0); // não duplica
+    expect(await prisma.avisoBoleto.count()).toBe(3);
+    expect(await avisos.avisosPendentes()).toBe(3);
+
+    // resolve: lança o externo como recebimento (pessoa achada pelo CNPJ), baixa uma conta em aberto com o da conta excluída
+    const cat = (await prisma.categoriaFinanceira.findFirstOrThrow({ where: { nome: "Venda de produtos" } })).id;
+    await avisos.lancarRecebimentoDoAviso(lista[1].id, { categoriaId: cat }, "Luiz");
+    const lancado = await prisma.lancamento.findFirstOrThrow({ where: { avisosBoleto: { some: { id: lista[1].id } } }, include: { contaBancaria: true } });
+    expect([Number(lancado.valorPago), lancado.pessoaId, lancado.contaBancaria?.nome, iso(lancado.pagoEm!)]).toEqual([80, cliente, "INTER MXTECH", iso(hoje)]);
+    const nova = await parcela({ origemId: "venda-91", forma: pix, valor: 95 });
+    expect((await avisos.candidatasDoAviso(lista[2])).map((l) => l.id)).toContain(nova.id);
+    await avisos.baixarContaDoAviso(lista[2].id, nova.id, "Luiz");
+    expect(Number((await prisma.lancamento.findUniqueOrThrow({ where: { id: nova.id } })).juros)).toBeCloseTo(5);
+    await expect(avisos.encerrarAviso(lista[0].id, "ok", "Luiz")).rejects.toThrow(/pelo menos/);
+    await avisos.encerrarAviso(lista[0].id, "Devolvido ao cliente por Pix", "Luiz");
+    expect(await avisos.avisosPendentes()).toBe(0);
+    await expect(avisos.baixarContaDoAviso(lista[2].id, nova.id, "Luiz")).rejects.toThrow(/já foi resolvido/);
+  });
+
+  it("webhook de boleto que não é nosso: consulta e avisa só se foi pago", async () => {
+    const f = interFalso();
+    f.cobrancas.set("ext-2", { cobranca: { codigoSolicitacao: "ext-2", situacao: "A_RECEBER", valorNominal: 50 }, boleto: {}, pix: {} });
+    await bol.receberWebhook([{ codigoSolicitacao: "ext-2" }], { cliente: f.cliente() });
+    expect(await prisma.avisoBoleto.count()).toBe(0);
+    Object.assign(f.cobrancas.get("ext-2")!.cobranca, { situacao: "RECEBIDO", valorTotalRecebido: 50, dataSituacao: iso(hoje) });
+    await bol.receberWebhook([{ codigoSolicitacao: "ext-2" }, { codigoSolicitacao: "../../x" }], { cliente: f.cliente() });
+    expect(await prisma.avisoBoleto.findMany()).toEqual([expect.objectContaining({ motivo: "NAO_EMITIDO", codigoSolicitacao: "ext-2" })]);
   });
 });

@@ -8,6 +8,7 @@ import { saldosContas } from "@/lib/financeiro/lancamentos";
 import { diaSP, somarDias } from "@/lib/datas";
 import { brl, data } from "@/lib/ui/format";
 import { planoDeContas } from "@/lib/financeiro/plano";
+import { avisosPendentes } from "@/lib/financeiro/avisosBoleto";
 import { baixar, estornar, excluir, novoLancamento } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +48,7 @@ export default async function Financeiro({ searchParams }: {
         FROM "Lancamento" WHERE "pagoEm" IS NULL GROUP BY tipo`,
     prisma.centroCusto.findMany({ where: { ativo: true }, orderBy: { nome: "asc" } }),
   ]);
-  const [interAtivo, baseCliente] = await Promise.all([boletosDisponiveis(), baseLinks()]);
+  const [interAtivo, baseCliente, avisos] = await Promise.all([boletosDisponiveis(), baseLinks(), avisosPendentes()]);
   const r = (t: string) => resumo.find((x) => x.tipo === t) ?? { vencido: 0, hoje: 0, prox7: 0 };
   // a tabela mostra até 300 linhas, mas o total e a contagem são de tudo o que o filtro achou
   const agg = await prisma.lancamento.aggregate({ where, _sum: { valor: true }, _count: true });
@@ -68,6 +69,11 @@ export default async function Financeiro({ searchParams }: {
           <Link href="/financeiro/dre" className="btn-sec">DRE gerencial</Link>
         </div>
       </div>
+      {avisos > 0 && (
+        <Link href="/financeiro/avisos-boletos" className="block rounded border border-amber-300 bg-amber-50 px-4 py-2 text-[13px] text-amber-800 hover:bg-amber-100">
+          <b>{avisos} boleto(s) pago(s) no Inter sem conta no sistema.</b> O dinheiro entrou, mas nenhuma conta foi baixada: clique para resolver.
+        </Link>
+      )}
 
       <div className="grid gap-3 md:grid-cols-3">
         <div className="cartao p-4">

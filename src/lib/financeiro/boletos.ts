@@ -196,14 +196,45 @@ export function avisoBoletos(r: { emitidos: number; erros: string[] }) {
 // ---------- consulta, baixa e cancelamento
 
 type DetalheInter = {
-  cobranca?: { codigoSolicitacao?: string; seuNumero?: string; situacao?: string; dataSituacao?: string; valorNominal?: string | number; valorTotalRecebido?: string | number; origemRecebimento?: string; dataVencimento?: string };
+  cobranca?: {
+    codigoSolicitacao?: string; seuNumero?: string; situacao?: string; dataSituacao?: string; valorNominal?: string | number; valorTotalRecebido?: string | number;
+    origemRecebimento?: string; dataVencimento?: string; pagador?: { nome?: string; cpfCnpj?: string };
+  };
   boleto?: { nossoNumero?: string; codigoBarras?: string; linhaDigitavel?: string };
   pix?: { txid?: string; pixCopiaECola?: string };
 };
 
+export const MOTIVO_AVISO: Record<string, string> = {
+  NAO_EMITIDO: "Boleto não foi emitido pelo MXERP",
+  SEM_CONTA: "A conta a receber deste boleto foi excluída",
+  CONTA_JA_PAGA: "A conta já estava baixada por outro meio (possível pagamento em dobro)",
+};
+
+/**
+ * Boleto pago no Inter que não baixou nenhuma conta: vira um aviso para alguém lançar o recebimento, baixar a
+ * conta certa ou explicar (ex.: devolvido ao cliente). Um aviso por boleto; repetir a consulta não duplica.
+ */
+async function registrarAviso(motivo: keyof typeof MOTIVO_AVISO, d: DetalheInter, extra: { boletoId?: string; lancamentoId?: string | null } = {}) {
+  const c = d.cobranca ?? {};
+  if (!c.codigoSolicitacao) return null;
+  const num = (v: string | number | undefined) => (v == null || v === "" || isNaN(Number(v)) ? null : D(Number(v)));
+  return prisma.avisoBoleto.upsert({
+    where: { codigoSolicitacao: c.codigoSolicitacao },
+    update: {},
+    create: {
+      codigoSolicitacao: c.codigoSolicitacao, motivo, boletoId: extra.boletoId ?? null, lancamentoId: extra.lancamentoId ?? null,
+      seuNumero: c.seuNumero ?? null, nossoNumero: d.boleto?.nossoNumero ?? null,
+      pagadorNome: c.pagador?.nome?.slice(0, 200) ?? null, pagadorDocumento: so(c.pagador?.cpfCnpj) || null,
+      valor: num(c.valorNominal), valorRecebido: num(c.valorTotalRecebido),
+      pagoEm: c.dataSituacao ? new Date(`${c.dataSituacao.slice(0, 10)}T00:00:00Z`) : null, origemRecebimento: c.origemRecebimento ?? null,
+    },
+  });
+}
+
 /** Grava o que o Inter disse do boleto e, se foi pago, baixa a conta a receber na data do pagamento. */
 export async function aplicarDetalhe(boletoId: string, d: DetalheInter, ctx: Pick<Contexto, "cfg"> | null) {
   const b = await prisma.boleto.findUniqueOrThrow({ where: { id: boletoId } });
+  const contaAntes = b.lancamentoId ? await prisma.lancamento.findUnique({ where: { id: b.lancamentoId }, select: { id: true, pagoEm: true, transacao: { select: { documento: true } } } }) : null;
   const c = d.cobranca ?? {};
   const situacao = c.situacao || b.situacao;
   const recebido = situacao === "RECEBIDO";
@@ -219,6 +250,14 @@ export async function aplicarDetalhe(boletoId: string, d: DetalheInter, ctx: Pic
     },
   });
   if (recebido && b.lancamentoId && pagoEm) await baixarPeloBoleto(atualizado.id, ctx?.cfg ?? null);
+  if (recebido && b.situacao !== "RECEBIDO") {
+    const docs = [atualizado.nossoNumero, atualizado.txid].filter(Boolean);
+    if (!contaAntes) await registrarAviso("SEM_CONTA", d, { boletoId: b.id });
+    // já estava paga, e não pela entrada do extrato deste mesmo boleto
+    else if (contaAntes.pagoEm && !(contaAntes.transacao?.documento && docs.includes(contaAntes.transacao.documento))) {
+      await registrarAviso("CONTA_JA_PAGA", d, { boletoId: b.id, lancamentoId: contaAntes.id });
+    }
+  }
   return atualizado;
 }
 
@@ -323,7 +362,8 @@ export async function pdfBoleto(boletoId: string, ctx?: Contexto | null) {
 export async function sincronizarBoletos(opts: { dias?: number; cliente?: ClienteInter } = {}) {
   const ctx = await contextoBoletos(opts.cliente);
   if (!ctx) return null;
-  const res = { consultados: 0, baixados: 0, emitidos: 0, cancelados: 0, erros: [] as string[] };
+  const res = { consultados: 0, baixados: 0, emitidos: 0, cancelados: 0, avisos: 0, erros: [] as string[] };
+  const avisosAntes = await prisma.avisoBoleto.count();
   try {
     res.cancelados = await cancelarOrfaos(ctx);
 
@@ -336,8 +376,15 @@ export async function sincronizarBoletos(opts: { dias?: number; cliente?: Client
       if (r.status !== 200) falha("não listou os boletos", r);
       const j = JSON.parse(r.corpo) as { cobrancas?: DetalheInter[]; totalPaginas?: number; ultimaPagina?: boolean };
       for (const d of j.cobrancas ?? []) {
-        const b = nossos.get(d.cobranca?.codigoSolicitacao ?? "");
-        if (!b) continue;
+        const cs = d.cobranca?.codigoSolicitacao ?? "";
+        const b = nossos.get(cs) ?? (cs ? await prisma.boleto.findUnique({ where: { codigoSolicitacao: cs }, select: { id: true, codigoSolicitacao: true, situacao: true, lancamentoId: true } }) : null);
+        if (!b) {
+          // pago no Inter, mas não foi emitido por aqui (app do banco, outro sistema)
+          if (d.cobranca?.situacao === "RECEBIDO" && !(await prisma.avisoBoleto.findUnique({ where: { codigoSolicitacao: cs }, select: { id: true } }))) {
+            await registrarAviso("NAO_EMITIDO", d);
+          }
+          continue;
+        }
         res.consultados++;
         const antes = b.lancamentoId ? await prisma.lancamento.findUnique({ where: { id: b.lancamentoId }, select: { pagoEm: true } }) : null;
         await aplicarDetalhe(b.id, d, ctx);
@@ -364,7 +411,8 @@ export async function sincronizarBoletos(opts: { dias?: number; cliente?: Client
   } catch (e) {
     res.erros.unshift(e instanceof BoletoError ? e.message : mensagemErro(e));
   }
-  const msg = `${res.baixados} pago(s) baixado(s), ${res.emitidos} emitido(s), ${res.cancelados} cancelado(s)${res.erros.length ? ` · Erro: ${res.erros[0]}` : ""}`;
+  res.avisos = (await prisma.avisoBoleto.count()) - avisosAntes;
+  const msg = `${res.baixados} pago(s) baixado(s), ${res.emitidos} emitido(s), ${res.cancelados} cancelado(s)${res.avisos ? `, ${res.avisos} pago(s) sem conta no sistema` : ""}${res.erros.length ? ` · Erro: ${res.erros[0]}` : ""}`;
   await prisma.integracaoInter.updateMany({ where: { id: "inter" }, data: { ultimaSincBoletosEm: new Date(), ultimaSincBoletosMsg: msg.slice(0, 500) } });
   return res;
 }
@@ -389,8 +437,19 @@ export async function receberWebhook(itens: unknown, opts: { cliente?: ClienteIn
   if (!ctx) return 0;
   let n = 0;
   for (const it of lista.slice(0, 200)) {
-    const b = it?.codigoSolicitacao ? await prisma.boleto.findUnique({ where: { codigoSolicitacao: String(it.codigoSolicitacao) } }) : null;
-    if (!b) continue;
+    const cs = it?.codigoSolicitacao ? String(it.codigoSolicitacao).slice(0, 100) : "";
+    const b = cs ? await prisma.boleto.findUnique({ where: { codigoSolicitacao: cs } }) : null;
+    if (!b) {
+      // boleto que não é nosso: consulta no Inter e, se foi pago, avisa (nada é baixado)
+      if (cs && /^[\w-]+$/.test(cs) && !(await prisma.avisoBoleto.findUnique({ where: { codigoSolicitacao: cs }, select: { id: true } }))) {
+        const r = await chamar(ctx, "GET", `${API}/${cs}`).catch(() => null);
+        if (r?.status === 200) {
+          const d = JSON.parse(r.corpo) as DetalheInter;
+          if (d.cobranca?.situacao === "RECEBIDO" && d.cobranca.codigoSolicitacao === cs) await registrarAviso("NAO_EMITIDO", d);
+        }
+      }
+      continue;
+    }
     await atualizarBoleto(b.id, ctx);
     n++;
   }

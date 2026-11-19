@@ -8,6 +8,7 @@ import { parseDia } from "@/lib/datas";
 import { lerNumero } from "@/lib/itens/tipos";
 import { excluirCategoria, excluirCentroCusto, salvarCategoria, salvarCentroCusto } from "./plano";
 import { excluirTransferencia, transferirEntreContas } from "./transferencias";
+import { baixarContaDoAviso, encerrarAviso, lancarRecebimentoDoAviso } from "./avisosBoleto";
 import type { Resultado } from "@/components/financeiro/FormAcao";
 
 const GER = ["ADMIN", "GERENTE"] as const;
@@ -96,5 +97,17 @@ export async function salvarContaBancariaAcao(_: Resultado, form: FormData): Pro
       } else await prisma.contaBancaria.create({ data });
     },
     id ? "Conta salva" : "Conta cadastrada", "/financeiro/contas", "/financeiro/contas",
+  );
+}
+
+export async function resolverAvisoBoletoAcao(_: Resultado, form: FormData): Promise<Resultado> {
+  const u = await exigirUsuario([...GER]);
+  const id = str(form.get("id"));
+  const como = str(form.get("como"));
+  return tentar(
+    () => como === "lancar" ? lancarRecebimentoDoAviso(id, { categoriaId: str(form.get("categoriaId")), descricao: str(form.get("descricao")) }, u.nome)
+      : como === "baixar" ? baixarContaDoAviso(id, str(form.get("lancamentoId")), u.nome)
+      : encerrarAviso(id, str(form.get("explicacao")), u.nome),
+    "Aviso resolvido", "/financeiro/avisos-boletos", "/financeiro/avisos-boletos",
   );
 }
