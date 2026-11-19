@@ -136,6 +136,15 @@ export const MENU: ItemMenu[] = [
     ],
   },
   {
+    rotulo: "Relatórios", icone: "grafico", filhos: [
+      { rotulo: "Todos os relatórios", href: "/relatorios", icone: "lista" },
+      { rotulo: "Lucro", href: "/relatorios/lucro", icone: "dinheiro" },
+      { rotulo: "Curva ABC", href: "/relatorios/curva-abc", icone: "grafico" },
+      { rotulo: "Comissões", href: "/relatorios/comissoes", icone: "percentual" },
+      { rotulo: "Tempo das OS", href: "/relatorios/tempo-os", icone: "relogio" },
+    ],
+  },
+  {
     rotulo: "Fiscal", icone: "fiscal", filhos: [
       { rotulo: "Notas fiscais", href: "/fiscal", icone: "notas" },
       { rotulo: "Inutilizar numeração", href: "/fiscal/inutilizacao", icone: "excluir" },
@@ -159,6 +168,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/contratos", rotulo: "Contratos", cor: "#0e7490", icone: "contratos" },
   { prefixo: "/pdv", rotulo: "PDV", cor: "#2e9d4f", icone: "balcao" },
   { prefixo: "/financeiro", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
+  { prefixo: "/relatorios", rotulo: "Relatórios", cor: "#5b6573", icone: "grafico" },
   { prefixo: "/fiscal", rotulo: "Fiscal", cor: "#7a4fd1", icone: "fiscal" },
   { prefixo: "/estoque", rotulo: "Estoque", cor: "#b5651d", icone: "estoque" },
   { prefixo: "/compras", rotulo: "Estoque", cor: "#b5651d", icone: "estoque" },
