@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { conciliarTx, desfazerTx, ignorarTx, importarExtrato, lancarAvulsoTx, lerExtrato, sugestoes } from "@/lib/financeiro/extrato";
 import { sincronizarInter } from "@/lib/financeiro/inter";
+import { sincronizarBoletos } from "@/lib/financeiro/boletos";
 
 export type Estado = { ok: boolean; mensagem: string } | null;
 const str = (x: FormDataEntryValue | null) => String(x ?? "").trim();
@@ -29,15 +30,18 @@ export async function enviarExtrato(_: Estado, form: FormData): Promise<Estado> 
 export async function puxarInter(_: Estado, form: FormData): Promise<Estado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
   try {
-    const r = await sincronizarInter({ dias: Number(form.get("dias") || 7) });
-    return feito(`Inter (${r.conta}): ${resumo(r)}`);
+    const dias = Number(form.get("dias") || 7);
+    const b = await sincronizarBoletos({ dias });
+    const r = await sincronizarInter({ dias });
+    return feito(`Inter (${r.conta}): ${resumo(r)}${b ? ` Boletos: ${b.baixados} pago(s) baixado(s)${b.erros.length ? ` · ${b.erros[0]}` : ""}.` : ""}`);
   } catch (e) { return falha(e); }
 }
 
 export async function confirmarSugestoes(): Promise<Estado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
   try {
-    const s = await sugestoes();
+    // só contas a pagar: conta a receber é baixada pelo boleto do Inter ou confirmada uma a uma
+    const s = (await sugestoes()).filter((x) => x.tipo === "PAGAR");
     for (const x of s) await prisma.$transaction((tx) => conciliarTx(tx, x.transacaoId, [x.lancamentoId]));
     return feito(`${s.length} contas baixadas`);
   } catch (e) { return falha(e); }

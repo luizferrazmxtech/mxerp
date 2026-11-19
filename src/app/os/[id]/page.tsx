@@ -19,6 +19,8 @@ import { FormAnexo } from "@/components/cadastros/FormsVer";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
 import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
+import BoletoParcela from "@/components/BoletoParcela";
+import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar OS" };
@@ -54,12 +56,14 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
     prisma.anotacao.findMany({ where: { entidade: "OS", entidadeId: id }, orderBy: { createdAt: "desc" } }),
     prisma.campoExtra.findMany({ where: { entidade: "OS" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
     prisma.modeloMensagem.findFirst({ where: { tipo: "OS" }, orderBy: { padrao: "desc" } }),
-    prisma.lancamento.findMany({ where: { origemTipo: "OS", origemId: id }, include: { formaPagamento: true, categoria: true }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }] }),
+    prisma.lancamento.findMany({ where: { origemTipo: "OS", origemId: id }, include: { formaPagamento: true, categoria: true, boletos: { orderBy: { createdAt: "desc" } } }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }] }),
     prisma.reserva.findMany({ where: { origemTipo: "OS", origemId: id, status: { in: ["ATIVA", "BAIXADA"] } }, include: { local: { select: { codigo: true } } } }),
     prisma.orcamento.findFirst({ where: { osId: id }, select: { id: true, numero: true } }),
     prisma.usuario.findMany({ where: { id: { in: o.tecnicoIds } }, select: { id: true, nome: true } }),
   ]);
   const h = await headers();
+  const [interAtivo, baseCliente] = await Promise.all([boletosDisponiveis(), baseLinks()]);
+  const errosBoleto = lancamentos.filter((l) => !l.pagoEm && l.boletos[0]?.situacao === "ERRO").length;
   const link = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}/cobranca/os/${o.token}`;
   const nomeEmpresa = empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH";
   const tags = { nome_cliente: o.cliente.nome, numero: String(o.numero), valor_total: brl(o.total), data: dataSP(o.entrada), validade: "", vendedor: o.vendedor?.nome ?? "", link, nome_empresa: nomeEmpresa };
@@ -120,6 +124,12 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
           </Suspenso>
         </div>
       </div>
+
+      {errosBoleto > 0 && (
+        <Link href={`${base}?aba=pagamento`} className="mb-3 flex items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800">
+          <Icone nome="alerta" size={15} /> {errosBoleto === 1 ? "Um boleto não foi registrado" : `${errosBoleto} boletos não foram registrados`} no Banco Inter. Veja o motivo na aba Pagamento.
+        </Link>
+      )}
 
       {sp.situacao && <FormSituacao id={id} numero={o.numero} atual={o.situacaoId ?? ""} situacoes={situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacaoOs(s) }))} voltar={base} acao={alterarSituacaoOsAcao} rotulo="da OS" />}
 
@@ -233,6 +243,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                         <div className="flex items-center gap-2"><b>{l.formaPagamento?.nome ?? "A combinar"}</b>
                           <span className={`pilula ml-auto ${recebida ? "border-emerald-300 bg-emerald-50 text-emerald-700" : atrasada ? "border-red-300 bg-red-50 text-red-700" : "border-orange-300 bg-orange-50 text-orange-700"}`}>{recebida ? "Recebida" : atrasada ? "Atrasada" : "A receber"}</span></div>
                         <div className="mt-1 flex text-slate-600"><span>{l.totalParcelas > 1 ? `Parcela ${l.parcela}/${l.totalParcelas}` : "Parcela única"} · vence {dia(l.vencimento)} · {l.categoria.nome}</span><b className="ml-auto text-slate-800">{brl(l.valor)}</b></div>
+                        <BoletoParcela parcela={l} cliente={o.cliente} base={baseCliente} interAtivo={interAtivo} />
                       </div>
                     );
                   })}

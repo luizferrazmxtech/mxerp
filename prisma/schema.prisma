@@ -1375,7 +1375,7 @@ model IntegracaoInter {
   chaveCifrada        String // PEM do .key, cifrado
   contaCorrente       String?
   ambiente            String         @default("producao") // producao | sandbox
-  escopos             String         @default("extrato.read")
+  escopos             String         @default("extrato.read boleto-cobranca.read boleto-cobranca.write")
   contaBancariaId     String?
   contaBancaria       ContaBancaria? @relation(fields: [contaBancariaId], references: [id], onDelete: SetNull)
   sincronizarAuto     Boolean        @default(true)
@@ -1384,7 +1384,51 @@ model IntegracaoInter {
   ultimoTesteMsg      String?
   ultimaSincEm        DateTime?
   ultimaSincMsg       String?
+  // boletos (API de Cobrança v3: BolePix)
+  emitirBoletos       Boolean        @default(true) // registra o boleto sozinho quando a parcela é de uma forma "boleto Inter"
+  boletosDesde        DateTime? // só parcelas lançadas depois disto viram boleto (as antigas/migradas não)
+  multaPct            Decimal        @default(2) @db.Decimal(5, 2)
+  jurosMesPct         Decimal        @default(1) @db.Decimal(5, 2)
+  diasBaixa           Int            @default(30) // dias depois do vencimento em que o Inter cancela o boleto não pago (0 a 60)
+  mensagemBoleto      String?
+  urlPublica          String? // endereço https do ERP para o webhook do Inter (opcional)
+  webhookToken        String?
+  webhookMsg          String?
+  ultimaSincBoletosEm  DateTime?
+  ultimaSincBoletosMsg String?
   atualizadoEm        DateTime       @updatedAt
+}
+
+/// Boleto (BolePix) registrado no Banco Inter para uma parcela de contas a receber.
+model Boleto {
+  id                 String      @id @default(cuid())
+  lancamentoId       String?
+  lancamento         Lancamento? @relation(fields: [lancamentoId], references: [id], onDelete: SetNull)
+  token              String      @unique // link público do PDF
+  seuNumero          String
+  codigoSolicitacao  String?     @unique
+  // EMITINDO, EM_PROCESSAMENTO, A_RECEBER, ATRASADO, RECEBIDO, MARCADO_RECEBIDO, CANCELADO, EXPIRADO, FALHA_EMISSAO, PROTESTO, ERRO
+  situacao           String      @default("EMITINDO")
+  valor              Decimal     @db.Decimal(14, 2)
+  vencimento         DateTime    @db.Date
+  nossoNumero        String?
+  linhaDigitavel     String?
+  codigoBarras       String?
+  txid               String?
+  pixCopiaECola      String?
+  pdf                Bytes?
+  erro               String?
+  pagoEm             DateTime?   @db.Date
+  valorRecebido      Decimal?    @db.Decimal(14, 2)
+  origemRecebimento  String? // BOLETO ou PIX
+  ambiente           String      @default("producao")
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([lancamentoId])
+  @@index([situacao])
+  @@index([nossoNumero])
+  @@index([txid])
 }
 
 model FormaPagamento {
@@ -1394,6 +1438,7 @@ model FormaPagamento {
   taxa           Decimal            @default(0) @db.Decimal(7, 4)
   diasPrazo      Int                @default(0)
   ativa          Boolean            @default(true)
+  boletoInter    Boolean            @default(false) // parcelas desta forma viram boleto registrado no Banco Inter
   pagamentos     VendaPagamento[]
   lancamentos    Lancamento[]
   orcamentos     Orcamento[]
@@ -1466,6 +1511,7 @@ model Lancamento {
   transacaoId      String?
   transacao        TransacaoBancaria?  @relation(fields: [transacaoId], references: [id])
   rateio           LancamentoRateio[]
+  boletos          Boleto[]
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 

@@ -6,7 +6,7 @@ export const FORMAS_PADRAO = [
   { nome: "PIX", tPag: "17", diasPrazo: 0 },
   { nome: "Cartão de débito", tPag: "04", diasPrazo: 1 },
   { nome: "Cartão de crédito", tPag: "03", diasPrazo: 30 },
-  { nome: "Boleto", tPag: "15", diasPrazo: 30 },
+  { nome: "Boleto", tPag: "15", diasPrazo: 30, boletoInter: true },
   { nome: "Crediário / a prazo", tPag: "05", diasPrazo: 30 },
 ];
 

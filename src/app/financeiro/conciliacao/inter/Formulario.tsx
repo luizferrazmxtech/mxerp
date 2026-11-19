@@ -7,9 +7,13 @@ function Msg({ e }: { e: Estado }) {
   return e ? <p className={`text-sm ${e.ok ? "text-emerald-700" : "text-red-700"}`}>{e.mensagem}</p> : null;
 }
 
-type Atual = { clientId: string; contaCorrente: string | null; ambiente: string; escopos: string; contaBancariaId: string | null; sincronizarAuto: boolean } | null;
+type Atual = {
+  clientId: string; contaCorrente: string | null; ambiente: string; escopos: string; contaBancariaId: string | null; sincronizarAuto: boolean;
+  emitirBoletos: boolean; multaPct: number; jurosMesPct: number; diasBaixa: number; mensagemBoleto: string | null; urlPublica: string | null;
+} | null;
+type Forma = { id: string; nome: string; boletoInter: boolean };
 
-export function FormInter({ atual, contas }: { atual: Atual; contas: { id: string; nome: string }[] }) {
+export function FormInter({ atual, contas, formas }: { atual: Atual; contas: { id: string; nome: string }[]; formas: Forma[] }) {
   const [e, act, p] = useActionState<Estado, FormData>(salvarInter, null);
   const rot = "text-xs text-slate-500";
   return (
@@ -33,19 +37,48 @@ export function FormInter({ atual, contas }: { atual: Atual; contas: { id: strin
           <option value="sandbox">Sandbox (testes do Inter)</option>
         </select>
       </label>
-      <label className={rot}>Escopos pedidos ao Inter
-        <input name="escopos" defaultValue={atual?.escopos ?? "extrato.read"} className="campo mt-1 font-mono" />
-        <span className="mt-1 block text-[11px]">Precisa ter extrato.read. Só acrescente outros se a integração tiver essas permissões.</span>
-      </label>
+      <fieldset className="space-y-1 text-sm md:col-span-2">
+        <legend className={rot}>Permissões pedidas ao Inter (precisam estar marcadas na integração, no Inter Empresas)</legend>
+        <label className="flex items-center gap-2"><input type="checkbox" checked disabled /> Consultar extrato e saldo <code className="text-[11px] text-slate-500">extrato.read</code></label>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" name="cobranca" defaultChecked={atual ? atual.escopos.includes("boleto-cobranca") : true} />
+          Emitir, consultar e cancelar boletos <code className="text-[11px] text-slate-500">boleto-cobranca.read boleto-cobranca.write</code>
+        </label>
+      </fieldset>
       <label className={rot}>Conta bancária no ERP que recebe o extrato
         <select name="contaBancariaId" defaultValue={atual?.contaBancariaId ?? ""} className="campo mt-1">
           <option value="">INTER MXTECH (cria se não existir)</option>
           {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
         </select>
       </label>
+      <h2 className="mt-2 font-semibold md:col-span-2">Boletos (BolePix)</h2>
+      <label className="flex items-center gap-2 text-sm md:col-span-2">
+        <input type="checkbox" name="emitirBoletos" defaultChecked={atual?.emitirBoletos ?? true} />
+        Registrar o boleto no Inter sozinho quando a parcela for de uma das formas abaixo (venda, OS ou conta a receber)
+      </label>
+      <fieldset className="flex flex-wrap gap-x-4 gap-y-1 text-sm md:col-span-2">
+        <legend className={rot}>Formas de pagamento que geram boleto</legend>
+        {formas.map((f) => <label key={f.id} className="flex items-center gap-1"><input type="checkbox" name="formasBoleto" value={f.id} defaultChecked={f.boletoInter} /> {f.nome}</label>)}
+      </fieldset>
+      <label className={rot}>Multa por atraso (%)
+        <input name="multaPct" defaultValue={String(atual?.multaPct ?? 2).replace(".", ",")} inputMode="decimal" className="campo mt-1" />
+      </label>
+      <label className={rot}>Juros de mora (% ao mês)
+        <input name="jurosMesPct" defaultValue={String(atual?.jurosMesPct ?? 1).replace(".", ",")} inputMode="decimal" className="campo mt-1" />
+      </label>
+      <label className={rot}>Dias após o vencimento para o Inter cancelar o boleto não pago (0 a 60)
+        <input name="diasBaixa" defaultValue={atual?.diasBaixa ?? 30} inputMode="numeric" className="campo mt-1" />
+      </label>
+      <label className={rot}>Mensagem no boleto (opcional)
+        <input name="mensagemBoleto" defaultValue={atual?.mensagemBoleto ?? ""} maxLength={78} placeholder="ex.: Não receber após 30 dias do vencimento" className="campo mt-1" />
+      </label>
+      <label className={`${rot} md:col-span-2`}>Endereço público do ERP, em https (opcional, para o aviso instantâneo do Inter e os links de boleto)
+        <input name="urlPublica" defaultValue={atual?.urlPublica ?? ""} placeholder="https://erp.suaempresa.com.br" className="campo mt-1" />
+        <span className="mt-1 block text-[11px]">Sem ele, o ERP consulta os boletos pagos de hora em hora (8h às 20h). Com ele, o Inter avisa na hora do pagamento.</span>
+      </label>
       <label className="flex items-center gap-2 text-sm md:col-span-2">
         <input type="checkbox" name="sincronizarAuto" defaultChecked={atual?.sincronizarAuto ?? true} />
-        Buscar o extrato sozinho de hora em hora (8h às 20h)
+        Buscar o extrato e a situação dos boletos sozinho de hora em hora (8h às 20h)
       </label>
       <div className="space-y-2 md:col-span-2">
         <button className="btn" disabled={p}>{p ? "Salvando e testando…" : "Salvar e testar conexão"}</button>

@@ -101,7 +101,7 @@ export async function lerExtrato(nome: string, conteudo: Buffer): Promise<Transa
 // ---------- casamento
 
 type Aberto = { id: string; tipo: "PAGAR" | "RECEBER"; valor: number; vencimento: Date; descricao: string; pessoa: string | null };
-export type Sugestao = { transacaoId: string; lancamentoId: string; confianca: "alta" | "media"; dias: number; porNome: boolean };
+export type Sugestao = { transacaoId: string; lancamentoId: string; tipo: "PAGAR" | "RECEBER"; confianca: "alta" | "media"; dias: number; porNome: boolean };
 
 const palavras = (s: string) => new Set(normalizar(s).split(" ").filter((p) => p.length >= 4 && !/^(ltda|eireli|comercio|servicos|transferencia|pagamento|recebido|enviado|boleto|compra|venda|ordem|servico)$/.test(p)));
 function casaNome(t: string, l: Aberto) {
@@ -117,9 +117,11 @@ function casaNome(t: string, l: Aberto) {
  * vencimento de 45 dias antes a 15 dias depois da data do extrato. Cada
  * lançamento é usado uma vez; ganha o par mais próximo (nome bate > data perto).
  * "alta" = nome bate, ou era o único candidato para a transação e a transação a única para ele.
+ * Contas a RECEBER nunca saem "alta": valor e data não bastam para dizer quem pagou. Elas são baixadas pelo
+ * boleto do Inter (ou pelo nosso número do boleto no extrato) e aqui só aparecem como sugestão.
  */
 export function casar(transacoes: { id: string; data: Date; valor: number; descricao: string }[], abertos: Aberto[]): Sugestao[] {
-  const pares: (Sugestao & { score: number })[] = [];
+  const pares: (Omit<Sugestao, "tipo"> & { score: number })[] = [];
   const candT = new Map<string, number>();
   const candL = new Map<string, number>();
   for (const t of transacoes) {
@@ -143,7 +145,8 @@ export function casar(transacoes: { id: string; data: Date; valor: number; descr
     usadosT.add(p.transacaoId);
     usadosL.add(p.lancamentoId);
     const unico = candT.get(p.transacaoId) === 1 && candL.get(p.lancamentoId) === 1;
-    out.push({ transacaoId: p.transacaoId, lancamentoId: p.lancamentoId, dias: p.dias, porNome: p.porNome, confianca: p.porNome || unico ? "alta" : "media" });
+    const tipo = abertos.find((l) => l.id === p.lancamentoId)!.tipo;
+    out.push({ transacaoId: p.transacaoId, lancamentoId: p.lancamentoId, tipo, dias: p.dias, porNome: p.porNome, confianca: tipo === "PAGAR" && (p.porNome || unico) ? "alta" : "media" });
   }
   return out;
 }
@@ -212,6 +215,31 @@ export async function desfazerTx(tx: Tx, transacaoId: string) {
   return tx.transacaoBancaria.update({ where: { id: transacaoId }, data: { situacao: "PENDENTE" } });
 }
 
+/**
+ * Entradas do extrato que trazem o nosso número (ou o txid do Pix) de um boleto emitido pelo ERP: amarra com a
+ * conta do boleto. Se a conta ainda estiver em aberto (a consulta de boletos ainda não rodou), baixa com a data do extrato.
+ * É casamento pelo identificador do boleto, não por valor/data.
+ */
+export async function conciliarPorBoleto(contaBancariaId: string) {
+  const ts = await prisma.transacaoBancaria.findMany({ where: { contaBancariaId, situacao: "PENDENTE", valor: { gt: 0 }, documento: { not: null } } });
+  let baixadas = 0;
+  for (const t of ts) {
+    const b = await prisma.boleto.findFirst({ where: { OR: [{ nossoNumero: t.documento }, { txid: t.documento }], lancamentoId: { not: null } }, include: { lancamento: true } });
+    const l = b?.lancamento;
+    if (!l || l.tipo !== "RECEBER" || (l.transacaoId && l.transacaoId !== t.id)) continue;
+    await prisma.$transaction(async (tx) => {
+      if (!l.pagoEm) {
+        await conciliarTx(tx, t.id, [l.id]);
+        baixadas++;
+      } else {
+        await tx.lancamento.update({ where: { id: l.id }, data: { transacaoId: t.id } });
+        await tx.transacaoBancaria.update({ where: { id: t.id }, data: { situacao: "CONCILIADA" } });
+      }
+    });
+  }
+  return baixadas;
+}
+
 /** Grava as transações novas do extrato (as que já vieram em outro arquivo são puladas) e baixa as de confiança alta. */
 export async function importarExtrato(contaBancariaId: string, ts: TransacaoExtrato[], opts: { baixarAutomatico?: boolean } = {}) {
   let novas = 0;
@@ -222,7 +250,7 @@ export async function importarExtrato(contaBancariaId: string, ts: TransacaoExtr
     });
     novas += r.count;
   }
-  let baixadas = 0;
+  let baixadas = await conciliarPorBoleto(contaBancariaId);
   if (opts.baixarAutomatico !== false) {
     for (const s of (await sugestoes(contaBancariaId)).filter((x) => x.confianca === "alta")) {
       await prisma.$transaction((tx) => conciliarTx(tx, s.transacaoId, [s.lancamentoId]));

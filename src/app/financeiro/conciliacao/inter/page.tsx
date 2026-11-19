@@ -12,9 +12,10 @@ const dataHora = (d: Date) => d.toLocaleString("pt-BR", { timeZone: "America/Sao
 
 export default async function ConfigInterPagina() {
   const u = await exigirArea("/financeiro/conciliacao/inter");
-  const [r, contas] = await Promise.all([
+  const [r, contas, formas] = await Promise.all([
     prisma.integracaoInter.findUnique({ where: { id: "inter" } }),
     prisma.contaBancaria.findMany({ where: { ativa: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
+    prisma.formaPagamento.findMany({ where: { ativa: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true, boletoInter: true } }),
   ]);
   const cert = r ? infoCertificado(r.certificado) : null;
   const venceEm = cert ? Math.floor((cert.validoAte.getTime() - Date.now()) / 86400000) : null;
@@ -36,6 +37,13 @@ export default async function ConfigInterPagina() {
                     : "ainda não testada"}
                 </p>
                 <p>Última busca do extrato: {r.ultimaSincEm ? `${dataHora(r.ultimaSincEm)} · ${r.ultimaSincMsg}` : "nenhuma ainda"}</p>
+                {r.escopos.includes("boleto-cobranca") && (
+                  <>
+                    <p>Última consulta dos boletos: {r.ultimaSincBoletosEm ? `${dataHora(r.ultimaSincBoletosEm)} · ${r.ultimaSincBoletosMsg}` : "nenhuma ainda"}</p>
+                    <p>Boletos automáticos: {r.emitirBoletos ? `ligados${r.boletosDesde ? ` (parcelas lançadas desde ${dataHora(r.boletosDesde)})` : ""}` : "desligados (só pelo botão Emitir boleto)"}</p>
+                    {r.webhookMsg && <p className={r.webhookMsg.startsWith("Erro") ? "text-red-700" : "text-slate-600"}>{r.webhookMsg}</p>}
+                  </>
+                )}
                 {cert && (
                   <p className={venceEm! < 30 ? "text-red-700" : "text-slate-600"}>
                     Certificado: {cert.titular} · vale até {cert.validoAte.toLocaleDateString("pt-BR")}
@@ -53,7 +61,11 @@ export default async function ConfigInterPagina() {
           {admin ? (
             <FormInter
               contas={contas}
-              atual={r && { clientId: r.clientId, contaCorrente: r.contaCorrente, ambiente: r.ambiente, escopos: r.escopos, contaBancariaId: r.contaBancariaId, sincronizarAuto: r.sincronizarAuto }}
+              formas={formas}
+              atual={r && {
+                clientId: r.clientId, contaCorrente: r.contaCorrente, ambiente: r.ambiente, escopos: r.escopos, contaBancariaId: r.contaBancariaId, sincronizarAuto: r.sincronizarAuto,
+                emitirBoletos: r.emitirBoletos, multaPct: Number(r.multaPct), jurosMesPct: Number(r.jurosMesPct), diasBaixa: r.diasBaixa, mensagemBoleto: r.mensagemBoleto, urlPublica: r.urlPublica,
+              }}
             />
           ) : (
             <p className="cartao p-4 text-sm text-slate-600">Só o administrador altera as credenciais da integração.</p>
@@ -62,7 +74,7 @@ export default async function ConfigInterPagina() {
         <Bloco titulo={<b>Onde pegar cada dado</b>}>
           <ol className="list-decimal space-y-2 pl-4 text-sm text-slate-700">
             <li>No <b>Inter Empresas</b> (internet banking, como administrador), abra <i>Soluções para sua empresa → Nova integração</i> ou a integração que você já criou.</li>
-            <li>A integração precisa da permissão <b>Consultar extrato e saldo</b> (escopo <code>extrato.read</code>).</li>
+            <li>Marque na integração as permissões <b>Consultar extrato e saldo</b> (<code>extrato.read</code>) e, para os boletos, <b>Emitir e cancelar boletos/cobranças</b> e <b>Consultar boletos/cobranças</b> (<code>boleto-cobranca.write</code> e <code>boleto-cobranca.read</code>). Se a integração já existe só com o extrato, edite-a no Inter Empresas e acrescente as de boleto.</li>
             <li>Copie o <b>Client ID</b> e o <b>Client Secret</b> da integração.</li>
             <li>Baixe a <b>chave e o certificado</b> (um .zip com o <code>.crt</code> e o <code>.key</code>). Pode enviar o .zip direto ou os dois arquivos juntos.</li>
             <li><b>Conta corrente</b>: só precisa se a empresa tiver mais de uma conta no Inter; são os números da conta, sem traço.</li>

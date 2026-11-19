@@ -19,6 +19,8 @@ import FormSituacao from "@/components/orcamentos/FormSituacao";
 import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import { avisoSituacao, baseVendas, tituloVendas } from "@/components/vendas/ListaVendas";
+import BoletoParcela from "@/components/BoletoParcela";
+import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar venda" };
@@ -52,11 +54,13 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
     prisma.anotacao.findMany({ where: { entidade: "VENDA", entidadeId: id }, orderBy: { createdAt: "desc" } }),
     prisma.campoExtra.findMany({ where: { entidade: "VENDA" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
     prisma.modeloMensagem.findFirst({ where: { tipo: "VE" }, orderBy: { padrao: "desc" } }),
-    prisma.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: id }, include: { formaPagamento: true, categoria: true }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }] }),
+    prisma.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: id }, include: { formaPagamento: true, categoria: true, boletos: { orderBy: { createdAt: "desc" } } }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }] }),
     prisma.reserva.findMany({ where: { origemTipo: "VENDA", origemId: id, status: { in: ["ATIVA", "BAIXADA"] } }, include: { local: { select: { codigo: true } } } }),
     prisma.orcamento.findFirst({ where: { vendaId: id }, select: { id: true, numero: true } }),
   ]);
   const h = await headers();
+  const [interAtivo, baseCliente] = await Promise.all([boletosDisponiveis(), baseLinks()]);
+  const errosBoleto = lancamentos.filter((l) => !l.pagoEm && l.boletos[0]?.situacao === "ERRO").length;
   const link = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}/cobranca/${v.token}`;
   const nomeEmpresa = empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH";
   const nomeCliente = v.cliente?.nome ?? "Consumidor";
@@ -116,6 +120,12 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
           </Suspenso>
         </div>
       </div>
+
+      {errosBoleto > 0 && (
+        <Link href={`${base}?aba=pagamento`} className="mb-3 flex items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800">
+          <Icone nome="alerta" size={15} /> {errosBoleto === 1 ? "Um boleto não foi registrado" : `${errosBoleto} boletos não foram registrados`} no Banco Inter. Veja o motivo na aba Pagamento.
+        </Link>
+      )}
 
       {sp.situacao && <FormSituacao id={id} numero={v.numero} atual={v.situacaoId ?? ""} situacoes={situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacao(s) }))} voltar={base} acao={alterarSituacaoVendaAcao} rotulo="da venda" />}
 
@@ -202,6 +212,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
                           <span className={`pilula ml-auto ${recebida ? "border-emerald-300 bg-emerald-50 text-emerald-700" : atrasada ? "border-red-300 bg-red-50 text-red-700" : "border-orange-300 bg-orange-50 text-orange-700"}`}>{recebida ? "Recebida" : atrasada ? "Atrasada" : "A receber"}</span></div>
                         <div className="mt-1 flex text-slate-600"><span>Vencimento {dia(l.vencimento)} · {l.categoria.nome}</span><b className="ml-auto text-slate-800">{brl(l.valor)}</b></div>
                         <div className="text-[11px] text-slate-500">Parcela {l.parcela}/{l.totalParcelas}</div>
+                        <BoletoParcela parcela={l} cliente={v.cliente} base={baseCliente} interAtivo={interAtivo} />
                       </div>
                     );
                   })}
