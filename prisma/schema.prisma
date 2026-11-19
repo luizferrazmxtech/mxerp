@@ -1595,6 +1595,24 @@ model NotaFiscal {
   @@index([origemTipo, origemId])
 }
 
+/// Registro de auditoria: quem criou, alterou ou excluiu o quê (gravado automaticamente em src/lib/db.ts).
+model RegistroAuditoria {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  usuarioId   String?
+  usuarioNome String?
+  ip          String?
+  entidade    String // modelo do banco (Venda, OrdemServico, Lancamento…)
+  entidadeId  String?
+  acao        String // CRIAR | ALTERAR | EXCLUIR
+  descricao   String
+  campos      Json? // { campo: [antes, depois] }
+
+  @@index([entidade, entidadeId])
+  @@index([createdAt])
+  @@index([usuarioId, createdAt])
+}
+
 /// NF-e emitida por terceiros contra o CNPJ da empresa (notas de compra), baixada da SEFAZ pela distribuição DF-e.
 model NotaRecebida {
   id                 String    @id @default(cuid())

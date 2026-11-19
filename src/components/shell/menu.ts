@@ -153,6 +153,7 @@ export const MENU: ItemMenu[] = [
   {
     rotulo: "Configurações", icone: "configuracoes", filhos: [
       { rotulo: "Usuários e permissões", href: "/usuarios", icone: "funcionarios" },
+      { rotulo: "Registro de auditoria", href: "/auditoria", icone: "lista" },
       { rotulo: "Banco Inter (API)", href: "/financeiro/conciliacao/inter", icone: "conciliacao" },
       { rotulo: "Migração", href: "/migracao", icone: "migracao" },
       { rotulo: "Minha senha", href: "/conta", icone: "senha" },
@@ -186,6 +187,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/grupos-produtos", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
   { prefixo: "/unidades", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
   { prefixo: "/grades", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
+  { prefixo: "/auditoria", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/usuarios", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/migracao", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/conta", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
