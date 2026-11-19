@@ -103,6 +103,7 @@ export default async function VerPessoa({ papel, id, sp }: { papel: PapelPessoa;
           <Suspenso direita classe="btn-sec px-2" botao={<Icone nome="opcoes" size={15} />}>
             {papel === "cliente" && <LinkSuspenso href={`/vendas/adicionar?cliente=${id}`} icone="vendas">Nova venda</LinkSuspenso>}
             {papel === "cliente" && <LinkSuspenso href={`/os/adicionar?cliente=${id}`} icone="os">Nova OS</LinkSuspenso>}
+            {papel === "cliente" && <LinkSuspenso href={`/chamados/novo?cliente=${id}`} icone="atendimento">Novo chamado</LinkSuspenso>}
             <BotaoExcluir acao={excluirPessoaAcao.bind(null, papel, id)} pergunta={`Excluir ${p.nome}?`} depois={cfg.base} rotulo="Excluir" />
           </Suspenso>
         </div>

@@ -90,18 +90,20 @@ model Usuario {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @default(now()) @updatedAt
 
-  osComoTecnico    OrdemServico[]     @relation("OsTecnico")
-  osComoVendedor   OrdemServico[]     @relation("OsVendedor")
-  orcamentos       Orcamento[]        @relation("OrcamentoVendedor")
-  vendas           Venda[]
-  movimentos       MovimentoEstoque[]
-  sessoes          Sessao[]
-  caixas           CaixaPdv[]
-  clientesVendedor Pessoa[]           @relation("PessoaVendedor")
-  contratos        Contrato[]
-  pessoasCriadas   Pessoa[]           @relation("PessoaCriadoPor")
-  anotacoes        PessoaAnotacao[]
-  movimentosCaixa  MovimentoCaixa[]
+  osComoTecnico       OrdemServico[]     @relation("OsTecnico")
+  osComoVendedor      OrdemServico[]     @relation("OsVendedor")
+  orcamentos          Orcamento[]        @relation("OrcamentoVendedor")
+  vendas              Venda[]
+  movimentos          MovimentoEstoque[]
+  sessoes             Sessao[]
+  caixas              CaixaPdv[]
+  clientesVendedor    Pessoa[]           @relation("PessoaVendedor")
+  contratos           Contrato[]
+  pessoasCriadas      Pessoa[]           @relation("PessoaCriadoPor")
+  anotacoes           PessoaAnotacao[]
+  movimentosCaixa     MovimentoCaixa[]
+  chamadosResponsavel Chamado[]          @relation("ChamadoResponsavel")
+  chamadosAbertos     Chamado[]          @relation("ChamadoAbertoPor")
 }
 
 enum LiberacaoComissao {
@@ -205,6 +207,7 @@ model Pessoa {
   lancamentos     Lancamento[]
   compras         Compra[]
   contratos       Contrato[]
+  chamados        Chamado[]
 
   @@index([nome])
 }
@@ -771,6 +774,7 @@ model OrdemServico {
   servicos     OsItemServico[]
   historico    OsHistorico[]
   parcelas     OsParcela[]
+  chamados     Chamado[]
 
   @@index([situacao])
   @@index([clienteId])
@@ -2025,4 +2029,67 @@ model PermissaoPapel {
   updatedAt DateTime     @updatedAt
 
   @@unique([papel, acao])
+}
+
+enum StatusChamado {
+  ABERTO
+  EM_ATENDIMENTO
+  AGUARDANDO_CLIENTE
+  RESOLVIDO
+  FECHADO
+}
+
+enum PrioridadeChamado {
+  BAIXA
+  NORMAL
+  ALTA
+  URGENTE
+}
+
+/// Atendimento / chamado de suporte (helpdesk): pedido do cliente com responsável, prazo e histórico.
+model Chamado {
+  id                 String             @id @default(cuid())
+  numero             Int                @unique
+  clienteId          String?
+  cliente            Pessoa?            @relation(fields: [clienteId], references: [id])
+  contato            String?
+  telefone           String?
+  assunto            String
+  descricao          String?
+  canal              String             @default("TELEFONE") // TELEFONE, WHATSAPP, EMAIL, PRESENCIAL, SITE, OUTRO
+  categoria          String?
+  prioridade         PrioridadeChamado  @default(NORMAL)
+  status             StatusChamado      @default(ABERTO)
+  responsavelId      String?
+  responsavel        Usuario?           @relation("ChamadoResponsavel", fields: [responsavelId], references: [id])
+  abertoPorId        String?
+  abertoPor          Usuario?           @relation("ChamadoAbertoPor", fields: [abertoPorId], references: [id])
+  prazo              DateTime?
+  osId               String?
+  os                 OrdemServico?      @relation(fields: [osId], references: [id], onDelete: SetNull)
+  primeiraRespostaEm DateTime?
+  resolvidoEm        DateTime?
+  solucao            String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  interacoes         ChamadoInteracao[]
+
+  @@index([status])
+  @@index([clienteId])
+  @@index([responsavelId, status])
+}
+
+/// Linha do histórico do chamado: comentário, mudança de status, troca de responsável.
+model ChamadoInteracao {
+  id          String   @id @default(cuid())
+  chamadoId   String
+  chamado     Chamado  @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+  usuarioId   String?
+  usuarioNome String?
+  tipo        String   @default("COMENTARIO") // COMENTARIO, STATUS, RESPONSAVEL, ABERTURA
+  texto       String
+  interno     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([chamadoId, createdAt])
 }

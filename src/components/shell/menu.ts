@@ -68,6 +68,12 @@ export const MENU: ItemMenu[] = [
     ],
   },
   {
+    rotulo: "Atendimentos", icone: "atendimento", filhos: [
+      { rotulo: "Chamados", href: "/chamados", icone: "gerenciar" },
+      { rotulo: "Novo chamado", href: "/chamados/novo", icone: "mais" },
+    ],
+  },
+  {
     rotulo: "Ordens de serviços", icone: "os", filhos: [
       { rotulo: "Gerenciar O.S.", href: "/os", icone: "gerenciar" },
       { rotulo: "Painel", href: "/os/painel", icone: "painel" },
@@ -165,6 +171,7 @@ export const MENU: ItemMenu[] = [
 /** Módulo mostrado no botão colorido da barra superior, pelo caminho. */
 export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: string }[] = [
   { prefixo: "/orcamentos", rotulo: "Orçamentos", cor: "#0f8a8a", icone: "notas" },
+  { prefixo: "/chamados", rotulo: "Atendimentos", cor: "#7c3aed", icone: "atendimento" },
   { prefixo: "/os", rotulo: "Ordens de serviços", cor: "#e8730c", icone: "os" },
   { prefixo: "/vendas", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/contratos", rotulo: "Contratos", cor: "#0e7490", icone: "contratos" },
