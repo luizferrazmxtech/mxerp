@@ -92,9 +92,12 @@ export async function criarLancamentos(
     competencia?: Date;
     formaPagamentoId?: string | null;
     contaBancariaId?: string | null;
+    centroCustoId?: string | null;
+    observacao?: string | null;
     pago?: boolean;
   },
 ) {
+  if (!(args.valorTotal > 0)) throw new Error("Informe um valor maior que zero");
   const n = Math.max(1, args.parcelas ?? 1);
   const valores = dividirParcelas(args.valorTotal, n);
   const criados = [];
@@ -109,6 +112,8 @@ export async function criarLancamentos(
           pessoaId: args.pessoaId ?? null,
           formaPagamentoId: args.formaPagamentoId ?? null,
           contaBancariaId: args.contaBancariaId ?? null,
+          centroCustoId: args.centroCustoId || null,
+          observacao: args.observacao || null,
           valor: D(valores[i]),
           vencimento: venc,
           competencia: args.competencia ?? venc,
@@ -141,6 +146,8 @@ export async function baixarLancamento(
 }
 
 export async function estornarLancamento(tx: Tx, id: string) {
+  const l = await tx.lancamento.findUniqueOrThrow({ where: { id }, select: { transferenciaId: true } });
+  if (l.transferenciaId) throw new Error("Isto é uma transferência entre contas: exclua a transferência em vez de estornar");
   return tx.lancamento.update({ where: { id }, data: { pagoEm: null, valorPago: null, juros: D(0), desconto: D(0) } });
 }
 

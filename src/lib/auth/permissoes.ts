@@ -3,6 +3,7 @@ import type { PapelUsuario } from "@prisma/client";
 /** Quem entra em cada área. O primeiro prefixo que bater vale; o que não está aqui é liberado para todos os logados. */
 const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/usuarios", papeis: ["ADMIN"] },
+  { prefixo: "/auditoria", papeis: ["ADMIN"] },
   { prefixo: "/funcionarios", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/campos-extras", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/valores-venda", papeis: ["ADMIN", "GERENTE"] },
@@ -21,6 +22,9 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/vendas/balancas", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/vendas/configuracoes", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/compras/situacoes", papeis: ["ADMIN", "GERENTE"] },
+  // notas de compra da SEFAZ e manifestação são da gerência (manifestar é ato fiscal)
+  { prefixo: "/compras/notas-recebidas", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/api/notas-recebidas", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/compras/mensagens", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/estoque/configuracoes", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/estoque/zerar", papeis: ["ADMIN", "GERENTE"] },
@@ -30,7 +34,11 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   // contratos mexem com cobrança e financeiro
   { prefixo: "/contratos", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/financeiro", papeis: ["ADMIN", "GERENTE"] },
+  // relatórios mostram custo, lucro e comissões: gerência
+  { prefixo: "/relatorios", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/api/relatorios", papeis: ["ADMIN", "GERENTE"] },
   // ver/imprimir uma nota (DANFCE) é de quem vende; a configuração fiscal e a lista ficam com a gerência
+  { prefixo: "/fiscal/inutilizacao", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/fiscal/", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   { prefixo: "/fiscal", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/api/notas", papeis: ["ADMIN", "GERENTE"] },

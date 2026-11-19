@@ -2,6 +2,7 @@ import Link from "next/link";
 import { usuarioAtual } from "@/lib/auth/atual";
 import { podeAcessar } from "@/lib/auth/permissoes";
 import { dadosPainel } from "@/lib/inicio/painel";
+import { avisosPendentes } from "@/lib/financeiro/avisosBoleto";
 import { melhorPior, percentual, saudacao } from "@/lib/inicio/escala";
 import { cor } from "@/lib/orcamentos/tipos";
 import { brl, data, qtd } from "@/lib/ui/format";
@@ -77,6 +78,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
   const mesAtual = MESES[Number(d.meses[d.meses.length - 1].chave.slice(5)) - 1];
   const primeiroNome = (u?.nome ?? "").split(" ")[0].toUpperCase();
   const fin = d.financeiro;
+  const avisosBoleto = fin ? await avisosPendentes() : 0;
   const dia = (n: number) => somarDias(diaSP(), n).toISOString().slice(0, 10);
   const [hoje, amanha, em7] = [dia(0), dia(1), dia(7)];
   const ven = d.vendas;
@@ -85,6 +87,12 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
     <Pagina titulo={`${saudacao()}${primeiroNome ? `, ${primeiroNome}` : ""}`} trilha={[]}>
       {sp.negado && (
         <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">Você não tem permissão para abrir aquela tela. Fale com o administrador.</div>
+      )}
+
+      {avisosBoleto > 0 && (
+        <Link href="/financeiro/avisos-boletos" className="mb-3 block rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-800 hover:bg-amber-100">
+          <b>{avisosBoleto} boleto(s) pago(s) no Inter sem conta no sistema.</b> Clique para lançar ou baixar a conta certa.
+        </Link>
       )}
 
       {fin && (

@@ -68,6 +68,12 @@ export const MENU: ItemMenu[] = [
     ],
   },
   {
+    rotulo: "Atendimentos", icone: "atendimento", filhos: [
+      { rotulo: "Chamados", href: "/chamados", icone: "gerenciar" },
+      { rotulo: "Novo chamado", href: "/chamados/novo", icone: "mais" },
+    ],
+  },
+  {
     rotulo: "Ordens de serviços", icone: "os", filhos: [
       { rotulo: "Gerenciar O.S.", href: "/os", icone: "gerenciar" },
       { rotulo: "Painel", href: "/os/painel", icone: "painel" },
@@ -103,6 +109,7 @@ export const MENU: ItemMenu[] = [
         rotulo: "Compras", href: "/compras", icone: "carrinho", filhos: [
           { rotulo: "Produtos", href: "/compras", icone: "produtos" },
           { rotulo: "Entrada por XML", href: "/compras/importar-xml", icone: "importar" },
+          { rotulo: "Notas recebidas (SEFAZ)", href: "/compras/notas-recebidas", icone: "notas" },
           { rotulo: "Serviços", href: "/compras/servicos", icone: "servicos" },
           { rotulo: "Cotações", href: "/compras/cotacoes", icone: "cotacao" },
         ],
@@ -121,18 +128,39 @@ export const MENU: ItemMenu[] = [
     rotulo: "Financeiro", icone: "financeiro", filhos: [
       { rotulo: "Contas a receber", href: "/financeiro?tipo=RECEBER", icone: "receber" },
       { rotulo: "Contas a pagar", href: "/financeiro?tipo=PAGAR", icone: "pagar" },
+      { rotulo: "Fluxo de caixa", href: "/financeiro/fluxo", icone: "grafico" },
       { rotulo: "Conciliação bancária", href: "/financeiro/conciliacao", icone: "conciliacao" },
+      { rotulo: "Boletos pagos sem conta", href: "/financeiro/avisos-boletos", icone: "alerta" },
       { rotulo: "DRE", href: "/financeiro/dre", icone: "dre" },
+      {
+        rotulo: "Opções auxiliares", href: "/financeiro/contas", icone: "auxiliares", filhos: [
+          { rotulo: "Contas bancárias", href: "/financeiro/contas", icone: "financeiro" },
+          { rotulo: "Transferências", href: "/financeiro/transferencias", icone: "conciliacao" },
+          { rotulo: "Plano de contas", href: "/financeiro/plano-contas", icone: "lista" },
+          { rotulo: "Centros de custo", href: "/financeiro/centros-custo", icone: "lojas" },
+        ],
+      },
+    ],
+  },
+  {
+    rotulo: "Relatórios", icone: "grafico", filhos: [
+      { rotulo: "Todos os relatórios", href: "/relatorios", icone: "lista" },
+      { rotulo: "Lucro", href: "/relatorios/lucro", icone: "dinheiro" },
+      { rotulo: "Curva ABC", href: "/relatorios/curva-abc", icone: "grafico" },
+      { rotulo: "Comissões", href: "/relatorios/comissoes", icone: "percentual" },
+      { rotulo: "Tempo das OS", href: "/relatorios/tempo-os", icone: "relogio" },
     ],
   },
   {
     rotulo: "Fiscal", icone: "fiscal", filhos: [
       { rotulo: "Notas fiscais", href: "/fiscal", icone: "notas" },
+      { rotulo: "Inutilizar numeração", href: "/fiscal/inutilizacao", icone: "excluir" },
     ],
   },
   {
     rotulo: "Configurações", icone: "configuracoes", filhos: [
       { rotulo: "Usuários e permissões", href: "/usuarios", icone: "funcionarios" },
+      { rotulo: "Registro de auditoria", href: "/auditoria", icone: "lista" },
       { rotulo: "Banco Inter (API)", href: "/financeiro/conciliacao/inter", icone: "conciliacao" },
       { rotulo: "Migração", href: "/migracao", icone: "migracao" },
       { rotulo: "Minha senha", href: "/conta", icone: "senha" },
@@ -143,11 +171,13 @@ export const MENU: ItemMenu[] = [
 /** Módulo mostrado no botão colorido da barra superior, pelo caminho. */
 export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: string }[] = [
   { prefixo: "/orcamentos", rotulo: "Orçamentos", cor: "#0f8a8a", icone: "notas" },
+  { prefixo: "/chamados", rotulo: "Atendimentos", cor: "#7c3aed", icone: "atendimento" },
   { prefixo: "/os", rotulo: "Ordens de serviços", cor: "#e8730c", icone: "os" },
   { prefixo: "/vendas", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/contratos", rotulo: "Contratos", cor: "#0e7490", icone: "contratos" },
   { prefixo: "/pdv", rotulo: "PDV", cor: "#2e9d4f", icone: "balcao" },
   { prefixo: "/financeiro", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
+  { prefixo: "/relatorios", rotulo: "Relatórios", cor: "#5b6573", icone: "grafico" },
   { prefixo: "/fiscal", rotulo: "Fiscal", cor: "#7a4fd1", icone: "fiscal" },
   { prefixo: "/estoque", rotulo: "Estoque", cor: "#b5651d", icone: "estoque" },
   { prefixo: "/compras", rotulo: "Estoque", cor: "#b5651d", icone: "estoque" },
@@ -165,6 +195,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/grupos-produtos", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
   { prefixo: "/unidades", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
   { prefixo: "/grades", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
+  { prefixo: "/auditoria", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/usuarios", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/migracao", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/conta", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },

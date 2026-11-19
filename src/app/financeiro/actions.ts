@@ -1,6 +1,6 @@
 "use server";
 
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { baixarLancamento, criarLancamentos, estornarLancamento } from "@/lib/financeiro/lancamentos";
@@ -13,7 +13,7 @@ const num = (x: FormDataEntryValue | null) => lerNumero(String(x ?? "")) ?? 0;
 const str = (x: FormDataEntryValue | null) => String(x ?? "").trim();
 
 export async function novoLancamento(form: FormData) {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
+  await exigirAcao("financeiro.lancar");
   const criados = await prisma.$transaction((tx) =>
     criarLancamentos(tx, {
       tipo: str(form.get("tipo")) as "PAGAR" | "RECEBER",
@@ -24,6 +24,10 @@ export async function novoLancamento(form: FormData) {
       parcelas: Number(form.get("parcelas") || 1),
       primeiroVencimento: parseDia(str(form.get("vencimento"))),
       formaPagamentoId: str(form.get("formaPagamentoId")) || null,
+      contaBancariaId: str(form.get("contaBancariaId")) || null,
+      centroCustoId: str(form.get("centroCustoId")) || null,
+      competencia: str(form.get("competencia")) ? parseDia(str(form.get("competencia"))) : undefined,
+      observacao: str(form.get("observacao")) || null,
     }),
   );
   await boletosDoDocumento({ lancamentoIds: criados.map((l) => l.id) });
@@ -31,7 +35,7 @@ export async function novoLancamento(form: FormData) {
 }
 
 export async function baixar(form: FormData) {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
+  await exigirAcao("financeiro.baixar");
   await prisma.$transaction((tx) =>
     baixarLancamento(tx, str(form.get("id")), {
       data: parseDia(str(form.get("data"))),
@@ -46,22 +50,14 @@ export async function baixar(form: FormData) {
 }
 
 export async function estornar(form: FormData) {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
+  await exigirAcao("financeiro.estornar");
   await prisma.$transaction((tx) => estornarLancamento(tx, str(form.get("id"))));
   revalidatePath("/financeiro");
 }
 
 export async function excluir(form: FormData) {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
+  await exigirAcao("financeiro.excluir");
   await prisma.lancamento.deleteMany({ where: { id: str(form.get("id")), pagoEm: null, origemTipo: null } });
   await boletosDoDocumento({ lancamentoIds: [] }); // cancela no Inter o boleto da conta apagada
-  revalidatePath("/financeiro");
-}
-
-export async function novaConta(form: FormData) {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
-  await prisma.contaBancaria.create({
-    data: { nome: str(form.get("nome")), banco: str(form.get("banco")) || null, saldoInicial: num(form.get("saldoInicial")) },
-  });
   revalidatePath("/financeiro");
 }

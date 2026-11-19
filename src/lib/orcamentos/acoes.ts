@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, type PapelUsuario } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import {
   alterarSituacaoOrcamento, clonarOrcamento, excluirOrcamento, gerarOsDoOrcamento, gerarVendaDoOrcamento, salvarOrcamento, type DadosOrcamento,
 } from "./orcamentos";
@@ -62,12 +62,12 @@ export async function clonarOrcamentoAcao(id: string) {
 }
 
 export async function excluirOrcamentoAcao(id: string) {
-  await exigirUsuario(GER);
+  await exigirAcao("orcamento.excluir");
   try { const r = await excluirOrcamento(id); revalidatePath("/orcamentos", "layout"); return r; } catch (e) { return erro(e); }
 }
 
 export async function excluirOrcamentosAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  await exigirUsuario(GER);
+  await exigirAcao("orcamento.excluir");
   const ids = form.getAll("ids").map(String);
   if (!ids.length) return { ok: false, mensagem: "Marque os orçamentos na lista" };
   for (const id of ids) await excluirOrcamento(id);

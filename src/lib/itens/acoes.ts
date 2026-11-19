@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { ajustarValoresEmMassa, clonarProduto, excluirProduto, gerarCodigoProduto, salvarProduto } from "./produtos";
 import { salvarServico, excluirServico, gerarCodigoServico } from "./servicos";
 import { whereProdutos } from "./filtros";
@@ -49,7 +49,7 @@ export async function gerarCodigoAcao() {
 }
 
 export async function excluirProdutoAcao(id: string) {
-  await exigirUsuario([...EDITA]);
+  await exigirAcao("produto.excluir");
   try { const r = await excluirProduto(id); revalidatePath("/produtos"); return r; } catch (e) { return erro(e); }
 }
 
@@ -61,7 +61,7 @@ export async function clonarProdutoAcao(id: string) {
 
 /** Mais ações › Ajustar valores em massa (sobre os produtos filtrados na lista). */
 export async function ajustarValoresAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  const u = await exigirUsuario(["ADMIN", "GERENTE"]);
+  const u = await exigirAcao("produto.precos");
   try {
     const filtros = JSON.parse(String(form.get("filtros") || "{}"));
     const modo = form.get("modo") === "lucro" ? "lucro" : "percentual";
@@ -96,6 +96,7 @@ export async function ajustarProdutosAcao(_: Resultado, form: FormData): Promise
 
 export async function excluirProdutosAcao(_: Resultado, form: FormData): Promise<Resultado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
+  await exigirAcao("produto.excluir");
   const ids = form.getAll("ids").map(String);
   if (!ids.length) return { ok: false, mensagem: "Marque os produtos na lista" };
   let exc = 0, inat = 0;
@@ -125,12 +126,13 @@ export async function salvarServicoForm(_: Resultado, form: FormData): Promise<R
 }
 
 export async function excluirServicoAcao(id: string) {
-  await exigirUsuario([...EDITA]);
+  await exigirAcao("produto.excluir");
   try { const r = await excluirServico(id); revalidatePath("/servicos"); return r; } catch (e) { return erro(e); }
 }
 
 export async function excluirServicosAcao(_: Resultado, form: FormData): Promise<Resultado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
+  await exigirAcao("produto.excluir");
   const ids = form.getAll("ids").map(String);
   if (!ids.length) return { ok: false, mensagem: "Marque os serviços na lista" };
   const rs = await Promise.all(ids.map((id) => excluirServico(id)));

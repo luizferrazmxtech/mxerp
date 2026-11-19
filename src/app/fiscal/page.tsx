@@ -4,13 +4,14 @@ import { prisma } from "@/lib/db";
 import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
 import ConfigEmpresa from "./ConfigEmpresa";
+import { numerosPendentes } from "@/lib/fiscal/inutilizacao";
 import { consultarStatus } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 const COR: Record<string, string> = {
   AUTORIZADA: "bg-emerald-200 text-emerald-900", REJEITADA: "bg-red-200 text-red-900", CANCELADA: "bg-slate-300 text-slate-800",
-  DENEGADA: "bg-red-300 text-red-900", ASSINADA: "bg-amber-200 text-amber-900", ENVIADA: "bg-amber-200 text-amber-900", RASCUNHO: "bg-slate-200",
+  DENEGADA: "bg-red-300 text-red-900", INUTILIZADA: "bg-slate-200 text-slate-600", ASSINADA: "bg-amber-200 text-amber-900", ENVIADA: "bg-amber-200 text-amber-900", RASCUNHO: "bg-slate-200",
 };
 
 export default async function Fiscal() {
@@ -20,9 +21,17 @@ export default async function Fiscal() {
     prisma.notaFiscal.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
   ]);
   const certOk = !!process.env.CERTIFICADO_A1_PATH;
+  // números rejeitados/pulados que ainda precisam ser inutilizados na SEFAZ
+  const pendentes = e
+    ? (await Promise.all([numerosPendentes("NFE", e.serieNfe, e.ambienteFiscal), numerosPendentes("NFCE", e.serieNfce, e.ambienteFiscal)]))
+        .flat().reduce((s, f) => s + f.fim - f.inicio + 1, 0)
+    : 0;
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Notas fiscais</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold">Notas fiscais</h1>
+        <Link href="/fiscal/inutilizacao" className="btn-sec">Inutilizar numeração{pendentes > 0 && <span className="ml-1 rounded bg-red-600 px-1.5 text-[11px] text-white">{pendentes}</span>}</Link>
+      </div>
       <div className="grid gap-3 md:grid-cols-3">
         <div className="cartao p-4 text-sm">
           <div className="text-xs text-slate-500">Certificado A1</div>

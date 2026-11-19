@@ -1,5 +1,6 @@
 "use server";
 
+import { registrarAuditoria } from "@/lib/auditoria/registro";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { autenticar, COOKIE, criarSessao, DURACAO_MS, encerrarSessao } from "@/lib/auth/sessao";
@@ -27,7 +28,11 @@ export async function entrar(_: EstadoLogin, form: FormData): Promise<EstadoLogi
   } catch (e) {
     return { erro: e instanceof Error ? e.message : String(e) };
   }
-  if (!usuario) return { erro: "E-mail ou senha incorretos" };
+  if (!usuario) {
+    await registrarAuditoria(null, { entidade: "Login", acao: "FALHA", descricao: `Tentativa de login com senha errada para ${email.slice(0, 120)} (IP ${ip})` });
+    return { erro: "E-mail ou senha incorretos" };
+  }
+  await registrarAuditoria(usuario, { entidade: "Login", acao: "ENTRAR", descricao: `Entrou no sistema (IP ${ip})` });
   const token = await criarSessao(usuario.id, ip);
   (await cookies()).set(COOKIE, token, { httpOnly: true, sameSite: "lax", secure: https, path: "/", maxAge: DURACAO_MS / 1000 });
   const destino = voltar.startsWith("/") && !voltar.startsWith("//") ? voltar : "/";

@@ -78,6 +78,7 @@ services:
           if [ -n "$$CRON_SECRET" ] && [ "$$h" -ge 8 ] && [ "$$h" -le 20 ]; then
             curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/inter/sincronizar; echo
             curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/contratos/processar; echo
+            curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/dfe/sincronizar; echo
           fi
           sleep 3600
         done

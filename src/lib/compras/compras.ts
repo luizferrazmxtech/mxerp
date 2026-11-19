@@ -1,3 +1,4 @@
+import { centroPorNome } from "@/lib/financeiro/plano";
 import { Prisma, type PapelUsuario, type SituacaoCompraConfig } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { entrada, saida } from "@/lib/estoque/estoque";
@@ -79,6 +80,7 @@ async function lancarPagar(tx: Tx, compraId: string) {
   const c = await tx.compra.findUniqueOrThrow({ where: { id: compraId }, include: { parcelas: { orderBy: { numero: "asc" } } } });
   if (c.financeiroNoLegado || !(Number(c.total) > 0)) return;
   await garantirPadroes(tx);
+  const centro = await centroPorNome(tx, c.centroCusto);
   const cat = await categoria(tx, c.tipo === "SERVICO" ? "Serviços de terceiros" : "Compra de mercadorias (estoque)", "PAGAR");
   const parcelas = c.parcelas.length ? c.parcelas : [{ numero: 1, vencimento: c.data, valor: c.total, formaPagamentoId: c.formaPagamentoId }];
   for (const p of parcelas)
@@ -86,7 +88,7 @@ async function lancarPagar(tx: Tx, compraId: string) {
       data: {
         tipo: "PAGAR", descricao: parcelas.length > 1 ? `Compra de nº ${c.numero} (${p.numero}/${parcelas.length})` : `Compra de nº ${c.numero}`,
         pessoaId: c.fornecedorId, categoriaId: cat.id, formaPagamentoId: p.formaPagamentoId ?? c.formaPagamentoId, valor: p.valor,
-        vencimento: p.vencimento, competencia: c.data, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "COMPRA", origemId: c.id,
+        vencimento: p.vencimento, competencia: c.data, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "COMPRA", origemId: c.id, centroCustoId: centro,
       },
     });
 }

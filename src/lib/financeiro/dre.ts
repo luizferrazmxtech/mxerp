@@ -22,7 +22,10 @@ const GRUPOS: { grupo: string; rotulo: string; sinal: 1 | -1 }[] = [
   { grupo: "OUTRAS_DESPESAS", rotulo: "(−) Outras despesas", sinal: -1 },
 ];
 
-export async function calcularDre(ano: number, regime: Regime = "COMPETENCIA") {
+export async function calcularDre(ano: number, regime: Regime = "COMPETENCIA", centroCustoId?: string) {
+  // por centro de custo: só os lançamentos do centro e o CMV das vendas/OS marcadas com ele
+  const centro = centroCustoId ? await prisma.centroCusto.findUnique({ where: { id: centroCustoId } }) : null;
+  const filtroCentro = centro ? `AND l."centroCustoId" = $3` : "";
   const ini = new Date(Date.UTC(ano, 0, 1));
   const fim = new Date(Date.UTC(ano + 1, 0, 1));
   const campoData = regime === "CAIXA" ? `l."pagoEm"` : `l.competencia`;
@@ -34,11 +37,14 @@ export async function calcularDre(ano: number, regime: Regime = "COMPETENCIA") {
        FROM "Lancamento" l LEFT JOIN "LancamentoRateio" r ON r."lancamentoId" = l.id
        JOIN "CategoriaFinanceira" c ON c.id = COALESCE(r."categoriaId", l."categoriaId")
       WHERE ${campoData} >= $1 AND ${campoData} < $2 AND c."grupoDre" <> 'NAO_OPERACIONAL'
-        ${regime === "CAIXA" ? `AND l."pagoEm" IS NOT NULL` : ""}
+        ${regime === "CAIXA" ? `AND l."pagoEm" IS NOT NULL` : ""} ${filtroCentro}
       GROUP BY 1, 2, 3`,
     ini,
     fim,
+    ...(centro ? [centro.id] : []),
   );
+  const cv = centro ? Prisma.sql`AND v."centroCusto" = ${centro.nome}` : Prisma.empty;
+  const co = centro ? Prisma.sql`AND o."centroCusto" = ${centro.nome}` : Prisma.empty;
 
   // timestamps são gravados em UTC; o mês da DRE é o de São Paulo
   const local = (col: string) => Prisma.raw(`(${col} AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')`);
@@ -49,16 +55,16 @@ export async function calcularDre(ano: number, regime: Regime = "COMPETENCIA") {
     SELECT mes, SUM(valor)::float valor FROM (
       SELECT EXTRACT(MONTH FROM ${local("v.data")})::int mes, i.quantidade * i."custoUnit" valor
         FROM "VendaItem" i JOIN "Venda" v ON v.id = i."vendaId"
-       WHERE v.situacao = 'CONCLUIDA' AND ${local("v.data")} >= ${iniL}::date AND ${local("v.data")} < ${fimL}::date
+       WHERE v.situacao = 'CONCLUIDA' AND ${local("v.data")} >= ${iniL}::date AND ${local("v.data")} < ${fimL}::date ${cv}
       UNION ALL
       SELECT EXTRACT(MONTH FROM ${local("o.saida")})::int, i.quantidade * i."custoUnit"
         FROM "OsItemProduto" i JOIN "OrdemServico" o ON o.id = i."osId"
-       WHERE o.situacao IN ('CONCLUIDA','FATURADA') AND ${local("o.saida")} >= ${iniL}::date AND ${local("o.saida")} < ${fimL}::date
+       WHERE o.situacao IN ('CONCLUIDA','FATURADA') AND ${local("o.saida")} >= ${iniL}::date AND ${local("o.saida")} < ${fimL}::date ${co}
       UNION ALL
       -- peças devolvidas/trocadas voltaram ao estoque: saem do CMV no mês da devolução
       SELECT EXTRACT(MONTH FROM ${local("d.\"createdAt\"")})::int, -(di.quantidade * vi."custoUnit")
-        FROM "DevolucaoItem" di JOIN "Devolucao" d ON d.id = di."devolucaoId" JOIN "VendaItem" vi ON vi.id = di."vendaItemId"
-       WHERE ${local("d.\"createdAt\"")} >= ${iniL}::date AND ${local("d.\"createdAt\"")} < ${fimL}::date
+        FROM "DevolucaoItem" di JOIN "Devolucao" d ON d.id = di."devolucaoId" JOIN "VendaItem" vi ON vi.id = di."vendaItemId" JOIN "Venda" v ON v.id = vi."vendaId"
+       WHERE ${local("d.\"createdAt\"")} >= ${iniL}::date AND ${local("d.\"createdAt\"")} < ${fimL}::date ${cv}
     ) x GROUP BY mes`;
 
   const vazio = () => Array(12).fill(0) as number[];
@@ -113,5 +119,5 @@ export async function calcularDre(ano: number, regime: Regime = "COMPETENCIA") {
   const od = grupo("OUTRAS_DESPESAS");
   const liq = combinar([ro, 1], [rf, 1], [df, -1], [or, 1], [od, -1]);
   resultado("RLIQ", "= Resultado líquido", liq);
-  return { ano, regime, linhas, margemLiquida: soma(rb) ? soma(liq) / soma(rb) : 0 };
+  return { ano, regime, centro: centro?.nome ?? null, linhas, margemLiquida: soma(rb) ? soma(liq) / soma(rb) : 0 };
 }

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, type EstoqueSituacao, type NotaSituacao, type PapelUsuario } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { avisoBoletos, boletosDoDocumento } from "@/lib/financeiro/boletos";
 import { emitirNfseVenda, emitirNotaVenda } from "@/lib/fiscal/emissao";
 import { configVenda } from "./config";
@@ -35,7 +35,7 @@ export async function salvarPedidoForm(_: Resultado, form: FormData): Promise<Re
 }
 
 export async function alterarSituacaoVendaAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  const u = await exigirUsuario(VENDE);
+  const u = await exigirAcao("venda.situacao");
   try {
     const r = await alterarSituacaoPedido(String(form.get("id")), String(form.get("situacaoId")), u, { observacao: String(form.get("observacao") ?? ""), forcar: form.get("forcar") === "1", permitirNegativo: (await configVenda()).estoqueNegativo });
     const bol = avisoBoletos(await boletosDoDocumento({ origemTipo: "VENDA", origemId: String(form.get("id")) }));
@@ -45,7 +45,7 @@ export async function alterarSituacaoVendaAcao(_: Resultado, form: FormData): Pr
 }
 
 export async function situacaoVendasEmMassaAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  const u = await exigirUsuario(VENDE);
+  const u = await exigirAcao("venda.situacao");
   const ids = form.getAll("ids").map(String);
   if (!ids.length) return { ok: false, mensagem: "Marque as vendas na lista" };
   const sit = String(form.get("situacaoId") ?? "");
@@ -64,7 +64,7 @@ export async function clonarVendaAcao(id: string) {
 }
 
 export async function excluirVendaAcao(id: string) {
-  await exigirUsuario(GER);
+  await exigirAcao("venda.excluir");
   try { const n = await excluirPedido(id); await boletosDoDocumento({ lancamentoIds: [] }); revalidatePath("/vendas", "layout"); return { ok: true, mensagem: `Venda nº ${n} excluída.` }; } catch (e) { return erro(e); }
 }
 
@@ -75,7 +75,7 @@ export async function excluirVendaEVoltarAcao(id: string, voltar: string) {
 }
 
 export async function excluirVendasAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  await exigirUsuario(GER);
+  await exigirAcao("venda.excluir");
   const ids = form.getAll("ids").map(String);
   if (!ids.length) return { ok: false, mensagem: "Marque as vendas na lista" };
   let ok = 0; const falhas: string[] = [];
@@ -108,7 +108,7 @@ export async function anotarVendaAcao(_: Resultado, form: FormData): Promise<Res
 // ---------- trocas e devoluções
 
 export async function devolucaoAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  const u = await exigirUsuario(VENDE);
+  const u = await exigirAcao("venda.devolucao");
   let destino: string;
   try {
     const itens = JSON.parse(String(form.get("itens") ?? "[]")) as { vendaItemId: string; quantidade: number }[];

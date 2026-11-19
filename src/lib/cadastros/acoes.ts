@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { excluirFuncionario, salvarFuncionario, type DadosFuncionario } from "./funcionarios";
 import { PAPEIS, excluirPessoa, salvarPessoa, type DadosPessoa, type PapelPessoa } from "./pessoas";
 
@@ -48,7 +48,7 @@ async function gravarAnexo(entidade: string, entidadeId: string, a: FormDataEntr
 }
 
 export async function excluirPessoaAcao(papel: PapelPessoa, id: string) {
-  await exigirUsuario(["ADMIN", "GERENTE", "OPERADOR", "CAIXA", "TECNICO"]);
+  await exigirAcao("pessoa.excluir");
   try {
     const r = await excluirPessoa(papelValido(papel), id);
     revalidatePath(PAPEIS[papel].base);
@@ -59,6 +59,7 @@ export async function excluirPessoaAcao(papel: PapelPessoa, id: string) {
 /** "Excluir clientes" em massa (Mais ações). */
 export async function excluirVariasAcao(_: Resultado, form: FormData): Promise<Resultado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
+  await exigirAcao("pessoa.excluir");
   const papel = papelValido(form.get("papel"));
   const ids = form.getAll("ids").map(String);
   if (!ids.length) return { ok: false, mensagem: "Marque ao menos um cadastro" };

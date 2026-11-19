@@ -90,17 +90,20 @@ model Usuario {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @default(now()) @updatedAt
 
-  osComoTecnico    OrdemServico[]     @relation("OsTecnico")
-  osComoVendedor   OrdemServico[]     @relation("OsVendedor")
-  orcamentos       Orcamento[]        @relation("OrcamentoVendedor")
-  vendas           Venda[]
-  movimentos       MovimentoEstoque[]
-  sessoes          Sessao[]
-  caixas           CaixaPdv[]
-  clientesVendedor Pessoa[]           @relation("PessoaVendedor")
-  contratos        Contrato[]
-  pessoasCriadas   Pessoa[]           @relation("PessoaCriadoPor")
-  anotacoes        PessoaAnotacao[]
+  osComoTecnico       OrdemServico[]     @relation("OsTecnico")
+  osComoVendedor      OrdemServico[]     @relation("OsVendedor")
+  orcamentos          Orcamento[]        @relation("OrcamentoVendedor")
+  vendas              Venda[]
+  movimentos          MovimentoEstoque[]
+  sessoes             Sessao[]
+  caixas              CaixaPdv[]
+  clientesVendedor    Pessoa[]           @relation("PessoaVendedor")
+  contratos           Contrato[]
+  pessoasCriadas      Pessoa[]           @relation("PessoaCriadoPor")
+  anotacoes           PessoaAnotacao[]
+  movimentosCaixa     MovimentoCaixa[]
+  chamadosResponsavel Chamado[]          @relation("ChamadoResponsavel")
+  chamadosAbertos     Chamado[]          @relation("ChamadoAbertoPor")
 }
 
 enum LiberacaoComissao {
@@ -204,6 +207,7 @@ model Pessoa {
   lancamentos     Lancamento[]
   compras         Compra[]
   contratos       Contrato[]
+  chamados        Chamado[]
 
   @@index([nome])
 }
@@ -770,6 +774,7 @@ model OrdemServico {
   servicos     OsItemServico[]
   historico    OsHistorico[]
   parcelas     OsParcela[]
+  chamados     Chamado[]
 
   @@index([situacao])
   @@index([clienteId])
@@ -915,17 +920,40 @@ enum SituacaoVenda {
  * Caixa do PDV: aberto com um valor em dinheiro, as vendas de balcão ficam ligadas a ele até o fechamento.
  */
 model CaixaPdv {
-  id              String    @id @default(cuid())
+  id              String           @id @default(cuid())
   usuarioId       String
-  usuario         Usuario   @relation(fields: [usuarioId], references: [id])
-  abertoEm        DateTime  @default(now())
-  valorAbertura   Decimal   @db.Decimal(14, 2)
+  usuario         Usuario          @relation(fields: [usuarioId], references: [id])
+  abertoEm        DateTime         @default(now())
+  valorAbertura   Decimal          @db.Decimal(14, 2)
   fechadoEm       DateTime?
-  valorFechamento Decimal?  @db.Decimal(14, 2)
+  valorFechamento Decimal?         @db.Decimal(14, 2)
   observacao      String?
   vendas          Venda[]
+  movimentos      MovimentoCaixa[]
 
   @@index([usuarioId, fechadoEm])
+}
+
+enum TipoMovimentoCaixa {
+  SANGRIA
+  SUPRIMENTO
+}
+
+/// Sangria (retirada de dinheiro da gaveta) ou suprimento (troco colocado) durante o caixa aberto.
+model MovimentoCaixa {
+  id              String             @id @default(cuid())
+  caixaId         String
+  caixa           CaixaPdv           @relation(fields: [caixaId], references: [id], onDelete: Cascade)
+  tipo            TipoMovimentoCaixa
+  valor           Decimal            @db.Decimal(14, 2)
+  motivo          String?
+  usuarioId       String
+  usuario         Usuario            @relation(fields: [usuarioId], references: [id])
+  /// transferência no financeiro (Caixa ↔ outra conta), quando informada a conta
+  transferenciaId String?
+  createdAt       DateTime           @default(now())
+
+  @@index([caixaId])
 }
 
 model Venda {
@@ -1478,6 +1506,8 @@ model CategoriaFinanceira {
   nome        String
   tipo        TipoLancamento
   grupoDre    GrupoDre
+  codigo      String? // classificação do plano de contas (1, 1.1, 1.1.2…)
+  ativa       Boolean               @default(true)
   paiId       String?
   pai         CategoriaFinanceira?  @relation("CategoriaPai", fields: [paiId], references: [id])
   filhas      CategoriaFinanceira[] @relation("CategoriaPai")
@@ -1516,12 +1546,28 @@ model Lancamento {
   transacao        TransacaoBancaria?  @relation(fields: [transacaoId], references: [id])
   rateio           LancamentoRateio[]
   boletos          Boleto[]
+  centroCustoId    String?
+  centroCusto      CentroCusto?        @relation(fields: [centroCustoId], references: [id])
+  // as duas pernas (saída da origem e entrada no destino) de uma transferência entre contas
+  transferenciaId  String?
+  observacao       String?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
+  avisosBoleto     AvisoBoleto[]
 
   @@index([tipo, vencimento])
   @@index([competencia])
   @@index([origemTipo, origemId])
+  @@index([transferenciaId])
+  @@index([pagoEm])
+}
+
+/// Centro de custo (departamento, filial, projeto) para separar resultados no financeiro e na DRE.
+model CentroCusto {
+  id          String       @id @default(cuid())
+  nome        String       @unique
+  ativo       Boolean      @default(true)
+  lancamentos Lancamento[]
 }
 
 /// Divisão de um lançamento entre categorias (ex.: venda com peças e serviços): a DRE usa as frações; o lançamento continua um só (um boleto).
@@ -1578,12 +1624,75 @@ model NotaFiscal {
   @@index([origemTipo, origemId])
 }
 
+/// Registro de auditoria: quem criou, alterou ou excluiu o quê (gravado automaticamente em src/lib/db.ts).
+model RegistroAuditoria {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  usuarioId   String?
+  usuarioNome String?
+  ip          String?
+  entidade    String // modelo do banco (Venda, OrdemServico, Lancamento…)
+  entidadeId  String?
+  acao        String // CRIAR | ALTERAR | EXCLUIR
+  descricao   String
+  campos      Json? // { campo: [antes, depois] }
+
+  @@index([entidade, entidadeId])
+  @@index([createdAt])
+  @@index([usuarioId, createdAt])
+}
+
+/// NF-e emitida por terceiros contra o CNPJ da empresa (notas de compra), baixada da SEFAZ pela distribuição DF-e.
+model NotaRecebida {
+  id                 String    @id @default(cuid())
+  chave              String    @unique
+  nsu                String?
+  emitenteDocumento  String
+  emitenteNome       String
+  emitenteIe         String?
+  emissao            DateTime
+  valor              Decimal   @db.Decimal(14, 2)
+  tipoNf             Int       @default(1) // 0 entrada, 1 saída (do ponto de vista do emitente)
+  situacao           String    @default("AUTORIZADA") // AUTORIZADA | DENEGADA | CANCELADA
+  protocolo          String?
+  xml                String? // procNFe completo (vem depois da ciência da operação)
+  manifestacao       String? // CIENCIA | CONFIRMADA | DESCONHECIDA | NAO_REALIZADA
+  manifestadaEm      DateTime?
+  protocoloManifesto String?
+  justificativa      String?
+  compraId           String? // compra lançada a partir desta nota
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([emissao])
+}
+
+/// Faixa de numeração de NF-e/NFC-e inutilizada na SEFAZ (números rejeitados ou pulados).
+model InutilizacaoNumeracao {
+  id            String         @id @default(cuid())
+  modelo        ModeloNota
+  serie         Int
+  ambiente      AmbienteFiscal
+  numeroInicial Int
+  numeroFinal   Int
+  justificativa String
+  status        String // HOMOLOGADA | REJEITADA
+  protocolo     String?
+  motivo        String?
+  xml           String?
+  usuarioId     String?
+  createdAt     DateTime       @default(now())
+
+  @@index([modelo, serie, ambiente])
+}
+
 model NotaEvento {
   id        String     @id @default(cuid())
   notaId    String
   nota      NotaFiscal @relation(fields: [notaId], references: [id], onDelete: Cascade)
   tipo      String // 110111 cancelamento, 110110 CC-e...
   sequencia Int        @default(1)
+  texto     String? // correção da CC-e / justificativa
   xml       String?
   protocolo String?
   createdAt DateTime   @default(now())
@@ -1883,4 +1992,104 @@ model ContratoHistorico {
   descricao   String
   usuarioNome String?
   createdAt   DateTime @default(now())
+}
+
+/// Boleto pago no Inter sem conta a receber correspondente em aberto no sistema (precisa de alguém olhar).
+model AvisoBoleto {
+  id                String      @id @default(cuid())
+  codigoSolicitacao String      @unique
+  boletoId          String?
+  /// NAO_EMITIDO (boleto não foi gerado pelo MXERP), SEM_CONTA (a conta foi excluída), CONTA_JA_PAGA (possível pagamento em dobro)
+  motivo            String
+  seuNumero         String?
+  nossoNumero       String?
+  pagadorNome       String?
+  pagadorDocumento  String?
+  valor             Decimal?    @db.Decimal(14, 2)
+  valorRecebido     Decimal?    @db.Decimal(14, 2)
+  pagoEm            DateTime?   @db.Date
+  origemRecebimento String?
+  /// a conta envolvida (a que já estava paga, ou a que foi lançada/baixada ao resolver)
+  lancamentoId      String?
+  lancamento        Lancamento? @relation(fields: [lancamentoId], references: [id], onDelete: SetNull)
+  resolvidoEm       DateTime?
+  resolvidoPor      String?
+  resolucao         String?
+  createdAt         DateTime    @default(now())
+
+  @@index([resolvidoEm])
+}
+
+/// Permissão por ação configurada na tela (sobrepõe o padrão do catálogo em src/lib/auth/permissoesAcao.ts). ADMIN sempre pode tudo.
+model PermissaoPapel {
+  id        String       @id @default(cuid())
+  papel     PapelUsuario
+  acao      String
+  permitido Boolean
+  updatedAt DateTime     @updatedAt
+
+  @@unique([papel, acao])
+}
+
+enum StatusChamado {
+  ABERTO
+  EM_ATENDIMENTO
+  AGUARDANDO_CLIENTE
+  RESOLVIDO
+  FECHADO
+}
+
+enum PrioridadeChamado {
+  BAIXA
+  NORMAL
+  ALTA
+  URGENTE
+}
+
+/// Atendimento / chamado de suporte (helpdesk): pedido do cliente com responsável, prazo e histórico.
+model Chamado {
+  id                 String             @id @default(cuid())
+  numero             Int                @unique
+  clienteId          String?
+  cliente            Pessoa?            @relation(fields: [clienteId], references: [id])
+  contato            String?
+  telefone           String?
+  assunto            String
+  descricao          String?
+  canal              String             @default("TELEFONE") // TELEFONE, WHATSAPP, EMAIL, PRESENCIAL, SITE, OUTRO
+  categoria          String?
+  prioridade         PrioridadeChamado  @default(NORMAL)
+  status             StatusChamado      @default(ABERTO)
+  responsavelId      String?
+  responsavel        Usuario?           @relation("ChamadoResponsavel", fields: [responsavelId], references: [id])
+  abertoPorId        String?
+  abertoPor          Usuario?           @relation("ChamadoAbertoPor", fields: [abertoPorId], references: [id])
+  prazo              DateTime?
+  osId               String?
+  os                 OrdemServico?      @relation(fields: [osId], references: [id], onDelete: SetNull)
+  primeiraRespostaEm DateTime?
+  resolvidoEm        DateTime?
+  solucao            String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  interacoes         ChamadoInteracao[]
+
+  @@index([status])
+  @@index([clienteId])
+  @@index([responsavelId, status])
+}
+
+/// Linha do histórico do chamado: comentário, mudança de status, troca de responsável.
+model ChamadoInteracao {
+  id          String   @id @default(cuid())
+  chamadoId   String
+  chamado     Chamado  @relation(fields: [chamadoId], references: [id], onDelete: Cascade)
+  usuarioId   String?
+  usuarioNome String?
+  tipo        String   @default("COMENTARIO") // COMENTARIO, STATUS, RESPONSAVEL, ABERTURA
+  texto       String
+  interno     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([chamadoId, createdAt])
 }

@@ -95,4 +95,22 @@ describe("caixa do PDV", () => {
     await caixa.fecharCaixa(c.id, usuario, 600);
     expect(await caixa.caixaAberto(usuario)).toBeNull();
   });
+
+  it("sangria e suprimento mudam o dinheiro esperado e, com conta, viram transferência", async () => {
+    const c = await caixa.abrirCaixa(usuario, 100);
+    await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1, valorUnit: 500 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 500 }], usuarioId: usuario, caixaId: c.id });
+    await caixa.movimentarCaixa(c.id, usuario, { tipo: "SUPRIMENTO", valor: 50, motivo: "troco" });
+    const banco = (await prisma.contaBancaria.create({ data: { nome: "Banco" } })).id;
+    await caixa.movimentarCaixa(c.id, usuario, { tipo: "SANGRIA", valor: 400, motivo: "depósito", contaId: banco });
+    await expect(caixa.movimentarCaixa(c.id, usuario, { tipo: "SANGRIA", valor: 300 })).rejects.toThrow(/gaveta tem só/);
+    await expect(caixa.movimentarCaixa(c.id, usuario, { tipo: "SANGRIA", valor: 0 })).rejects.toThrow(/maior que zero/);
+    const r = await caixa.resumoCaixa(c.id);
+    expect([r.suprimentos, r.sangrias, r.dinheiroEsperado]).toEqual([50, 400, 250]);
+    expect(r.movimentos.map((m) => m.tipo)).toEqual(["SUPRIMENTO", "SANGRIA"]);
+    // só a sangria com conta gerou transferência Caixa → Banco
+    const pernas = await prisma.lancamento.findMany({ where: { transferenciaId: { not: null } }, include: { contaBancaria: true } });
+    expect(pernas.map((l) => [l.tipo, l.contaBancaria!.nome, Number(l.valor)]).sort()).toEqual([["PAGAR", "Caixa", 400], ["RECEBER", "Banco", 400]]);
+    await caixa.fecharCaixa(c.id, usuario, 250);
+    await expect(caixa.movimentarCaixa(c.id, usuario, { tipo: "SUPRIMENTO", valor: 10 })).rejects.toThrow(/não está aberto/);
+  });
 });

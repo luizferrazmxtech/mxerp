@@ -10,37 +10,39 @@ export const FORMAS_PADRAO = [
   { nome: "Crediário / a prazo", tPag: "05", diasPrazo: 30 },
 ];
 
+// `codigo` é a classificação inicial no plano de contas (1 = receitas, 2 = saídas); dá para mudar na tela
 export const CATEGORIAS_PADRAO = [
-  { nome: "Venda de produtos", tipo: "RECEBER", grupoDre: "RECEITA_BRUTA" },
-  { nome: "Prestação de serviços", tipo: "RECEBER", grupoDre: "RECEITA_BRUTA" },
-  { nome: "Receitas financeiras", tipo: "RECEBER", grupoDre: "RECEITA_FINANCEIRA" },
-  { nome: "Outras receitas", tipo: "RECEBER", grupoDre: "OUTRAS_RECEITAS" },
-  { nome: "Impostos sobre vendas (DAS/ICMS/ISS)", tipo: "PAGAR", grupoDre: "DEDUCOES" },
-  { nome: "Devoluções de vendas", tipo: "PAGAR", grupoDre: "DEDUCOES" },
+  { codigo: "1.01", nome: "Venda de produtos", tipo: "RECEBER", grupoDre: "RECEITA_BRUTA" },
+  { codigo: "1.02", nome: "Prestação de serviços", tipo: "RECEBER", grupoDre: "RECEITA_BRUTA" },
+  { codigo: "1.03", nome: "Receitas financeiras", tipo: "RECEBER", grupoDre: "RECEITA_FINANCEIRA" },
+  { codigo: "1.04", nome: "Outras receitas", tipo: "RECEBER", grupoDre: "OUTRAS_RECEITAS" },
+  { codigo: "2.01", nome: "Impostos sobre vendas (DAS/ICMS/ISS)", tipo: "PAGAR", grupoDre: "DEDUCOES" },
+  { codigo: "2.02", nome: "Devoluções de vendas", tipo: "PAGAR", grupoDre: "DEDUCOES" },
   // compra de mercadoria vira estoque; o custo entra na DRE como CMV quando a peça é vendida
-  { nome: "Compra de mercadorias (estoque)", tipo: "PAGAR", grupoDre: "NAO_OPERACIONAL" },
-  { nome: "Serviços de terceiros", tipo: "PAGAR", grupoDre: "CUSTO" },
-  { nome: "Salários e encargos", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },
-  { nome: "Aluguel", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },
-  { nome: "Energia, água, internet, telefone", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },
-  { nome: "Combustível e veículos", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },
-  { nome: "Tarifas bancárias e taxas de cartão", tipo: "PAGAR", grupoDre: "DESPESA_FINANCEIRA" },
-  { nome: "Juros pagos", tipo: "PAGAR", grupoDre: "DESPESA_FINANCEIRA" },
-  { nome: "Outras despesas", tipo: "PAGAR", grupoDre: "OUTRAS_DESPESAS" },
-  { nome: "Retirada de sócios", tipo: "PAGAR", grupoDre: "NAO_OPERACIONAL" },
-  { nome: "Transferência entre contas", tipo: "PAGAR", grupoDre: "NAO_OPERACIONAL" },
-  { nome: "Transferência entre contas", tipo: "RECEBER", grupoDre: "NAO_OPERACIONAL" },
+  { codigo: "2.03", nome: "Compra de mercadorias (estoque)", tipo: "PAGAR", grupoDre: "NAO_OPERACIONAL" },
+  { codigo: "2.04", nome: "Serviços de terceiros", tipo: "PAGAR", grupoDre: "CUSTO" },
+  { codigo: "2.05", nome: "Salários e encargos", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },
+  { codigo: "2.06", nome: "Aluguel", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },
+  { codigo: "2.07", nome: "Energia, água, internet, telefone", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },
+  { codigo: "2.08", nome: "Combustível e veículos", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL" },
+  { codigo: "2.09", nome: "Tarifas bancárias e taxas de cartão", tipo: "PAGAR", grupoDre: "DESPESA_FINANCEIRA" },
+  { codigo: "2.10", nome: "Juros pagos", tipo: "PAGAR", grupoDre: "DESPESA_FINANCEIRA" },
+  { codigo: "2.11", nome: "Outras despesas", tipo: "PAGAR", grupoDre: "OUTRAS_DESPESAS" },
+  { codigo: "2.12", nome: "Retirada de sócios", tipo: "PAGAR", grupoDre: "NAO_OPERACIONAL" },
+  { codigo: "3.01", nome: "Transferência entre contas", tipo: "PAGAR", grupoDre: "NAO_OPERACIONAL" },
+  { codigo: "3.02", nome: "Transferência entre contas", tipo: "RECEBER", grupoDre: "NAO_OPERACIONAL" },
 ] as const;
 
 export async function garantirPadroes(tx: Tx) {
   for (const f of FORMAS_PADRAO)
     await tx.formaPagamento.upsert({ where: { nome: f.nome }, create: f, update: {} });
-  for (const c of CATEGORIAS_PADRAO)
-    await tx.categoriaFinanceira.upsert({
-      where: { nome_tipo: { nome: c.nome, tipo: c.tipo } },
-      create: c,
-      update: {},
-    });
+  // uma consulta só quando já está tudo criado (a tela do financeiro chama isto a cada abertura)
+  const existentes = await tx.categoriaFinanceira.findMany({ where: { OR: CATEGORIAS_PADRAO.map((c) => ({ nome: c.nome, tipo: c.tipo })) }, select: { nome: true, tipo: true, codigo: true } });
+  for (const c of CATEGORIAS_PADRAO) {
+    const e = existentes.find((x) => x.nome === c.nome && x.tipo === c.tipo);
+    if (!e) await tx.categoriaFinanceira.create({ data: c });
+    else if (e.codigo === null) await tx.categoriaFinanceira.update({ where: { nome_tipo: { nome: c.nome, tipo: c.tipo } }, data: { codigo: c.codigo } });
+  }
   await tx.contaBancaria.upsert({ where: { nome: "Caixa" }, create: { nome: "Caixa" }, update: {} });
 }
 

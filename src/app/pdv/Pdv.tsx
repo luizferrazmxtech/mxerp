@@ -15,7 +15,7 @@ function Tecla({ k, children }: { k: string; children: React.ReactNode }) {
   return <span className="whitespace-nowrap"><kbd className="rounded border bg-slate-50 px-1.5 text-[11px]">{k}</kbd> {children}</span>;
 }
 
-export default function Pdv({ formas, caixa }: { formas: Forma[]; caixa: { abertoEm: string; vendas: number; total: number } }) {
+export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = true }: { formas: Forma[]; caixa: { abertoEm: string; vendas: number; total: number }; podeDesconto?: boolean; podeSangria?: boolean }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [opcoes, setOpcoes] = useState<LinhaEstoque[]>([]);
@@ -87,6 +87,8 @@ export default function Pdv({ formas, caixa }: { formas: Forma[]; caixa: { abert
         <span className="rounded border bg-white px-2 py-1">Caixa aberto em {caixa.abertoEm}</span>
         <span className="rounded border bg-white px-2 py-1">{caixa.vendas} venda(s) · {brl(caixa.total)}</span>
         <Link href="/vendas/balcao" className="ml-auto hover:underline">Vendas do balcão</Link>
+        {podeSangria && <Link href="/pdv?acao=sangria" className="btn-sec py-1 text-[12px]" title="Retirar dinheiro da gaveta">Sangria</Link>}
+        {podeSangria && <Link href="/pdv?acao=suprimento" className="btn-sec py-1 text-[12px]" title="Colocar troco na gaveta">Suprimento</Link>}
         <Link href="/pdv?acao=fechar" className="btn-sec py-1 text-[12px]"><Icone nome="caixa" size={13} /> Fechar caixa</Link>
       </div>
 
@@ -143,7 +145,7 @@ export default function Pdv({ formas, caixa }: { formas: Forma[]; caixa: { abert
           <div className="flex justify-between text-[13px] text-slate-600"><span>{itens.length} item(ns) · {unidades} un.</span></div>
           <div className="flex items-center justify-between text-[13px]">
             <span>Desconto (F4)</span>
-            <input ref={campoDesconto} className="campo w-28 py-1 text-right" type="number" step="0.01" value={desconto || ""} onChange={(e) => setDesconto(Number(e.target.value))} />
+            <input ref={campoDesconto} disabled={!podeDesconto} title={podeDesconto ? undefined : "Sem permissão para dar desconto"} className="campo w-28 py-1 text-right" type="number" step="0.01" value={desconto || ""} onChange={(e) => setDesconto(Number(e.target.value))} />
           </div>
           <div className="flex items-end justify-between border-t pt-3">
             <span className="text-[13px] text-slate-500">Total</span>

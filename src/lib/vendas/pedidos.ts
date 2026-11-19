@@ -1,3 +1,4 @@
+import { centroPorNome } from "@/lib/financeiro/plano";
 import { Prisma, type EstoqueSituacao, type PapelUsuario, type SituacaoVenda, type SituacaoVendaConfig } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { entrada } from "@/lib/estoque/estoque";
@@ -57,6 +58,7 @@ async function lancarFinanceiro(tx: Tx, vendaId: string) {
   const v = await tx.venda.findUniqueOrThrow({ where: { id: vendaId }, include: { parcelas: { orderBy: { numero: "asc" } } } });
   if (!(Number(v.total) > 0)) return; // venda sem valor (garantia, cortesia) não gera conta a receber de R$ 0,00
   await garantirPadroes(tx);
+  const centro = await centroPorNome(tx, v.centroCusto);
   const rec = await receitaDocumento(tx, Number(v.totalProdutos), Number(v.totalServicos));
   const parcelas = v.parcelas.length ? v.parcelas : [{ numero: 1, vencimento: v.data, valor: v.total, formaPagamentoId: v.formaPagamentoId }];
   for (const p of parcelas) {
@@ -64,7 +66,7 @@ async function lancarFinanceiro(tx: Tx, vendaId: string) {
       data: {
         tipo: "RECEBER", descricao: parcelas.length > 1 ? `Venda de nº ${v.numero} (${p.numero}/${parcelas.length})` : `Venda de nº ${v.numero}`,
         pessoaId: v.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? v.formaPagamentoId, valor: p.valor,
-        vencimento: p.vencimento, competencia: diaSP(v.data), parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "VENDA", origemId: v.id,
+        vencimento: p.vencimento, competencia: diaSP(v.data), parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "VENDA", origemId: v.id, centroCustoId: centro,
         rateio: { create: rec.rateio },
       },
     });
