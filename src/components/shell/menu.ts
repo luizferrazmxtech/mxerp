@@ -82,6 +82,16 @@ export const MENU: ItemMenu[] = [
     ],
   },
   {
+    rotulo: "Contratos", icone: "contratos", filhos: [
+      { rotulo: "Gerenciar contratos", href: "/contratos", icone: "gerenciar" },
+      {
+        rotulo: "Opções auxiliares", href: "/contratos/configuracoes", icone: "auxiliares", filhos: [
+          { rotulo: "Configurações e e-mail", href: "/contratos/configuracoes", icone: "configuracoes" },
+        ],
+      },
+    ],
+  },
+  {
     rotulo: "Estoque", icone: "estoque", filhos: [
       { rotulo: "Movimentações", href: "/estoque/movimentacoes", icone: "transferir" },
       { rotulo: "Ajustes", href: "/estoque/ajustes", icone: "ajustes" },
@@ -135,6 +145,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/orcamentos", rotulo: "Orçamentos", cor: "#0f8a8a", icone: "notas" },
   { prefixo: "/os", rotulo: "Ordens de serviços", cor: "#e8730c", icone: "os" },
   { prefixo: "/vendas", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
+  { prefixo: "/contratos", rotulo: "Contratos", cor: "#0e7490", icone: "contratos" },
   { prefixo: "/pdv", rotulo: "PDV", cor: "#2e9d4f", icone: "balcao" },
   { prefixo: "/financeiro", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
   { prefixo: "/fiscal", rotulo: "Fiscal", cor: "#7a4fd1", icone: "fiscal" },

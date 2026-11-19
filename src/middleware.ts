@@ -3,7 +3,7 @@ import { COOKIE, usuarioDoToken } from "@/lib/auth/sessao";
 import { podeAcessar } from "@/lib/auth/permissoes";
 
 /** Toda página, ação e API exige login, menos a tela de login, a rota do agendador e o webhook do Inter (que têm senha própria). */
-const LIVRES = ["/login", "/api/inter/sincronizar"];
+const LIVRES = ["/login", "/api/inter/sincronizar", "/api/contratos/processar"];
 
 export async function middleware(req: NextRequest) {
   const caminho = req.nextUrl.pathname;

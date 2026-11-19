@@ -98,6 +98,7 @@ model Usuario {
   sessoes          Sessao[]
   caixas           CaixaPdv[]
   clientesVendedor Pessoa[]           @relation("PessoaVendedor")
+  contratos        Contrato[]
   pessoasCriadas   Pessoa[]           @relation("PessoaCriadoPor")
   anotacoes        PessoaAnotacao[]
 }
@@ -202,6 +203,7 @@ model Pessoa {
   vendas          Venda[]
   lancamentos     Lancamento[]
   compras         Compra[]
+  contratos       Contrato[]
 
   @@index([nome])
 }
@@ -562,11 +564,12 @@ model Servico {
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @default(now()) @updatedAt
 
-  itensOs      OsItemServico[]
-  itensCompra  CompraItemServico[]
-  itensVenda   VendaItemServico[]
-  itensOrc     OrcamentoServico[]
-  fornecedores ItemFornecedor[]
+  itensOs       OsItemServico[]
+  itensCompra   CompraItemServico[]
+  itensVenda    VendaItemServico[]
+  itensOrc      OrcamentoServico[]
+  itensContrato ContratoServico[]
+  fornecedores  ItemFornecedor[]
 }
 
 // ───────────────────────── Estoque ─────────────────────────
@@ -1353,77 +1356,77 @@ model CotacaoResposta {
 // ───────────────────────── Financeiro ─────────────────────────
 
 model ContaBancaria {
-  id           String              @id @default(cuid())
-  nome         String              @unique
-  banco        String?
-  agencia      String?
-  conta        String?
-  saldoInicial Decimal             @default(0) @db.Decimal(14, 2)
-  ativa        Boolean             @default(true)
-  lancamentos  Lancamento[]
-  transacoes   TransacaoBancaria[]
+  id               String              @id @default(cuid())
+  nome             String              @unique
+  banco            String?
+  agencia          String?
+  conta            String?
+  saldoInicial     Decimal             @default(0) @db.Decimal(14, 2)
+  ativa            Boolean             @default(true)
+  lancamentos      Lancamento[]
+  transacoes       TransacaoBancaria[]
   integracoesInter IntegracaoInter[]
 }
 
 /// Integração com a API PJ do Banco Inter, cadastrada pela tela (uma só, id "inter").
 /// Client secret e chave privada ficam cifrados (AES-256-GCM) com a chave do servidor (CHAVE_SEGREDOS ou CRON_SECRET do .env).
 model IntegracaoInter {
-  id                  String         @id @default("inter")
-  clientId            String
-  clientSecretCifrado String
-  certificado         String // PEM do .crt (público)
-  chaveCifrada        String // PEM do .key, cifrado
-  contaCorrente       String?
-  ambiente            String         @default("producao") // producao | sandbox
-  escopos             String         @default("extrato.read boleto-cobranca.read boleto-cobranca.write")
-  contaBancariaId     String?
-  contaBancaria       ContaBancaria? @relation(fields: [contaBancariaId], references: [id], onDelete: SetNull)
-  sincronizarAuto     Boolean        @default(true)
-  ultimoTesteEm       DateTime?
-  ultimoTesteOk       Boolean?
-  ultimoTesteMsg      String?
-  ultimaSincEm        DateTime?
-  ultimaSincMsg       String?
+  id                   String         @id @default("inter")
+  clientId             String
+  clientSecretCifrado  String
+  certificado          String // PEM do .crt (público)
+  chaveCifrada         String // PEM do .key, cifrado
+  contaCorrente        String?
+  ambiente             String         @default("producao") // producao | sandbox
+  escopos              String         @default("extrato.read boleto-cobranca.read boleto-cobranca.write")
+  contaBancariaId      String?
+  contaBancaria        ContaBancaria? @relation(fields: [contaBancariaId], references: [id], onDelete: SetNull)
+  sincronizarAuto      Boolean        @default(true)
+  ultimoTesteEm        DateTime?
+  ultimoTesteOk        Boolean?
+  ultimoTesteMsg       String?
+  ultimaSincEm         DateTime?
+  ultimaSincMsg        String?
   // boletos (API de Cobrança v3: BolePix)
-  emitirBoletos       Boolean        @default(true) // registra o boleto sozinho quando a parcela é de uma forma "boleto Inter"
-  boletosDesde        DateTime? // só parcelas lançadas depois disto viram boleto (as antigas/migradas não)
-  multaPct            Decimal        @default(2) @db.Decimal(5, 2)
-  jurosMesPct         Decimal        @default(1) @db.Decimal(5, 2)
-  diasBaixa           Int            @default(30) // dias depois do vencimento em que o Inter cancela o boleto não pago (0 a 60)
-  mensagemBoleto      String?
-  urlPublica          String? // endereço https do ERP para o webhook do Inter (opcional)
-  webhookToken        String?
-  webhookMsg          String?
+  emitirBoletos        Boolean        @default(true) // registra o boleto sozinho quando a parcela é de uma forma "boleto Inter"
+  boletosDesde         DateTime? // só parcelas lançadas depois disto viram boleto (as antigas/migradas não)
+  multaPct             Decimal        @default(2) @db.Decimal(5, 2)
+  jurosMesPct          Decimal        @default(1) @db.Decimal(5, 2)
+  diasBaixa            Int            @default(30) // dias depois do vencimento em que o Inter cancela o boleto não pago (0 a 60)
+  mensagemBoleto       String?
+  urlPublica           String? // endereço https do ERP para o webhook do Inter (opcional)
+  webhookToken         String?
+  webhookMsg           String?
   ultimaSincBoletosEm  DateTime?
   ultimaSincBoletosMsg String?
-  atualizadoEm        DateTime       @updatedAt
+  atualizadoEm         DateTime       @updatedAt
 }
 
 /// Boleto (BolePix) registrado no Banco Inter para uma parcela de contas a receber.
 model Boleto {
-  id                 String      @id @default(cuid())
-  lancamentoId       String?
-  lancamento         Lancamento? @relation(fields: [lancamentoId], references: [id], onDelete: SetNull)
-  token              String      @unique // link público do PDF
-  seuNumero          String
-  codigoSolicitacao  String?     @unique
+  id                String      @id @default(cuid())
+  lancamentoId      String?
+  lancamento        Lancamento? @relation(fields: [lancamentoId], references: [id], onDelete: SetNull)
+  token             String      @unique // link público do PDF
+  seuNumero         String
+  codigoSolicitacao String?     @unique
   // EMITINDO, EM_PROCESSAMENTO, A_RECEBER, ATRASADO, RECEBIDO, MARCADO_RECEBIDO, CANCELADO, EXPIRADO, FALHA_EMISSAO, PROTESTO, ERRO
-  situacao           String      @default("EMITINDO")
-  valor              Decimal     @db.Decimal(14, 2)
-  vencimento         DateTime    @db.Date
-  nossoNumero        String?
-  linhaDigitavel     String?
-  codigoBarras       String?
-  txid               String?
-  pixCopiaECola      String?
-  pdf                Bytes?
-  erro               String?
-  pagoEm             DateTime?   @db.Date
-  valorRecebido      Decimal?    @db.Decimal(14, 2)
-  origemRecebimento  String? // BOLETO ou PIX
-  ambiente           String      @default("producao")
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  situacao          String      @default("EMITINDO")
+  valor             Decimal     @db.Decimal(14, 2)
+  vencimento        DateTime    @db.Date
+  nossoNumero       String?
+  linhaDigitavel    String?
+  codigoBarras      String?
+  txid              String?
+  pixCopiaECola     String?
+  pdf               Bytes?
+  erro              String?
+  pagoEm            DateTime?   @db.Date
+  valorRecebido     Decimal?    @db.Decimal(14, 2)
+  origemRecebimento String? // BOLETO ou PIX
+  ambiente          String      @default("producao")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   @@index([lancamentoId])
   @@index([situacao])
@@ -1449,6 +1452,7 @@ model FormaPagamento {
   parcelasOs     OsParcela[]
   compras        Compra[]           @relation("CompraForma")
   parcelasCompra CompraParcela[]
+  contratos      Contrato[]
 }
 
 /// Grupo da DRE gerencial para onde a categoria soma.
@@ -1770,4 +1774,113 @@ model ModeloMensagem {
 model Configuracao {
   chave String @id
   valor Json
+}
+
+// ───────────────────────── Contratos (serviços recorrentes) ─────────────────────────
+
+enum SituacaoContrato {
+  EM_ABERTO // cadastrado, ainda não cobra
+  ATIVO // gera as cobranças
+  PAUSADO
+  FINALIZADO
+  CANCELADO
+}
+
+enum Periodicidade {
+  MENSAL
+  TRIMESTRAL
+  SEMESTRAL
+  ANUAL
+}
+
+/**
+ * Contrato com o cliente (no Gestão Click, "Assinatura"): serviços cobrados de tempos em tempos.
+ * A cada vencimento gera uma venda de serviços (financeiro + boleto do Inter), opcionalmente a NFS-e,
+ * e manda o boleto e o lembrete de pagamento por e-mail nos dias configurados.
+ */
+model Contrato {
+  id                 String              @id @default(cuid())
+  numero             Int                 @unique
+  clienteId          String
+  cliente            Pessoa              @relation(fields: [clienteId], references: [id])
+  vendedorId         String?
+  vendedor           Usuario?            @relation(fields: [vendedorId], references: [id])
+  situacao           SituacaoContrato    @default(ATIVO)
+  canal              String              @default("Presencial")
+  centroCusto        String?
+  dataInicio         DateTime            @db.Date
+  periodicidade      Periodicidade       @default(MENSAL)
+  diaVencimento      Int // 1 a 31 (meses mais curtos usam o último dia)
+  proximoVencimento  DateTime            @db.Date
+  termino            String              @default("SEM") // SEM | DATA | VEZES
+  dataFim            DateTime?           @db.Date
+  totalCobrancas     Int?
+  cobrancasGeradas   Int                 @default(0)
+  totalServicos      Decimal             @default(0) @db.Decimal(14, 2)
+  desconto           Decimal             @default(0) @db.Decimal(14, 2)
+  descontoPercentual Decimal?            @db.Decimal(7, 4)
+  total              Decimal             @default(0) @db.Decimal(14, 2) // valor de cada cobrança
+  formaPagamentoId   String?
+  formaPagamento     FormaPagamento?     @relation(fields: [formaPagamentoId], references: [id])
+  diasAntecedencia   Int                 @default(10) // gera a venda e manda o boleto N dias antes do vencimento
+  enviarBoleto       Boolean             @default(true)
+  diasLembrete       Int? // lembrete de pagamento N dias antes do vencimento (vazio = não manda)
+  emitirNota         Boolean             @default(false) // emite a NFS-e da venda gerada
+  emailCobranca      String? // e-mail para a cobrança (vazio = e-mail do cliente)
+  observacoes        String? // vai na venda gerada
+  observacaoInterna  String?
+  criadoPorId        String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  servicos           ContratoServico[]
+  cobrancas          ContratoCobranca[]
+  historico          ContratoHistorico[]
+
+  @@index([situacao, proximoVencimento])
+}
+
+model ContratoServico {
+  id         String   @id @default(cuid())
+  contratoId String
+  contrato   Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  servicoId  String
+  servico    Servico  @relation(fields: [servicoId], references: [id])
+  ordem      Int      @default(0)
+  detalhes   String?
+  quantidade Decimal  @default(1) @db.Decimal(14, 4)
+  valorUnit  Decimal  @db.Decimal(14, 2)
+  desconto   Decimal  @default(0) @db.Decimal(14, 2)
+  subtotal   Decimal  @db.Decimal(14, 2)
+}
+
+/// Uma cobrança (vencimento) do contrato e o que já foi feito com ela: venda, nota, e-mails.
+model ContratoCobranca {
+  id                String    @id @default(cuid())
+  contratoId        String
+  contrato          Contrato  @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  numero            Int // 1ª, 2ª... cobrança do contrato
+  vencimento        DateTime  @db.Date
+  referencia        String // ex.: "12/2026" ou "12/2026 a 02/2027"
+  situacao          String    @default("PENDENTE") // PENDENTE | GERANDO | GERADA | ERRO
+  erro              String?
+  vendaId           String?   @unique
+  notaMsg           String? // resultado da NFS-e automática
+  notaTentadaEm     DateTime?
+  boletoEnviadoEm   DateTime?
+  lembreteEnviadoEm DateTime?
+  envioErro         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([contratoId, vencimento])
+  @@index([situacao])
+}
+
+model ContratoHistorico {
+  id          String   @id @default(cuid())
+  contratoId  String
+  contrato    Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  descricao   String
+  usuarioNome String?
+  createdAt   DateTime @default(now())
 }
