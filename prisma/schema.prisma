@@ -1478,6 +1478,8 @@ model CategoriaFinanceira {
   nome        String
   tipo        TipoLancamento
   grupoDre    GrupoDre
+  codigo      String? // classificação do plano de contas (1, 1.1, 1.1.2…)
+  ativa       Boolean               @default(true)
   paiId       String?
   pai         CategoriaFinanceira?  @relation("CategoriaPai", fields: [paiId], references: [id])
   filhas      CategoriaFinanceira[] @relation("CategoriaPai")
@@ -1516,12 +1518,27 @@ model Lancamento {
   transacao        TransacaoBancaria?  @relation(fields: [transacaoId], references: [id])
   rateio           LancamentoRateio[]
   boletos          Boleto[]
+  centroCustoId    String?
+  centroCusto      CentroCusto?        @relation(fields: [centroCustoId], references: [id])
+  // as duas pernas (saída da origem e entrada no destino) de uma transferência entre contas
+  transferenciaId  String?
+  observacao       String?
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
   @@index([tipo, vencimento])
   @@index([competencia])
   @@index([origemTipo, origemId])
+  @@index([transferenciaId])
+  @@index([pagoEm])
+}
+
+/// Centro de custo (departamento, filial, projeto) para separar resultados no financeiro e na DRE.
+model CentroCusto {
+  id          String       @id @default(cuid())
+  nome        String       @unique
+  ativo       Boolean      @default(true)
+  lancamentos Lancamento[]
 }
 
 /// Divisão de um lançamento entre categorias (ex.: venda com peças e serviços): a DRE usa as frações; o lançamento continua um só (um boleto).

@@ -7,14 +7,15 @@ import { garantirPadroes } from "@/lib/financeiro/padroes";
 import { saldosContas } from "@/lib/financeiro/lancamentos";
 import { diaSP, somarDias } from "@/lib/datas";
 import { brl, data } from "@/lib/ui/format";
-import { baixar, estornar, excluir, novaConta, novoLancamento } from "./actions";
+import { planoDeContas } from "@/lib/financeiro/plano";
+import { baixar, estornar, excluir, novoLancamento } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 export default async function Financeiro({ searchParams }: {
-  searchParams: Promise<{ tipo?: string; f?: string; de?: string; ate?: string; q?: string }>;
+  searchParams: Promise<{ tipo?: string; f?: string; de?: string; ate?: string; q?: string; cat?: string; centro?: string; conta?: string }>;
 }) {
   const sp = await searchParams;
   const tipo = sp.tipo === "PAGAR" ? "PAGAR" : "RECEBER";
@@ -27,12 +28,15 @@ export default async function Financeiro({ searchParams }: {
   if (f === "vencidos") Object.assign(where, { pagoEm: null, vencimento: { lt: hoje } });
   if (f === "pagos") where.pagoEm = { not: null };
   if (sp.de || sp.ate) where.vencimento = { ...(sp.de ? { gte: new Date(sp.de + "T00:00:00Z") } : {}), ...(sp.ate ? { lte: new Date(sp.ate + "T00:00:00Z") } : {}) };
-  if (sp.q) where.OR = [{ descricao: { contains: sp.q, mode: "insensitive" } }, { pessoa: { nome: { contains: sp.q, mode: "insensitive" } } }];
+  if (sp.cat) where.OR = [{ categoriaId: sp.cat }, { categoria: { paiId: sp.cat } }, { rateio: { some: { categoriaId: sp.cat } } }];
+  if (sp.centro) where.centroCustoId = sp.centro;
+  if (sp.conta) where.contaBancariaId = sp.conta;
+  if (sp.q) where.AND = { OR: [{ descricao: { contains: sp.q, mode: "insensitive" } }, { pessoa: { nome: { contains: sp.q, mode: "insensitive" } } }] };
 
-  const [lista, contas, categorias, formas, saldos, resumo] = await Promise.all([
-    prisma.lancamento.findMany({ where, include: { pessoa: true, categoria: true, contaBancaria: true, formaPagamento: true, boletos: { orderBy: { createdAt: "desc" } } }, orderBy: [{ vencimento: "asc" }], take: 300 }),
+  const [lista, contas, categorias, formas, saldos, resumo, centros] = await Promise.all([
+    prisma.lancamento.findMany({ where, include: { pessoa: true, categoria: true, centroCusto: true, contaBancaria: true, formaPagamento: true, boletos: { orderBy: { createdAt: "desc" } } }, orderBy: [{ vencimento: "asc" }], take: 300 }),
     prisma.contaBancaria.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } }),
-    prisma.categoriaFinanceira.findMany({ where: { tipo }, orderBy: { nome: "asc" } }),
+    prisma.$transaction((tx) => planoDeContas(tx, { tipo, ativas: true })),
     prisma.formaPagamento.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } }),
     prisma.$transaction((tx) => saldosContas(tx)),
     prisma.$queryRaw<{ tipo: string; vencido: number; hoje: number; prox7: number }[]>`
@@ -41,6 +45,7 @@ export default async function Financeiro({ searchParams }: {
              COALESCE(SUM(valor) FILTER (WHERE vencimento = ${hoje}), 0)::float hoje,
              COALESCE(SUM(valor) FILTER (WHERE vencimento > ${hoje} AND vencimento <= ${somarDias(hoje, 7)}), 0)::float prox7
         FROM "Lancamento" WHERE "pagoEm" IS NULL GROUP BY tipo`,
+    prisma.centroCusto.findMany({ where: { ativo: true }, orderBy: { nome: "asc" } }),
   ]);
   const [interAtivo, baseCliente] = await Promise.all([boletosDisponiveis(), baseLinks()]);
   const r = (t: string) => resumo.find((x) => x.tipo === t) ?? { vencido: 0, hoje: 0, prox7: 0 };
@@ -48,13 +53,17 @@ export default async function Financeiro({ searchParams }: {
   const agg = await prisma.lancamento.aggregate({ where, _sum: { valor: true }, _count: true });
   const total = Number(agg._sum.valor ?? 0);
   const cortado = agg._count > lista.length;
-  const link = (p: Record<string, string>) => `/financeiro?${new URLSearchParams({ tipo, f, ...p })}`;
+  const filtros = Object.fromEntries(Object.entries({ de: sp.de, ate: sp.ate, q: sp.q, cat: sp.cat, centro: sp.centro, conta: sp.conta }).filter(([, v]) => v)) as Record<string, string>;
+  const link = (p: Record<string, string>) => `/financeiro?${new URLSearchParams({ tipo, f, ...filtros, ...p })}`;
+  const rotuloCat = (c: { codigo: string | null; nome: string }) => (c.codigo ? `${c.codigo} ${c.nome}` : c.nome);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold">Financeiro</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Link href="/financeiro/fluxo" className="btn-sec">Fluxo de caixa</Link>
+          <Link href="/financeiro/transferencias" className="btn-sec">Transferir entre contas</Link>
           <Link href="/financeiro/conciliacao" className="btn-sec">Conciliação bancária</Link>
           <Link href="/financeiro/dre" className="btn-sec">DRE gerencial</Link>
         </div>
@@ -88,6 +97,20 @@ export default async function Financeiro({ searchParams }: {
         ))}
         <form className="ml-auto flex gap-2">
           <input type="hidden" name="tipo" value={tipo} /><input type="hidden" name="f" value={f} />
+          <select name="cat" defaultValue={sp.cat ?? ""} className="campo w-44" aria-label="Plano de contas">
+            <option value="">Plano de contas</option>
+            {categorias.map((c) => <option key={c.id} value={c.id}>{"\u00a0\u00a0".repeat(c.nivel)}{rotuloCat(c)}</option>)}
+          </select>
+          {centros.length > 0 && (
+            <select name="centro" defaultValue={sp.centro ?? ""} className="campo w-36" aria-label="Centro de custo">
+              <option value="">Centro de custo</option>
+              {centros.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+          )}
+          <select name="conta" defaultValue={sp.conta ?? ""} className="campo w-32" aria-label="Conta bancária">
+            <option value="">Conta</option>
+            {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
           <input type="date" name="de" defaultValue={sp.de} className="campo w-40" aria-label="De" />
           <input type="date" name="ate" defaultValue={sp.ate} className="campo w-40" aria-label="Até" />
           <input name="q" defaultValue={sp.q} placeholder="Descrição ou pessoa" className="campo w-48" />
@@ -106,14 +129,14 @@ export default async function Financeiro({ searchParams }: {
                   <td className={vencido ? "font-semibold text-red-600" : ""}>{data(l.vencimento)}</td>
                   <td>{l.descricao}</td>
                   <td className="text-slate-600">{l.pessoa?.nome}</td>
-                  <td className="text-xs text-slate-600">{l.categoria.nome}</td>
+                  <td className="text-xs text-slate-600">{rotuloCat(l.categoria)}{l.centroCusto && <div className="text-slate-400">{l.centroCusto.nome}</div>}</td>
                   <td className="text-right">{brl(l.valor)}</td>
                   <td className="min-w-80">
                     {l.pagoEm ? (
                       <form action={estornar} className="flex items-center gap-2 text-xs">
                         <input type="hidden" name="id" value={l.id} />
                         <span className="text-emerald-700">{tipo === "PAGAR" ? "pago" : "recebido"} {data(l.pagoEm)} · {brl(l.valorPago)} · {l.contaBancaria?.nome}</span>
-                        <button className="text-slate-500 hover:underline">estornar</button>
+                        {l.transferenciaId ? <Link href="/financeiro/transferencias" className="text-slate-500 hover:underline">transferência</Link> : <button className="text-slate-500 hover:underline">estornar</button>}
                       </form>
                     ) : (
                       <form action={baixar} className="flex items-center gap-1">
@@ -146,10 +169,19 @@ export default async function Financeiro({ searchParams }: {
           <input type="hidden" name="tipo" value={tipo} />
           <input name="descricao" required className="campo md:col-span-2" placeholder="Descrição" />
           <input name="valor" required className="campo" placeholder="Valor total" />
-          <select name="categoriaId" required className="campo">
-            {categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          <select name="categoriaId" required className="campo" aria-label="Plano de contas">
+            {categorias.filter((c) => c.grupoDre !== "NAO_OPERACIONAL" || !c.nome.startsWith("Transferência")).map((c) => <option key={c.id} value={c.id}>{"\u00a0\u00a0".repeat(c.nivel)}{rotuloCat(c)}</option>)}
           </select>
-          <input type="date" name="vencimento" required defaultValue={iso(hoje)} className="campo" aria-label="Vencimento" />
+          <label className="text-[11px] text-slate-500">Vencimento<input type="date" name="vencimento" required defaultValue={iso(hoje)} className="campo" /></label>
+          <label className="text-[11px] text-slate-500">Competência (DRE)<input type="date" name="competencia" className="campo" title="Em branco = data do vencimento" /></label>
+          <select name="centroCustoId" className="campo" aria-label="Centro de custo">
+            <option value="">Centro de custo</option>
+            {centros.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+          <select name="contaBancariaId" className="campo" aria-label="Conta bancária">
+            <option value="">Conta bancária (na baixa)</option>
+            {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
           <select name="parcelas" className="campo" defaultValue="1">
             {Array.from({ length: 24 }, (_, i) => <option key={i} value={i + 1}>{i + 1}x mensal</option>)}
           </select>
@@ -157,15 +189,16 @@ export default async function Financeiro({ searchParams }: {
             <option value="">Forma de pagamento</option>
             {formas.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
           </select>
-          <button className="btn md:col-span-2">Lançar</button>
+          <input name="observacao" className="campo md:col-span-2" placeholder="Observação" />
+          <button className="btn">Lançar</button>
         </form>
-        <form action={novaConta} className="cartao space-y-2 p-4">
-          <h2 className="font-semibold">Nova conta bancária</h2>
-          <input name="nome" required className="campo" placeholder="Nome (ex.: Inter PJ)" />
-          <input name="banco" className="campo" placeholder="Banco" />
-          <input name="saldoInicial" className="campo" placeholder="Saldo inicial" />
-          <button className="btn-sec w-full">Adicionar</button>
-        </form>
+        <div className="cartao space-y-2 p-4 text-sm">
+          <h2 className="font-semibold">Cadastros do financeiro</h2>
+          <Link href="/financeiro/contas" className="block text-marca hover:underline">Contas bancárias</Link>
+          <Link href="/financeiro/plano-contas" className="block text-marca hover:underline">Plano de contas</Link>
+          <Link href="/financeiro/centros-custo" className="block text-marca hover:underline">Centros de custo</Link>
+          <Link href="/financeiro/transferencias" className="block text-marca hover:underline">Transferências entre contas</Link>
+        </div>
       </div>
     </div>
   );

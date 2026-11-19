@@ -24,6 +24,10 @@ export async function novoLancamento(form: FormData) {
       parcelas: Number(form.get("parcelas") || 1),
       primeiroVencimento: parseDia(str(form.get("vencimento"))),
       formaPagamentoId: str(form.get("formaPagamentoId")) || null,
+      contaBancariaId: str(form.get("contaBancariaId")) || null,
+      centroCustoId: str(form.get("centroCustoId")) || null,
+      competencia: str(form.get("competencia")) ? parseDia(str(form.get("competencia"))) : undefined,
+      observacao: str(form.get("observacao")) || null,
     }),
   );
   await boletosDoDocumento({ lancamentoIds: criados.map((l) => l.id) });
@@ -55,13 +59,5 @@ export async function excluir(form: FormData) {
   await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.lancamento.deleteMany({ where: { id: str(form.get("id")), pagoEm: null, origemTipo: null } });
   await boletosDoDocumento({ lancamentoIds: [] }); // cancela no Inter o boleto da conta apagada
-  revalidatePath("/financeiro");
-}
-
-export async function novaConta(form: FormData) {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
-  await prisma.contaBancaria.create({
-    data: { nome: str(form.get("nome")), banco: str(form.get("banco")) || null, saldoInicial: num(form.get("saldoInicial")) },
-  });
   revalidatePath("/financeiro");
 }

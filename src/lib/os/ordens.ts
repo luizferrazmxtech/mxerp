@@ -1,3 +1,4 @@
+import { centroPorNome } from "@/lib/financeiro/plano";
 import { Prisma, type EstoqueSituacao, type PapelUsuario, type PrioridadeOs, type SituacaoOs, type SituacaoOsConfig } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { entrada } from "@/lib/estoque/estoque";
@@ -67,6 +68,7 @@ async function lancarFinanceiro(tx: Tx, osId: string) {
   const o = await tx.ordemServico.findUniqueOrThrow({ where: { id: osId }, include: { parcelas: { orderBy: { numero: "asc" } } } });
   if (!(Number(o.total) > 0)) return;
   await garantirPadroes(tx);
+  const centro = await centroPorNome(tx, o.centroCusto);
   const rec = await receitaDocumento(tx, Number(o.totalProdutos), Number(o.totalServicos));
   const parcelas = o.parcelas.length ? o.parcelas : [{ numero: 1, vencimento: o.saida ?? o.entrada, valor: o.total, formaPagamentoId: o.formaPagamentoId }];
   for (const p of parcelas)
@@ -74,7 +76,7 @@ async function lancarFinanceiro(tx: Tx, osId: string) {
       data: {
         tipo: "RECEBER", descricao: parcelas.length > 1 ? `OS de nº ${o.numero} (${p.numero}/${parcelas.length})` : `OS de nº ${o.numero}`,
         pessoaId: o.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? o.formaPagamentoId, valor: p.valor,
-        vencimento: p.vencimento, competencia: o.saida ?? o.entrada, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "OS", origemId: o.id,
+        vencimento: p.vencimento, competencia: o.saida ?? o.entrada, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "OS", origemId: o.id, centroCustoId: centro,
         rateio: { create: rec.rateio },
       },
     });
