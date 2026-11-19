@@ -24,3 +24,11 @@ export async function exigirArea(caminho: string) {
   if (!podeAcessar(u.papel, caminho)) redirect("/?negado=1");
   return u;
 }
+
+/** Para ações configuráveis em Usuários › Permissões (excluir, cancelar, estornar…). */
+export async function exigirAcao(acao: import("./permissoesAcao").ChaveAcao) {
+  const u = await exigirUsuario();
+  const { pode, ACOES } = await import("./permissoesAcao");
+  if (!(await pode(u.papel, acao))) throw new Error(`Sem permissão para: ${ACOES[acao].rotulo.toLowerCase()}. Fale com o administrador.`);
+  return u;
+}

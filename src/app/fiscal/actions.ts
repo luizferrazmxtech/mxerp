@@ -1,6 +1,6 @@
 "use server";
 
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { revalidatePath } from "next/cache";
 import type { RegimeTributario, AmbienteFiscal } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -79,7 +79,7 @@ export async function emitirOs(_: Res, form: FormData): Promise<Res> {
 }
 
 export async function cancelar(_: Res, form: FormData): Promise<Res> {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
+  await exigirAcao("nota.cancelar");
   try {
     await cancelarNota(s(form.get("notaId")), s(form.get("justificativa")));
     revalidatePath("/fiscal");
@@ -104,7 +104,7 @@ export async function emitirNfse(_: Res, form: FormData): Promise<Res> {
 }
 
 export async function cancelarServico(_: Res, form: FormData): Promise<Res> {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
+  await exigirAcao("nota.cancelar");
   try {
     await cancelarNfse(s(form.get("notaId")), Number(form.get("cMotivo")) as 1 | 2 | 9, s(form.get("justificativa")));
     revalidatePath("/fiscal");
@@ -126,7 +126,7 @@ export async function consultarNotaAcao(_: Res, form: FormData): Promise<Res> {
 }
 
 export async function inutilizarAcao(_: Res, form: FormData): Promise<Res> {
-  const u = await exigirUsuario(["ADMIN", "GERENTE"]);
+  const u = await exigirAcao("nota.inutilizar");
   try {
     const r = await inutilizarNumeracao({
       modelo: s(form.get("modelo")) === "NFCE" ? "NFCE" : "NFE", serie: Number(form.get("serie")),
@@ -140,7 +140,7 @@ export async function inutilizarAcao(_: Res, form: FormData): Promise<Res> {
 }
 
 export async function cartaCorrecaoAcao(_: Res, form: FormData): Promise<Res> {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
+  await exigirAcao("nota.cce");
   try {
     const ev = await cartaCorrecao(s(form.get("notaId")), s(form.get("correcao")));
     revalidatePath(`/fiscal/${s(form.get("notaId"))}`);

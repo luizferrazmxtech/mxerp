@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { caixaAberto, resumoCaixa } from "@/lib/pdv/caixa";
+import { pode } from "@/lib/auth/permissoesAcao";
 import { brl, dataSP, horaSP } from "@/lib/ui/format";
 import Icone from "@/components/Icone";
 import Pdv from "./Pdv";
@@ -38,7 +39,7 @@ export default async function PdvPage({ searchParams }: { searchParams: Promise<
   );
   return (
     <>
-      <Pdv formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo }))}
+      <Pdv formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo }))} podeDesconto={await pode(u.papel, "pdv.desconto")} podeSangria={await pode(u.papel, "pdv.sangria")}
         caixa={{ abertoEm: `${dataSP(caixa.abertoEm)} ${horaSP(caixa.abertoEm)}`, vendas: resumo.vendas, total: resumo.total }} />
       {acao === "fechar" && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-20">

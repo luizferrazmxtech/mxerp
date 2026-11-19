@@ -53,3 +53,15 @@ export async function redefinirSenha(_: Estado, form: FormData): Promise<Estado>
     return { ok: false, mensagem: e instanceof Error ? e.message : String(e) };
   }
 }
+
+export async function salvarPermissoesAcao(_: { ok: boolean; mensagem: string; ir?: string } | null, form: FormData) {
+  await exigirUsuario(["ADMIN"]);
+  const { salvarPermissoes } = await import("@/lib/auth/permissoesAcao");
+  try {
+    await salvarPermissoes(new Set(form.getAll("p").map(String)), form.get("padrao") === "1");
+  } catch (e) {
+    return { ok: false, mensagem: e instanceof Error ? e.message : String(e) };
+  }
+  revalidatePath("/usuarios/permissoes");
+  return { ok: true, mensagem: form.get("padrao") === "1" ? "Permissões voltaram ao padrão" : "Permissões salvas" };
+}

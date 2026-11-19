@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { ROTULO_PAPEL } from "@/lib/auth/permissoes";
 import { dataHora } from "@/lib/ui/format";
@@ -15,7 +16,10 @@ export default async function Usuarios() {
   const papeis = Object.entries(ROTULO_PAPEL) as [string, string][];
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Usuários</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-xl font-semibold">Usuários</h1>
+        <Link href="/usuarios/permissoes" className="btn-sec">Permissões por ação</Link>
+      </div>
       <NovoUsuario papeis={papeis} />
       <div className="cartao overflow-x-auto">
         <table className="tabela">

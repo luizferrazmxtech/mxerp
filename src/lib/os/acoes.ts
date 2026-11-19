@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, type EstoqueSituacao, type NotaSituacao, type PapelUsuario } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { avisoBoletos, boletosDoDocumento } from "@/lib/financeiro/boletos";
 import { emitirNfseOs, emitirNotaOs } from "@/lib/fiscal/emissao";
 import { configOs } from "./config";
@@ -35,7 +35,7 @@ export async function salvarOsForm(_: Resultado, form: FormData): Promise<Result
 }
 
 export async function alterarSituacaoOsAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  const u = await exigirUsuario(ATENDE);
+  const u = await exigirAcao("os.situacao");
   try {
     const r = await alterarSituacaoOrdem(String(form.get("id")), String(form.get("situacaoId")), u, { observacao: String(form.get("observacao") ?? ""), forcar: form.get("forcar") === "1", permitirNegativo: (await configOs()).estoqueNegativo });
     const bol = avisoBoletos(await boletosDoDocumento({ origemTipo: "OS", origemId: String(form.get("id")) }));
@@ -45,7 +45,7 @@ export async function alterarSituacaoOsAcao(_: Resultado, form: FormData): Promi
 }
 
 export async function situacaoOsEmMassaAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  const u = await exigirUsuario(ATENDE);
+  const u = await exigirAcao("os.situacao");
   const ids = form.getAll("ids").map(String);
   if (!ids.length) return { ok: false, mensagem: "Marque as OS na lista" };
   const sit = String(form.get("situacaoId") ?? "");
@@ -64,7 +64,7 @@ export async function clonarOsAcao(id: string) {
 }
 
 export async function excluirOsAcao(id: string) {
-  await exigirUsuario(GER);
+  await exigirAcao("os.excluir");
   try { const n = await excluirOrdem(id); await boletosDoDocumento({ lancamentoIds: [] }); revalidatePath("/os", "layout"); return { ok: true, mensagem: `OS nº ${n} excluída.` }; } catch (e) { return erro(e); }
 }
 
@@ -75,7 +75,7 @@ export async function excluirOsEVoltarAcao(id: string) {
 }
 
 export async function excluirVariasOsAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  await exigirUsuario(GER);
+  await exigirAcao("os.excluir");
   const ids = form.getAll("ids").map(String);
   if (!ids.length) return { ok: false, mensagem: "Marque as OS na lista" };
   let ok = 0; const falhas: string[] = [];

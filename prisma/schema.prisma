@@ -2015,3 +2015,14 @@ model AvisoBoleto {
 
   @@index([resolvidoEm])
 }
+
+/// Permissão por ação configurada na tela (sobrepõe o padrão do catálogo em src/lib/auth/permissoesAcao.ts). ADMIN sempre pode tudo.
+model PermissaoPapel {
+  id        String       @id @default(cuid())
+  papel     PapelUsuario
+  acao      String
+  permitido Boolean
+  updatedAt DateTime     @updatedAt
+
+  @@unique([papel, acao])
+}

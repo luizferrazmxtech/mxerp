@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { PapelUsuario } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { exigirUsuario } from "@/lib/auth/atual";
+import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { alterarSituacaoCompra, dadosDaCompra, excluirCompra, salvarCompra } from "./compras";
 import { itensDoFornecedor, responderCotacao, salvarCotacao, type DadosCotacao } from "./cotacoes";
 import type { DadosCompra } from "./tipos";
@@ -74,7 +74,7 @@ export async function clonarCompraAcao(id: string) {
 }
 
 export async function excluirCompraAcao(id: string) {
-  const u = await exigirUsuario(GER);
+  const u = await exigirAcao("compra.excluir");
   try { const n = await excluirCompra(id, u); revalidatePath("/compras", "layout"); return { ok: true, mensagem: `Compra nº ${n} excluída.` }; } catch (e) { return erro(e); }
 }
 
@@ -85,7 +85,7 @@ export async function excluirCompraEVoltarAcao(id: string, voltar: string) {
 }
 
 export async function excluirComprasAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  const u = await exigirUsuario(GER);
+  const u = await exigirAcao("compra.excluir");
   const ids = form.getAll("ids").map(String);
   if (!ids.length) return { ok: false, mensagem: "Marque as compras na lista" };
   let ok = 0; const falhas: string[] = [];
@@ -235,7 +235,7 @@ export async function salvarConfigEstoqueAcao(_: Resultado, form: FormData): Pro
 // ---------- ajustes
 
 export async function salvarAjusteForm(_: Resultado, form: FormData): Promise<Resultado> {
-  const u = await exigirUsuario(COMPRA);
+  const u = await exigirAcao("estoque.ajuste");
   let destino: string;
   try {
     const a = await criarAjuste(JSON.parse(String(form.get("dados"))) as DadosAjuste, u);
@@ -246,7 +246,7 @@ export async function salvarAjusteForm(_: Resultado, form: FormData): Promise<Re
 }
 
 export async function zerarEstoqueAcao(_: Resultado, form: FormData): Promise<Resultado> {
-  const u = await exigirUsuario(GER);
+  const u = await exigirAcao("estoque.zerar");
   if (String(form.get("confirmacao") ?? "").trim().toUpperCase() !== "ZERAR") return { ok: false, mensagem: "Digite ZERAR para confirmar" };
   let destino: string;
   try {
