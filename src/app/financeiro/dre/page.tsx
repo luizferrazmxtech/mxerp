@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Pagina } from "@/components/ui/Pagina";
 import { calcularDre, type Regime } from "@/lib/financeiro/dre";
 import { prisma } from "@/lib/db";
 
@@ -13,11 +13,11 @@ export default async function Dre({ searchParams }: { searchParams: Promise<{ an
   const regime: Regime = sp.regime === "CAIXA" ? "CAIXA" : "COMPETENCIA";
   const [dre, centros] = await Promise.all([calcularDre(ano, regime, sp.centro || undefined), prisma.centroCusto.findMany({ orderBy: { nome: "asc" } })]);
   return (
+    <Pagina titulo={`DRE gerencial ${ano}`} icone="dre" trilha={[{ rotulo: "Financeiro", href: "/financeiro" }, { rotulo: "DRE gerencial" }]}>
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <Link href="/financeiro" className="text-sm text-slate-500 hover:underline">← Financeiro</Link>
-          <h1 className="text-xl font-semibold">DRE gerencial {ano}{dre.centro && <span className="font-normal text-slate-500"> · centro de custo {dre.centro}</span>}</h1>
+          {dre.centro && <p className="text-sm font-semibold text-slate-700">Centro de custo {dre.centro}</p>}
           <p className="text-xs text-slate-500">
             {regime === "CAIXA" ? "Regime de caixa (pelo que foi pago/recebido)" : "Regime de competência"} · CMV pelo custo das peças vendidas · margem líquida {(dre.margemLiquida * 100).toFixed(1)}%
           </p>
@@ -54,5 +54,6 @@ export default async function Dre({ searchParams }: { searchParams: Promise<{ an
         </table>
       </div>
     </div>
+    </Pagina>
   );
 }

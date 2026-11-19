@@ -12,8 +12,8 @@ export function Pagina({ titulo, icone, trilha, children, acoes }: {
   return (
     <div>
       <div className="no-print -mx-4 mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-200 px-4 pb-3 md:-mx-5 md:px-5">
-        <h1 className="flex items-center gap-2 text-[22px] font-normal text-slate-800">
-          {icone && <Icone nome={icone} size={20} />}
+        <h1 className="flex items-center gap-2 text-[24px] font-medium text-[#212529]">
+          {icone && <Icone nome={icone} size={22} />}
           {titulo}
         </h1>
         {acoes}

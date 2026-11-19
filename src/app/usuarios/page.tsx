@@ -1,3 +1,4 @@
+import { Pagina } from "@/components/ui/Pagina";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { ROTULO_PAPEL } from "@/lib/auth/permissoes";
@@ -15,9 +16,9 @@ export default async function Usuarios() {
   });
   const papeis = Object.entries(ROTULO_PAPEL) as [string, string][];
   return (
+    <Pagina titulo="Usuários" icone="clientes" trilha={[{ rotulo: "Usuários", href: "/usuarios" }, { rotulo: "Listar" }]}>
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">Usuários</h1>
         <Link href="/usuarios/permissoes" className="btn-sec">Permissões por ação</Link>
       </div>
       <NovoUsuario papeis={papeis} />
@@ -48,5 +49,6 @@ export default async function Usuarios() {
         </table>
       </div>
     </div>
+    </Pagina>
   );
 }

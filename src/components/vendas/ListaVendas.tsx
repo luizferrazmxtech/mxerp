@@ -19,6 +19,8 @@ import SeletorPeriodo from "@/components/ui/SeletorPeriodo";
 import Icone from "@/components/Icone";
 import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
+import Resumo from "@/components/ui/Resumo";
+import { brl } from "@/lib/ui/format";
 
 export type TipoLista = "PEDIDO" | "SERVICO" | "BALCAO";
 const COLUNAS = [
@@ -53,6 +55,13 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   ]);
   const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "VENDA", origemId: { in: lista.map((v) => v.id) }, modelo: { in: ["NFE", "NFCE"] }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true } });
   const notaDe = new Map(notas.map((n) => [n.origemId, n]));
+  // cartões de resumo do período, por situação (sem o filtro de situação)
+  const porSituacao = await prisma.venda.groupBy({ by: ["situacao"], where: await whereVendas(tipo, { ...sp, s: undefined }), _sum: { total: true }, _count: true });
+  const grupo = (sits: string[]) => porSituacao.filter((g) => sits.includes(g.situacao)).reduce((a, g) => ({ n: a.n + g._count, v: a.v + Number(g._sum.total ?? 0) }), { n: 0, v: 0 });
+  const tudo = grupo(["ORCAMENTO", "ABERTA", "CONCLUIDA", "CANCELADA"]);
+  const abertas = grupo(["ORCAMENTO", "ABERTA"]), feitas = grupo(["CONCLUIDA"]), canceladas = grupo(["CANCELADA"]);
+  const pctV = (x: number) => (tudo.v > 0 ? (x / tudo.v) * 100 : 0);
+  const qtdV = (n: number) => `${n} venda${n === 1 ? "" : "s"}`;
   const centros = (await prisma.venda.findMany({ where: { centroCusto: { not: null } }, distinct: ["centroCusto"], select: { centroCusto: true } })).map((x) => x.centroCusto!);
   const cols = balcao ? COLUNAS.filter((c) => !["nfe", "entrega", "conteudo"].includes(c.chave)) : COLUNAS;
   const vis = colunasVisiveis(u?.preferencias, base, cols, balcao ? ["numero", "cliente", "data", "situacao", "valor"] : ["numero", "nfe", "cliente", "data", "situacao", "conteudo", "valor"]);
@@ -90,7 +99,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
                 {selecao && <td><input type="checkbox" name="ids" value={v.id} /></td>}
                 {tem("numero") && <td>{v.numero}</td>}
                 {tem("nfe") && <td>{nf ? <Link href={`/fiscal/${nf.id}`} className="text-marca hover:underline">#{nf.numero}</Link> : <span className="text-slate-400">—</span>}</td>}
-                {tem("cliente") && <td>{v.cliente ? <><Link href={`/clientes/${v.cliente.id}`} className="underline decoration-slate-300 hover:decoration-slate-700">{v.cliente.nome}</Link>{v.cliente.fantasia && <i className="block text-[11px] text-slate-500">{v.cliente.fantasia}</i>}</> : "Consumidor"}</td>}
+                {tem("cliente") && <td>{v.cliente ? <><Link href={`/clientes/${v.cliente.id}`} className="sublinhado">{v.cliente.nome}</Link>{v.cliente.fantasia && <i className="block text-[11px] text-slate-500">{v.cliente.fantasia}</i>}</> : "Consumidor"}</td>}
                 {tem("data") && <td>{dataBr(v.data)}</td>}
                 {tem("entrega") && <td>{dataUtc(v.prazoEntrega)}</td>}
                 {tem("situacao") && <td><span className={`pilula ${c.pilula}`}>{v.situacaoCfg?.nome ?? v.situacao}</span></td>}
@@ -109,7 +118,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
                       {v.situacao === "CONCLUIDA" && !nf && Number(v.totalProdutos) > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, v.id, "NFE")} icone="notas" confirmar={`Emitir a NF-e da venda nº ${v.numero}?`}>Emitir NF-e</BotaoAcao>}
                       {v.situacao === "CONCLUIDA" && Number(v.totalServicos) > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, v.id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da venda nº ${v.numero}?`}>Emitir NFS-e</BotaoAcao>}
                       {!balcao && <BotaoAcao acao={clonarVendaAcao.bind(null, v.id)} icone="copiar">Gerar cópia</BotaoAcao>}
-                      <LinkSuspenso href={`/financeiro?tipo=RECEBER&q=${encodeURIComponent(`Venda de nº ${v.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+                      <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&q=${encodeURIComponent(`Venda de nº ${v.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
                       <BotaoExcluir acao={excluirVendaAcao.bind(null, v.id)} pergunta={`Excluir a venda nº ${v.numero}? O estoque volta e as contas a receber em aberto são apagadas.`} rotulo="Excluir" />
                     </Suspenso>
                   </div>
@@ -164,6 +173,14 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
           <div className="mt-3 flex gap-2"><button className="btn"><Icone nome="buscar" size={14} /> Buscar</button><Link href={`${base}?busca=1`} className="btn-sec"><Icone nome="fechar" size={14} /> Limpar</Link></div>
         </form>
       )}
+
+      <Resumo cartoes={[
+        { rotulo: "Total do período", valor: brl(tudo.v), legenda: `${qtdV(tudo.n)} no período`, icone: "vendas", cor: "tinta", pct: tudo.v > 0 ? 100 : 0 },
+        { rotulo: "Em aberto", valor: brl(abertas.v), legenda: `${qtdV(abertas.n)} em aberto ou orçamento`, icone: "hoje", cor: "azul", pct: pctV(abertas.v) },
+        { rotulo: "Concretizadas", valor: brl(feitas.v), legenda: `${qtdV(feitas.n)} concretizadas`, icone: "confirmado", cor: "verde", pct: pctV(feitas.v) },
+        { rotulo: "Canceladas", valor: brl(canceladas.v), legenda: `${qtdV(canceladas.n)} canceladas`, icone: "fechar", cor: "vermelho", pct: pctV(canceladas.v) },
+        { rotulo: "Ticket médio", valor: brl(feitas.n ? feitas.v / feitas.n : 0), legenda: "das concretizadas", icone: "valor", cor: "cinza" },
+      ]} />
 
       {emSituacao && <FormSituacao id={emSituacao.id} numero={emSituacao.numero} atual={emSituacao.situacaoId ?? ""} situacoes={opcoesSit} voltar={sem} acao={alterarSituacaoVendaAcao} rotulo="da venda" />}
 

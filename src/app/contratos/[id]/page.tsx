@@ -59,7 +59,7 @@ export default async function VerContrato({ params }: { params: Promise<{ id: st
             {c.situacao === "ATIVO" && <BotaoAcao acao={situacaoContratoAcao.bind(null, id, "PAUSADO")} icone="relogio">Pausar</BotaoAcao>}
             {c.situacao !== "FINALIZADO" && <BotaoAcao acao={situacaoContratoAcao.bind(null, id, "FINALIZADO")} icone="ok" confirmar="Finalizar o contrato? Ele para de gerar cobranças.">Finalizar</BotaoAcao>}
             {c.situacao !== "CANCELADO" && <BotaoAcao acao={situacaoContratoAcao.bind(null, id, "CANCELADO")} icone="fechar" confirmar="Cancelar o contrato? Ele para de gerar cobranças (as vendas já geradas continuam).">Cancelar contrato</BotaoAcao>}
-            <LinkSuspenso href={`/financeiro?tipo=RECEBER&q=${encodeURIComponent(c.cliente.nome)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+            <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&q=${encodeURIComponent(c.cliente.nome)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
             <BotaoExcluir acao={excluirContratoAcao.bind(null, id)} pergunta={`Excluir o contrato nº ${c.numero}?`} rotulo="Excluir contrato" depois="/contratos" />
           </Suspenso>
         </div>

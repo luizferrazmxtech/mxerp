@@ -63,7 +63,7 @@ export default async function VerAjuste({ params, searchParams }: { params: Prom
                 <thead><tr><th>Produto</th><th>Local</th><th className="text-right">Quantidade</th><th className="text-right">Custo unit.</th><th className="text-right">Custo total</th></tr></thead>
                 <tbody>{a.itens.map((i) => (
                   <tr key={i.id}>
-                    <td><Link href={`/produtos/${i.produto.id}`} className="font-semibold uppercase underline decoration-slate-300 hover:decoration-slate-700">{i.produto.nome}</Link><div className="font-mono text-[11px] text-slate-500">{i.produto.codigo}</div></td>
+                    <td><Link href={`/produtos/${i.produto.id}`} className="font-semibold uppercase sublinhado">{i.produto.nome}</Link><div className="font-mono text-[11px] text-slate-500">{i.produto.codigo}</div></td>
                     <td className="text-[12px] text-slate-600">{i.localId ? localDe.get(i.localId) : "—"}</td>
                     <td className={`text-right font-semibold ${saida ? "text-red-600" : "text-emerald-700"}`}>{saida ? "− " : "+ "}{qtd(i.quantidade)} {i.produto.unidade}</td>
                     <td className="text-right">{num2(i.custoUnit)}</td><td className="text-right">{num2(i.total)}</td>

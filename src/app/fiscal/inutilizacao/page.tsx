@@ -1,3 +1,4 @@
+import { Pagina } from "@/components/ui/Pagina";
 import Link from "next/link";
 import { exigirArea } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
@@ -17,10 +18,9 @@ export default async function Inutilizacao() {
   const pendentes = await Promise.all(series.map(async (x) => ({ ...x, faixas: await numerosPendentes(x.modelo, x.serie, ambiente) })));
   const historico = await prisma.inutilizacaoNumeracao.findMany({ orderBy: { createdAt: "desc" }, take: 100 });
   return (
+    <Pagina titulo="Inutilizar numeração" icone="notas" trilha={[{ rotulo: "Notas fiscais", href: "/fiscal" }, { rotulo: "Inutilizar numeração" }]}>
     <div className="space-y-4">
       <div>
-        <Link href="/fiscal" className="text-sm text-slate-500 hover:underline">← Notas fiscais</Link>
-        <h1 className="text-xl font-semibold">Inutilizar numeração</h1>
         <p className="text-xs text-slate-500">
           Número de NF-e/NFC-e que foi rejeitado ou pulado precisa ser inutilizado na SEFAZ até o dia 10 do mês seguinte.
           Ambiente atual: <b>{ambiente === "PRODUCAO" ? "produção" : "homologação"}</b>.
@@ -82,5 +82,6 @@ export default async function Inutilizacao() {
         </table>
       </div>
     </div>
+    </Pagina>
   );
 }

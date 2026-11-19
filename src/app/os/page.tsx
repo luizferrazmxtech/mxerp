@@ -20,12 +20,14 @@ import Icone from "@/components/Icone";
 import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
 import TrocarVisualizacao from "@/components/os/TrocarVisualizacao";
+import Resumo from "@/components/ui/Resumo";
+import { brl } from "@/lib/ui/format";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Ordens de serviços" };
 
 const COLUNAS = [
-  { chave: "numero", rotulo: "Nº" }, { chave: "cliente", rotulo: "Cliente" }, { chave: "entrada", rotulo: "Entrada" }, { chave: "saida", rotulo: "Saída" },
+  { chave: "numero", rotulo: "Nº" }, { chave: "nfse", rotulo: "NFS-e" }, { chave: "cliente", rotulo: "Cliente" }, { chave: "entrada", rotulo: "Entrada" }, { chave: "saida", rotulo: "Saída" },
   { chave: "equipamentos", rotulo: "Equipamentos" }, { chave: "situacao", rotulo: "Situação" }, { chave: "valor", rotulo: "Valor" }, { chave: "loja", rotulo: "Loja" },
 ];
 const ORDENS_KANBAN: [string, string][] = [["-numero", "Nº"], ["cliente", "Cliente"], ["-entrada", "Data de abertura"], ["-valor", "Valor total"], ["tecnico", "Responsável"]];
@@ -60,7 +62,21 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
   // melhoria sobre o Gestão Click: mostra as OS com peça em falta
   const comFalta = new Set((await prisma.reserva.findMany({ where: { origemTipo: "OS", status: "ATIVA", localId: null, origemId: { in: lista.map((o) => o.id) } }, select: { origemId: true } })).map((r) => r.origemId));
   const centros = (await prisma.ordemServico.findMany({ where: { centroCusto: { not: null } }, distinct: ["centroCusto"], select: { centroCusto: true } })).map((x) => x.centroCusto!);
-  const vis = colunasVisiveis(u?.preferencias, base, COLUNAS, ["numero", "cliente", "entrada", "saida", "situacao", "valor"]);
+  const vis = colunasVisiveis(u?.preferencias, base, COLUNAS, ["numero", "nfse", "cliente", "entrada", "saida", "situacao", "valor"]);
+  // NFS-e de cada OS e cartões de resumo do período (por situação, sem o filtro de situação)
+  const [nfses, porSituacao, faltaTotal] = await Promise.all([
+    prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: { in: lista.map((o) => o.id) }, modelo: "NFSE", status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true } }),
+    prisma.ordemServico.groupBy({ by: ["situacao"], where: whereOrdens({ ...sp, s: undefined }), _sum: { total: true }, _count: true }),
+    prisma.reserva.findMany({ where: { origemTipo: "OS", status: "ATIVA", localId: null }, select: { origemId: true }, distinct: ["origemId"] }),
+  ]);
+  const nfseDe = new Map(nfses.map((n) => [n.origemId, n]));
+  const grupo = (sits: string[]) => porSituacao.filter((g) => sits.includes(g.situacao)).reduce((a, g) => ({ n: a.n + g._count, v: a.v + Number(g._sum.total ?? 0) }), { n: 0, v: 0 });
+  const tudo = grupo(porSituacao.map((g) => g.situacao));
+  const abertas = grupo(["ABERTA", "EM_ANDAMENTO", "AGUARDANDO_PECA", "AGUARDANDO_APROVACAO"]);
+  const feitas = grupo(["CONCLUIDA", "FATURADA"]);
+  const canceladas = grupo(["CANCELADA", "DEVOLVIDA_SEM_REPARO"]);
+  const pctOs = (x: number) => (tudo.v > 0 ? (x / tudo.v) * 100 : 0);
+  const qtdOs = (n: number) => `${n} OS`;
   const tem = (c: string) => vis.includes(c);
   const loja = () => { const e = empresas[0]; return e ? e.nomeFantasia || e.razaoSocial : ""; };
   const modo = sp.acao;
@@ -88,7 +104,7 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
   );
   const pilula = (o: (typeof lista)[number]) => {
     const c = cor(o.situacaoCfg?.cor ?? "cinza");
-    return <span className={`pilula ${c.pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${c.ponto}`} />{o.situacaoCfg?.nome ?? o.situacao}</span>;
+    return <span className={`pilula ${c.pilula}`}>{o.situacaoCfg?.nome ?? o.situacao}</span>;
   };
 
   const tabela = (
@@ -97,6 +113,7 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
         <thead><tr>
           {selecao && <th className="w-8"></th>}
           {tem("numero") && <Ordenar base={base} params={sp} campo="numero" className="w-20">Nº</Ordenar>}
+          {tem("nfse") && <th className="w-20">NFS-e</th>}
           {tem("cliente") && <Ordenar base={base} params={sp} campo="cliente">Cliente</Ordenar>}
           {tem("entrada") && <Ordenar base={base} params={sp} campo="entrada" className="w-28">Entrada</Ordenar>}
           {tem("saida") && <Ordenar base={base} params={sp} campo="saida" className="w-28">Saída</Ordenar>}
@@ -111,7 +128,8 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
             <tr key={o.id}>
               {selecao && <td><input type="checkbox" name="ids" value={o.id} /></td>}
               {tem("numero") && <td>{o.numero}</td>}
-              {tem("cliente") && <td><Link href={`/os/${o.id}`} className="uppercase underline decoration-slate-300 hover:decoration-slate-700">{o.cliente.nome}</Link>{o.cliente.fantasia && o.cliente.fantasia !== o.cliente.nome && <i className="block text-[11px] uppercase text-slate-500">({o.cliente.fantasia})</i>}</td>}
+              {tem("nfse") && <td>{nfseDe.get(o.id) ? <Link href={`/fiscal/${nfseDe.get(o.id)!.id}`} className="sublinhado">#{nfseDe.get(o.id)!.numero}</Link> : <span className="text-slate-400">—</span>}</td>}
+              {tem("cliente") && <td><Link href={`/os/${o.id}`} className="uppercase sublinhado">{o.cliente.nome}</Link>{o.cliente.fantasia && o.cliente.fantasia !== o.cliente.nome && <i className="block text-[11px] uppercase text-slate-500">({o.cliente.fantasia})</i>}</td>}
               {tem("entrada") && <td>{dataSP(o.entrada)}<div className="text-[11px] text-slate-400">{horaSP(o.entrada)}</div></td>}
               {tem("saida") && <td>{o.saida ? <>{dataSP(o.saida)}<div className="text-[11px] text-slate-400">{horaSP(o.saida)}</div></> : <span className="text-slate-400">—</span>}</td>}
               {tem("equipamentos") && <td className="text-[12px]">{o.equipamentos.map((e) => e.equipamento).join(", ")}</td>}
@@ -142,7 +160,7 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
         return (
           <div key={s.id} className="w-72 shrink-0 rounded-md border border-slate-200 bg-slate-50">
             <div className="flex items-center gap-2 border-b bg-white px-3 py-2 text-[12px]">
-              <span className={`pilula ${c.pilula}`}><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${c.ponto}`} />{s.nome}</span>
+              <span className={`pilula ${c.pilula}`}>{s.nome}</span>
               <span className="text-slate-500">· {ordens.length}</span>
               <span className="ml-auto font-semibold">R$ {num2(ordens.reduce((a, o) => a + Number(o.total), 0))}</span>
             </div>
@@ -220,6 +238,14 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
           <div className="mt-3 flex gap-2"><button className="btn"><Icone nome="buscar" size={14} /> Buscar</button><Link href={`${base}?busca=1`} className="btn-sec"><Icone nome="fechar" size={14} /> Limpar</Link></div>
         </form>
       )}
+
+      <Resumo cartoes={[
+        { rotulo: "Total do período", valor: brl(tudo.v), legenda: `${qtdOs(tudo.n)} no período`, icone: "os", cor: "tinta", pct: tudo.v > 0 ? 100 : 0, href: urlCom(base, sp, { s: undefined, falta: undefined, p: undefined }) },
+        { rotulo: "Em aberto", valor: brl(abertas.v), legenda: `${qtdOs(abertas.n)} em andamento`, icone: "hoje", cor: "azul", pct: pctOs(abertas.v), href: urlCom(base, sp, { s: sp.s === "abertas" ? undefined : "abertas", p: undefined }), ativo: sp.s === "abertas" },
+        { rotulo: "Concretizadas", valor: brl(feitas.v), legenda: `${qtdOs(feitas.n)} concluídas ou faturadas`, icone: "confirmado", cor: "verde", pct: pctOs(feitas.v) },
+        { rotulo: "Canceladas", valor: brl(canceladas.v), legenda: `${qtdOs(canceladas.n)} canceladas ou devolvidas`, icone: "fechar", cor: "vermelho", pct: pctOs(canceladas.v) },
+        { rotulo: "Peça em falta", valor: String(faltaTotal.length), legenda: "OS esperando peça (todas as datas)", icone: "alerta", cor: "amarelo", href: urlCom(base, {}, { periodo: "todos", falta: sp.falta ? undefined : "1" }), ativo: !!sp.falta },
+      ]} />
 
       {emSituacao && <FormSituacao id={emSituacao.id} numero={emSituacao.numero} atual={emSituacao.situacaoId ?? ""} situacoes={opcoesSit} voltar={sem} acao={alterarSituacaoOsAcao} rotulo="da OS" />}
 

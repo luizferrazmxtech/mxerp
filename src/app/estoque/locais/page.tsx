@@ -1,3 +1,4 @@
+import { Pagina } from "@/components/ui/Pagina";
 import { prisma } from "@/lib/db";
 import { criarLocal } from "../actions";
 
@@ -9,8 +10,8 @@ export default async function LocaisPage() {
     orderBy: { codigo: "asc" },
   });
   return (
+    <Pagina titulo="Locais de estoque" icone="locais" trilha={[{ rotulo: "Estoque", href: "/estoque" }, { rotulo: "Locais" }]}>
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Locais de estoque</h1>
       <form action={criarLocal} className="cartao grid gap-2 p-4 md:grid-cols-6">
         <input name="deposito" className="campo" placeholder="Depósito (ex.: Loja)" defaultValue="Loja" />
         <input name="corredor" className="campo" placeholder="Corredor (A)" />
@@ -37,5 +38,6 @@ export default async function LocaisPage() {
         </table>
       </div>
     </div>
+    </Pagina>
   );
 }

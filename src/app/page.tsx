@@ -97,13 +97,13 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
 
       {fin && (
         <div className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <Kpi icone="dinheiro" cor={C.cinza} titulo="Saldo disponível hoje" href="/financeiro"
+          <Kpi icone="dinheiro" cor={C.cinza} titulo="Saldo disponível hoje" href="/financeiro/contas"
             valor={<span className="flex items-center gap-2"><ValorOculto valor={brl(fin.saldoTotal)} /></span>}
             legenda={plural(fin.contas.length, "conta bancária", "contas bancárias")}
             extra={<BotaoOlho className="btn-icone" />} />
-          <Kpi icone="receber" cor={C.verde} titulo="A receber hoje" valor={brl(fin.receber.hoje)} href="/financeiro?tipo=RECEBER"
+          <Kpi icone="receber" cor={C.verde} titulo="A receber hoje" valor={brl(fin.receber.hoje)} href="/financeiro?tipo=RECEBER&periodo=hoje"
             legenda={fin.receber.nHoje ? `${plural(fin.receber.nHoje, "título vence", "títulos vencem")} hoje` : "nada vence hoje"} />
-          <Kpi icone="pagar" cor={C.vermelho} titulo="A pagar hoje" valor={brl(fin.pagar.hoje)} href="/financeiro?tipo=PAGAR"
+          <Kpi icone="pagar" cor={C.vermelho} titulo="A pagar hoje" valor={brl(fin.pagar.hoje)} href="/financeiro?tipo=PAGAR&periodo=hoje"
             legenda={fin.pagar.nHoje ? `${plural(fin.pagar.nHoje, "título vence", "títulos vencem")} hoje` : "nada vence hoje"} />
           <Kpi icone="mais" cor={C.verde} titulo={`Recebido em ${mesAtual}`} valor={brl(fin.receber.mes.feito)} anel={percentual(fin.receber.mes.feito, fin.receber.mes.previsto)}
             legenda={`de ${brl(fin.receber.mes.previsto)} previstos`} />
@@ -123,7 +123,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
         <Kpi icone="gerenciar" cor={C.azul} titulo="Orçamentos em aberto" valor={d.orcamentos.n30.toLocaleString("pt-BR")} href="/orcamentos"
           legenda={`${brl(d.orcamentos.total30)} nos últimos 30 dias`} />
         {fin && (
-          <Kpi icone="prazo" cor={fin.receber.vencido ? C.vermelho : C.cinza} titulo="Contas vencidas" href="/financeiro?tipo=RECEBER&f=vencidos"
+          <Kpi icone="prazo" cor={fin.receber.vencido ? C.vermelho : C.cinza} titulo="Contas vencidas" href="/financeiro?tipo=RECEBER&periodo=todos&f=vencidos"
             valor={brl(fin.receber.vencido)} legenda={`a receber · a pagar vencido: ${brl(fin.pagar.vencido)}`} />
         )}
       </div>
@@ -278,7 +278,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
             <table className="tabela -mx-4 -mt-4 w-[calc(100%+2rem)]">
               <thead><tr><th></th><th className="text-right">A receber</th><th className="text-right">A pagar</th></tr></thead>
               <tbody>
-                {([["Vencidas", "vencido", "f=vencidos"], ["Hoje", "hoje", `f=abertos&de=${hoje}&ate=${hoje}`], ["Próximos 7 dias", "semana", `f=abertos&de=${amanha}&ate=${em7}`]] as const).map(([r, k, f]) => (
+                {([["Vencidas", "vencido", "periodo=todos&f=vencidos"], ["Hoje", "hoje", `f=abertos&de=${hoje}&ate=${hoje}`], ["Próximos 7 dias", "semana", `f=abertos&de=${amanha}&ate=${em7}`]] as const).map(([r, k, f]) => (
                   <tr key={r}>
                     <td>{r}</td>
                     <td className="text-right"><Link href={`/financeiro?tipo=RECEBER&${f}`} className="hover:underline">{brl(fin.receber[k])}</Link></td>

@@ -1,3 +1,4 @@
+import { Pagina } from "@/components/ui/Pagina";
 import Link from "next/link";
 import { buscarEstoque } from "@/lib/estoque/consultas";
 import { brl, qtd } from "@/lib/ui/format";
@@ -8,9 +9,9 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
   const { q = "" } = await searchParams;
   const linhas = await buscarEstoque(q);
   return (
+    <Pagina titulo="Estoque" icone="estoque" trilha={[{ rotulo: "Estoque", href: "/estoque" }, { rotulo: "Consultar" }]}>
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">Estoque</h1>
         <form className="flex gap-2">
           <input name="q" defaultValue={q} placeholder="Código, nome ou código de barras" className="campo w-72" autoFocus />
           <button className="btn">Buscar</button>
@@ -61,5 +62,6 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
         </table>
       </div>
     </div>
+    </Pagina>
   );
 }
