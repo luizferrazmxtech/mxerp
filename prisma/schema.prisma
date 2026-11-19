@@ -101,6 +101,7 @@ model Usuario {
   contratos        Contrato[]
   pessoasCriadas   Pessoa[]           @relation("PessoaCriadoPor")
   anotacoes        PessoaAnotacao[]
+  movimentosCaixa  MovimentoCaixa[]
 }
 
 enum LiberacaoComissao {
@@ -915,17 +916,40 @@ enum SituacaoVenda {
  * Caixa do PDV: aberto com um valor em dinheiro, as vendas de balcão ficam ligadas a ele até o fechamento.
  */
 model CaixaPdv {
-  id              String    @id @default(cuid())
+  id              String           @id @default(cuid())
   usuarioId       String
-  usuario         Usuario   @relation(fields: [usuarioId], references: [id])
-  abertoEm        DateTime  @default(now())
-  valorAbertura   Decimal   @db.Decimal(14, 2)
+  usuario         Usuario          @relation(fields: [usuarioId], references: [id])
+  abertoEm        DateTime         @default(now())
+  valorAbertura   Decimal          @db.Decimal(14, 2)
   fechadoEm       DateTime?
-  valorFechamento Decimal?  @db.Decimal(14, 2)
+  valorFechamento Decimal?         @db.Decimal(14, 2)
   observacao      String?
   vendas          Venda[]
+  movimentos      MovimentoCaixa[]
 
   @@index([usuarioId, fechadoEm])
+}
+
+enum TipoMovimentoCaixa {
+  SANGRIA
+  SUPRIMENTO
+}
+
+/// Sangria (retirada de dinheiro da gaveta) ou suprimento (troco colocado) durante o caixa aberto.
+model MovimentoCaixa {
+  id              String             @id @default(cuid())
+  caixaId         String
+  caixa           CaixaPdv           @relation(fields: [caixaId], references: [id], onDelete: Cascade)
+  tipo            TipoMovimentoCaixa
+  valor           Decimal            @db.Decimal(14, 2)
+  motivo          String?
+  usuarioId       String
+  usuario         Usuario            @relation(fields: [usuarioId], references: [id])
+  /// transferência no financeiro (Caixa ↔ outra conta), quando informada a conta
+  transferenciaId String?
+  createdAt       DateTime           @default(now())
+
+  @@index([caixaId])
 }
 
 model Venda {

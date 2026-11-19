@@ -6,7 +6,7 @@ import * as v from "@/lib/vendas/vendas";
 import type { Pagamento } from "@/lib/financeiro/lancamentos";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { lerNumero } from "@/lib/itens/tipos";
-import { abrirCaixa, caixaAberto, fecharCaixa } from "@/lib/pdv/caixa";
+import { abrirCaixa, caixaAberto, fecharCaixa, movimentarCaixa } from "@/lib/pdv/caixa";
 
 const num = (x: FormDataEntryValue | null) => lerNumero(String(x ?? "")) ?? NaN;
 const msg = (e: unknown, padrao: string) => (e instanceof Error && !(e as { code?: string }).code ? e.message : padrao);
@@ -52,4 +52,18 @@ export async function fecharCaixaAcao(_: ResultadoSimples, form: FormData): Prom
   }
   revalidatePath("/pdv");
   redirect("/vendas/balcao");
+}
+
+export async function movimentarCaixaAcao(_: ResultadoSimples, form: FormData): Promise<ResultadoSimples> {
+  const u = await exigirUsuario();
+  const tipo = form.get("tipo") === "SUPRIMENTO" ? "SUPRIMENTO" : "SANGRIA";
+  try {
+    const caixa = await caixaAberto(u.id);
+    if (!caixa) return { ok: false, mensagem: "Abra o caixa antes" };
+    await movimentarCaixa(caixa.id, u.id, { tipo, valor: num(form.get("valor")), motivo: String(form.get("motivo") || ""), contaId: String(form.get("contaId") || "") || null });
+  } catch (e) {
+    return { ok: false, mensagem: msg(e, tipo === "SANGRIA" ? "Erro ao registrar a sangria" : "Erro ao registrar o suprimento") };
+  }
+  revalidatePath("/pdv");
+  redirect("/pdv");
 }

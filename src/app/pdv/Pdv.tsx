@@ -87,6 +87,8 @@ export default function Pdv({ formas, caixa }: { formas: Forma[]; caixa: { abert
         <span className="rounded border bg-white px-2 py-1">Caixa aberto em {caixa.abertoEm}</span>
         <span className="rounded border bg-white px-2 py-1">{caixa.vendas} venda(s) · {brl(caixa.total)}</span>
         <Link href="/vendas/balcao" className="ml-auto hover:underline">Vendas do balcão</Link>
+        <Link href="/pdv?acao=sangria" className="btn-sec py-1 text-[12px]" title="Retirar dinheiro da gaveta">Sangria</Link>
+        <Link href="/pdv?acao=suprimento" className="btn-sec py-1 text-[12px]" title="Colocar troco na gaveta">Suprimento</Link>
         <Link href="/pdv?acao=fechar" className="btn-sec py-1 text-[12px]"><Icone nome="caixa" size={13} /> Fechar caixa</Link>
       </div>
 
