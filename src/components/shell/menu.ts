@@ -103,6 +103,7 @@ export const MENU: ItemMenu[] = [
         rotulo: "Compras", href: "/compras", icone: "carrinho", filhos: [
           { rotulo: "Produtos", href: "/compras", icone: "produtos" },
           { rotulo: "Entrada por XML", href: "/compras/importar-xml", icone: "importar" },
+          { rotulo: "Notas recebidas (SEFAZ)", href: "/compras/notas-recebidas", icone: "notas" },
           { rotulo: "Serviços", href: "/compras/servicos", icone: "servicos" },
           { rotulo: "Cotações", href: "/compras/cotacoes", icone: "cotacao" },
         ],

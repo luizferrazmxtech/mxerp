@@ -21,6 +21,9 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/vendas/balancas", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/vendas/configuracoes", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/compras/situacoes", papeis: ["ADMIN", "GERENTE"] },
+  // notas de compra da SEFAZ e manifestação são da gerência (manifestar é ato fiscal)
+  { prefixo: "/compras/notas-recebidas", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/api/notas-recebidas", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/compras/mensagens", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/estoque/configuracoes", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/estoque/zerar", papeis: ["ADMIN", "GERENTE"] },

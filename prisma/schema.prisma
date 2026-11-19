@@ -1595,6 +1595,31 @@ model NotaFiscal {
   @@index([origemTipo, origemId])
 }
 
+/// NF-e emitida por terceiros contra o CNPJ da empresa (notas de compra), baixada da SEFAZ pela distribuição DF-e.
+model NotaRecebida {
+  id                 String    @id @default(cuid())
+  chave              String    @unique
+  nsu                String?
+  emitenteDocumento  String
+  emitenteNome       String
+  emitenteIe         String?
+  emissao            DateTime
+  valor              Decimal   @db.Decimal(14, 2)
+  tipoNf             Int       @default(1) // 0 entrada, 1 saída (do ponto de vista do emitente)
+  situacao           String    @default("AUTORIZADA") // AUTORIZADA | DENEGADA | CANCELADA
+  protocolo          String?
+  xml                String? // procNFe completo (vem depois da ciência da operação)
+  manifestacao       String? // CIENCIA | CONFIRMADA | DESCONHECIDA | NAO_REALIZADA
+  manifestadaEm      DateTime?
+  protocoloManifesto String?
+  justificativa      String?
+  compraId           String? // compra lançada a partir desta nota
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([emissao])
+}
+
 /// Faixa de numeração de NF-e/NFC-e inutilizada na SEFAZ (números rejeitados ou pulados).
 model InutilizacaoNumeracao {
   id            String         @id @default(cuid())

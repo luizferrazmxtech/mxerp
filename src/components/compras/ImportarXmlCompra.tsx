@@ -1,21 +1,30 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Icone from "@/components/Icone";
 import FormCompra, { type InicialCompra } from "./FormCompra";
 
 type Op = Parameters<typeof FormCompra>[0]["op"];
 
 /** Mais ações › Importar XML: lê a NF-e e abre o formulário da compra já preenchido. */
-export default function ImportarXmlCompra({ inicial, op }: { inicial: InicialCompra; op: Op }) {
+export default function ImportarXmlCompra({ inicial, op, recebidaId }: { inicial: InicialCompra; op: Op; recebidaId?: string }) {
   const [compra, setCompra] = useState<InicialCompra | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [erro, setErro] = useState("");
   const [lendo, setLendo] = useState(false);
-  async function enviar(f: File) {
+  const iniciou = useRef(false);
+  useEffect(() => {
+    // vindo de Notas recebidas (SEFAZ): lê o XML guardado sem pedir o arquivo
+    if (!recebidaId || iniciou.current) return;
+    iniciou.current = true;
+    void enviar(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recebidaId]);
+  async function enviar(f: File | null) {
     setLendo(true); setErro("");
     const fd = new FormData();
-    fd.append("xml", f);
+    if (f) fd.append("xml", f);
+    else if (recebidaId) fd.append("recebidaId", recebidaId);
     const r = await fetch("/api/compras/xml", { method: "POST", body: fd });
     const j = await r.json();
     setLendo(false);

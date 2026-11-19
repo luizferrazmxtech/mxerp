@@ -12,7 +12,7 @@ export const baseCompras = (t: string) => (t === "SERVICO" ? "/compras/servicos"
 export const tituloCompras = (t: string) => (t === "SERVICO" ? "Compras de serviços" : "Compras de produtos");
 
 /** "Adicionar/Editar compra"; também abre a compra gerada de uma cotação (?cotacao=&f=). */
-export default async function PaginaFormCompra({ tipo = "PRODUTO", id, cotacao, fornecedorCotacao, xml }: { tipo?: "PRODUTO" | "SERVICO"; id?: string; cotacao?: string; fornecedorCotacao?: string; xml?: boolean }) {
+export default async function PaginaFormCompra({ tipo = "PRODUTO", id, cotacao, fornecedorCotacao, xml, recebidaId }: { tipo?: "PRODUTO" | "SERVICO"; id?: string; cotacao?: string; fornecedorCotacao?: string; xml?: boolean; recebidaId?: string }) {
   const [situacoes, formas, campos, centros, proximo, padrao] = await Promise.all([
     prisma.situacaoCompraConfig.findMany({ orderBy: { ordem: "asc" } }),
     prisma.formaPagamento.findMany({ where: { ativa: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
@@ -40,7 +40,7 @@ export default async function PaginaFormCompra({ tipo = "PRODUTO", id, cotacao, 
   const op = { situacoes: situacoes.map((s) => ({ id: s.id, nome: `${s.nome} (${rotuloLancamento(s.lancamento).toLowerCase()})` })), formas, campos, centros: centros.map((c) => c.centroCusto!) };
   return (
     <Pagina titulo={xml ? "Importar XML da compra" : `${acao} compra`} trilha={[{ rotulo: tituloCompras(inicial.tipo), href: baseCompras(inicial.tipo) }, { rotulo: acao }]}>
-      {xml ? <ImportarXmlCompra inicial={inicial} op={op} /> : <FormCompra inicial={inicial} op={op} />}
+      {xml ? <ImportarXmlCompra inicial={inicial} op={op} recebidaId={recebidaId} /> : <FormCompra inicial={inicial} op={op} />}
     </Pagina>
   );
 }
