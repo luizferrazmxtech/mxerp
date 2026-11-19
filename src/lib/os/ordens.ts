@@ -232,7 +232,7 @@ export async function alterarSituacaoOrdem(id: string, situacaoId: string, u: Us
 export async function excluirOrdem(id: string, opts: { forcar?: boolean } = {}) {
   return prisma.$transaction(async (tx) => {
     const o = await travar(tx, id);
-    const notas = await tx.notaFiscal.count({ where: { origemTipo: "OS", origemId: id, status: "AUTORIZADA" } });
+    const notas = await tx.notaFiscal.count({ where: { origemTipo: "OS", origemId: id, status: { in: ["AUTORIZADA", "ENVIADA"] } } });
     if (notas) throw new OsError("A OS tem nota fiscal autorizada: cancele a nota antes");
     await cancelarRecebimentos(tx, "OS", id, opts.forcar);
     await transicionarEstoque(tx, "OS", id, await estadoEfetivo(tx, id, estadoAtual(o)), "LIVRE", itensDoc(tx, id));

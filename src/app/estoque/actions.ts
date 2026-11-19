@@ -3,10 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { entrada, saida, transferir } from "@/lib/estoque/estoque";
+import { exigirUsuario } from "@/lib/auth/atual";
+import { lerNumero } from "@/lib/itens/tipos";
 
-const num = (v: FormDataEntryValue | null) => Number(String(v ?? "").replace(",", "."));
+const num = (v: FormDataEntryValue | null) => lerNumero(String(v ?? "")) ?? NaN;
+// toda ação exige login (o middleware só olha o caminho da página, e uma ação pode ser chamada de qualquer página)
+const ESTOQUE = ["ADMIN", "GERENTE", "OPERADOR", "TECNICO", "CAIXA"] as const;
 
 export async function darEntrada(form: FormData) {
+  const u = await exigirUsuario([...ESTOQUE]);
   const produtoId = String(form.get("produtoId"));
   await prisma.$transaction((tx) =>
     entrada(tx, {
@@ -16,12 +21,14 @@ export async function darEntrada(form: FormData) {
       custoUnit: form.get("custoUnit") ? num(form.get("custoUnit")) : undefined,
       origemTipo: "AJUSTE",
       observacao: String(form.get("observacao") ?? "") || "Entrada manual",
+      usuarioId: u.id,
     }),
   );
   revalidatePath(`/estoque/produto/${produtoId}`);
 }
 
 export async function darSaida(form: FormData) {
+  const u = await exigirUsuario([...ESTOQUE]);
   const produtoId = String(form.get("produtoId"));
   await prisma.$transaction((tx) =>
     saida(tx, {
@@ -30,12 +37,14 @@ export async function darSaida(form: FormData) {
       quantidade: num(form.get("quantidade")),
       origemTipo: "AJUSTE",
       observacao: String(form.get("observacao") ?? "") || "Saída manual",
+      usuarioId: u.id,
     }),
   );
   revalidatePath(`/estoque/produto/${produtoId}`);
 }
 
 export async function fazerTransferencia(form: FormData) {
+  const u = await exigirUsuario([...ESTOQUE]);
   const produtoId = String(form.get("produtoId"));
   await prisma.$transaction((tx) =>
     transferir(tx, {
@@ -43,12 +52,14 @@ export async function fazerTransferencia(form: FormData) {
       deLocalId: String(form.get("deLocalId")),
       paraLocalId: String(form.get("paraLocalId")),
       quantidade: num(form.get("quantidade")),
+      usuarioId: u.id,
     }),
   );
   revalidatePath(`/estoque/produto/${produtoId}`);
 }
 
 export async function definirLocalPadrao(form: FormData) {
+  await exigirUsuario([...ESTOQUE]);
   const produtoId = String(form.get("produtoId"));
   const localId = String(form.get("localId") || "") || null;
   await prisma.produto.update({ where: { id: produtoId }, data: { localPadraoId: localId } });
@@ -56,6 +67,7 @@ export async function definirLocalPadrao(form: FormData) {
 }
 
 export async function criarLocal(form: FormData) {
+  await exigirUsuario([...ESTOQUE]);
   const depositoNome = String(form.get("deposito") || "Principal").trim();
   const corredor = String(form.get("corredor") || "").trim().toUpperCase() || null;
   const prateleira = String(form.get("prateleira") || "").trim().toUpperCase() || null;
@@ -75,6 +87,7 @@ export async function criarLocal(form: FormData) {
 }
 
 export async function salvarFiscalProduto(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE", "OPERADOR"]);
   const produtoId = String(form.get("produtoId"));
   const s = (k: string) => String(form.get(k) ?? "").trim() || null;
   await prisma.produto.update({

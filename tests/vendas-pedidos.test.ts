@@ -142,4 +142,25 @@ describe("pedidos de venda (situações configuráveis)", () => {
     expect(await prisma.vendaItem.count({ where: { vendaId: c.id } })).toBe(1);
     expect(await prisma.vendaItemServico.count({ where: { vendaId: c.id } })).toBe(1);
   });
+
+  it("devolução de venda com peças e serviços leva só a parte do desconto da peça e sai do CMV da DRE", async () => {
+    // 2 × 100 (peça) + 150 (serviço) − 35 de desconto = 315: a peça leva 35 × 200/350 = 20 → 90 por unidade
+    const v = await ped.salvarPedido(dados({ situacaoId: "sv_concretizada", desconto: "35,00", condicao: "AVISTA", parcelas: [] }), u);
+    const item = (await prisma.vendaItem.findFirstOrThrow({ where: { vendaId: v.id } })).id;
+    const dev = await ped.registrarDevolucao({ vendaId: v.id, tipo: "DEVOLUCAO", itens: [{ vendaItemId: item, quantidade: 1 }] }, u);
+    expect(Number(dev.total)).toBe(90);
+    const { calcularDre } = await import("@/lib/financeiro/dre");
+    const ano = Number(new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }).slice(0, 4));
+    const venda = await prisma.venda.findUniqueOrThrow({ where: { id: v.id } });
+    const anoVenda = Number(venda.data.toISOString().slice(0, 4));
+    const cmv = async (a: number) => (await calcularDre(a)).linhas.find((l) => l.rotulo.startsWith("CMV"))?.total ?? 0;
+    // vendeu 2 a 800 de custo e 1 voltou: se venda e devolução caem no mesmo ano, o CMV fica 800
+    if (anoVenda === ano) expect(await cmv(ano)).toBe(800);
+  });
+
+  it("venda de valor zero (garantia/cortesia) não gera conta a receber de R$ 0,00", async () => {
+    const v = await ped.salvarPedido(dados({ situacaoId: "sv_concretizada", desconto: "350,00", condicao: "AVISTA", parcelas: [] }), u);
+    expect(Number(v.total)).toBe(0);
+    expect(await recebiveis(v.id)).toHaveLength(0);
+  });
 });

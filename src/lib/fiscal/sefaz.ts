@@ -172,6 +172,29 @@ export class ClienteSefaz {
     };
   }
 
+  /**
+   * Consulta a situação de uma nota pela chave (consSitNFe). Usada quando o envio ficou sem resposta
+   * (tempo esgotado, lote em processamento): diz se a SEFAZ autorizou, rejeitou ou nem recebeu a nota.
+   */
+  async consultar(chave: string, modelo: 55 | 65) {
+    const corpo = g("consSitNFe", [t("tpAmb", this.amb), t("xServ", "CONSULTAR"), t("chNFe", chave)], { xmlns: NS_NFE, versao: VERSAO });
+    const { obj, bruto } = await this.chamar(modelo, "ConsultaProtocolo", corpo);
+    const ret = achar(obj, "retConsSitNFe");
+    const inf = achar(achar(ret, "protNFe"), "infProt");
+    const cStat = String(inf?.cStat ?? ret?.cStat ?? "");
+    return {
+      // 100 autorizado, 150 autorizado fora de prazo; 101/151/155 cancelada (a nota existiu)
+      autorizada: !!inf && (String(inf.cStat) === "100" || String(inf.cStat) === "150"),
+      cancelada: ["101", "151", "155"].includes(String(ret?.cStat ?? "")),
+      // 217: a nota não consta na base da SEFAZ (o envio não chegou)
+      naoConsta: String(ret?.cStat ?? "") === "217",
+      cStat,
+      xMotivo: String(inf?.xMotivo ?? ret?.xMotivo ?? ""),
+      protocolo: (inf?.nProt as string) ?? null,
+      protXml: recortar(bruto, "protNFe"),
+    };
+  }
+
   /** Cancelamento (evento 110111). Prazo: 24h para NF-e; 30 min para NFC-e. */
   async cancelar(p: { modelo: 55 | 65; chave: string; protocolo: string; justificativa: string; cnpj: string; idLote: number; data?: Date }) {
     if (p.justificativa.trim().length < 15) throw new Error("Justificativa precisa de pelo menos 15 caracteres");

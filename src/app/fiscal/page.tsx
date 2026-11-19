@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 const COR: Record<string, string> = {
   AUTORIZADA: "bg-emerald-200 text-emerald-900", REJEITADA: "bg-red-200 text-red-900", CANCELADA: "bg-slate-300 text-slate-800",
-  DENEGADA: "bg-red-300 text-red-900", ASSINADA: "bg-amber-200 text-amber-900", RASCUNHO: "bg-slate-200",
+  DENEGADA: "bg-red-300 text-red-900", ASSINADA: "bg-amber-200 text-amber-900", ENVIADA: "bg-amber-200 text-amber-900", RASCUNHO: "bg-slate-200",
 };
 
 export default async function Fiscal() {

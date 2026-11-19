@@ -5,9 +5,10 @@ import { redirect } from "next/navigation";
 import * as v from "@/lib/vendas/vendas";
 import type { Pagamento } from "@/lib/financeiro/lancamentos";
 import { exigirUsuario } from "@/lib/auth/atual";
+import { lerNumero } from "@/lib/itens/tipos";
 import { abrirCaixa, caixaAberto, fecharCaixa } from "@/lib/pdv/caixa";
 
-const num = (x: FormDataEntryValue | null) => Number(String(x ?? "").replace(",", "."));
+const num = (x: FormDataEntryValue | null) => lerNumero(String(x ?? "")) ?? NaN;
 const msg = (e: unknown, padrao: string) => (e instanceof Error && !(e as { code?: string }).code ? e.message : padrao);
 
 export type ResultadoSimples = { ok: boolean; mensagem: string; vendaId?: string; numero?: number } | null;
@@ -34,7 +35,7 @@ export async function fecharBalcao(dados: {
 export async function abrirCaixaAcao(_: ResultadoSimples, form: FormData): Promise<ResultadoSimples> {
   const u = await exigirUsuario();
   try {
-    await abrirCaixa(u.id, num(String(form.get("valor") || "0").replace(/\./g, "")), form.get("recebimento") === "on");
+    await abrirCaixa(u.id, num(form.get("valor") || "0"), form.get("recebimento") === "on");
   } catch (e) {
     return { ok: false, mensagem: msg(e, "Erro ao abrir o caixa") };
   }
@@ -45,7 +46,7 @@ export async function abrirCaixaAcao(_: ResultadoSimples, form: FormData): Promi
 export async function fecharCaixaAcao(_: ResultadoSimples, form: FormData): Promise<ResultadoSimples> {
   const u = await exigirUsuario();
   try {
-    await fecharCaixa(String(form.get("caixaId")), u.id, num(String(form.get("valor") || "0").replace(/\./g, "")), String(form.get("observacao") || ""));
+    await fecharCaixa(String(form.get("caixaId")), u.id, num(form.get("valor") || "0"), String(form.get("observacao") || ""));
   } catch (e) {
     return { ok: false, mensagem: msg(e, "Erro ao fechar o caixa") };
   }

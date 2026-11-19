@@ -44,7 +44,10 @@ export default async function Financeiro({ searchParams }: {
   ]);
   const [interAtivo, baseCliente] = await Promise.all([boletosDisponiveis(), baseLinks()]);
   const r = (t: string) => resumo.find((x) => x.tipo === t) ?? { vencido: 0, hoje: 0, prox7: 0 };
-  const total = lista.reduce((s, l) => s + Number(l.valor), 0);
+  // a tabela mostra até 300 linhas, mas o total e a contagem são de tudo o que o filtro achou
+  const agg = await prisma.lancamento.aggregate({ where, _sum: { valor: true }, _count: true });
+  const total = Number(agg._sum.valor ?? 0);
+  const cortado = agg._count > lista.length;
   const link = (p: Record<string, string>) => `/financeiro?${new URLSearchParams({ tipo, f, ...p })}`;
 
   return (
@@ -133,7 +136,7 @@ export default async function Financeiro({ searchParams }: {
             })}
             {!lista.length && <tr><td colSpan={6} className="py-8 text-center text-slate-500">Nada por aqui.</td></tr>}
           </tbody>
-          <tfoot><tr><td colSpan={4} className="px-3 py-2 text-right text-sm font-semibold">Total</td><td className="px-3 py-2 text-right font-semibold">{brl(total)}</td><td></td></tr></tfoot>
+          <tfoot><tr><td colSpan={4} className="px-3 py-2 text-right text-sm font-semibold">{cortado ? `Mostrando ${lista.length} de ${agg._count} (use as datas para ver o resto) · Total de todos` : "Total"}</td><td className="px-3 py-2 text-right font-semibold">{brl(total)}</td><td></td></tr></tfoot>
         </table>
       </div>
 
