@@ -72,6 +72,39 @@ describe("emissão a partir da venda", () => {
     expect(n).toMatchObject({ status: "REJEITADA", motivo: "778 - Rejeicao: NCM inexistente" });
   });
 
+  it("SEFAZ sem resposta deixa a nota como enviada, bloqueia outra emissão e a consulta resolve", async () => {
+    const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
+    const caiu: Transporte = async () => { throw new Error("Tempo esgotado na comunicação com a SEFAZ"); };
+    await expect(fiscal.emitirNotaVenda(v.id, 65, { cert, transporte: caiu })).rejects.toThrow(/Tempo esgotado/);
+    const n = await prisma.notaFiscal.findFirstOrThrow({ where: { origemId: v.id } });
+    expect(n.status).toBe("ENVIADA");
+    // emitir de novo com outro número duplicaria a venda se a primeira tiver sido autorizada
+    await expect(fiscal.emitirNotaVenda(v.id, 65, { cert, transporte: autoriza })).rejects.toThrow(/Consultar na SEFAZ/);
+    const consulta: Transporte = async (_u, acao, corpo) => {
+      expect(acao).toMatch(/nfeConsultaNF$/);
+      const chave = corpo.match(/<chNFe>(\d{44})<\/chNFe>/)![1];
+      return `<E><retConsSitNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><cStat>100</cStat><xMotivo>Autorizado</xMotivo><protNFe versao="4.00"><infProt><tpAmb>2</tpAmb><verAplic>T</verAplic><chNFe>${chave}</chNFe><dhRecbto>2027-01-04T10:00:01-03:00</dhRecbto><nProt>135270000000009</nProt><digVal>abc=</digVal><cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe></retConsSitNFe></E>`;
+    };
+    const c = await fiscal.consultarNota(n.id, { cert, transporte: consulta });
+    expect(c).toMatchObject({ status: "AUTORIZADA", protocolo: "135270000000009" });
+    expect(xsdProc(c.xml!)).toBe("ok");
+    // lote em processamento (103) também espera a consulta; "não consta" (217) libera nova emissão
+    const v2 = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
+    const lote: Transporte = async () => `<E><retEnviNFe><cStat>103</cStat><xMotivo>Lote recebido com sucesso</xMotivo><infRec><nRec>1</nRec></infRec></retEnviNFe></E>`;
+    expect((await fiscal.emitirNotaVenda(v2.id, 65, { cert, transporte: lote })).status).toBe("ENVIADA");
+    const n2 = await prisma.notaFiscal.findFirstOrThrow({ where: { origemId: v2.id } });
+    const naoConsta: Transporte = async () => `<E><retConsSitNFe><cStat>217</cStat><xMotivo>Rejeicao: NF-e nao consta na base de dados da SEFAZ</xMotivo></retConsSitNFe></E>`;
+    expect((await fiscal.consultarNota(n2.id, { cert, transporte: naoConsta })).status).toBe("REJEITADA");
+    expect((await fiscal.emitirNotaVenda(v2.id, 65, { cert, transporte: autoriza })).status).toBe("AUTORIZADA");
+  });
+
+  it("desconto geral de documento com peças e serviços é dividido entre NF-e e NFS-e", () => {
+    expect(fiscal.dividirDesconto(100, 100, 20)).toEqual({ produtos: 10, servicos: 10 });
+    // peça barata e serviço caro: a NF-e não fica negativa
+    expect(fiscal.dividirDesconto(10, 100, 20)).toEqual({ produtos: 1.82, servicos: 18.18 });
+    expect(fiscal.dividirDesconto(50, 0, 5)).toEqual({ produtos: 5, servicos: 0 });
+  });
+
   it("NF-e exige cliente com documento e produto com NCM", async () => {
     const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
     await expect(fiscal.emitirNotaVenda(v.id, 55, { cert, transporte: autoriza })).rejects.toThrow(/CPF\/CNPJ/);

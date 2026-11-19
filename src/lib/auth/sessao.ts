@@ -31,16 +31,21 @@ export async function encerrarSessao(token: string | undefined | null) {
 const falhas = new Map<string, { n: number; ate: number }>();
 
 export async function autenticar(email: string, senha: string, ip: string) {
-  const chave = `${email.toLowerCase()}|${ip}`;
-  const f = falhas.get(chave);
-  if (f && f.n >= 5 && f.ate > Date.now()) throw new Error("Muitas tentativas. Espere 15 minutos e tente de novo.");
+  // o IP vem do X-Forwarded-For, que qualquer um pode trocar: o e-mail também tem um limite próprio (20 erros)
+  const chaves = [{ k: `${email.toLowerCase().trim()}|${ip}`, max: 5 }, { k: `${email.toLowerCase().trim()}|*`, max: 20 }];
+  for (const { k, max } of chaves) {
+    const f = falhas.get(k);
+    if (f && f.n >= max && f.ate > Date.now()) throw new Error("Muitas tentativas. Espere 15 minutos e tente de novo.");
+  }
   const u = await prisma.usuario.findUnique({ where: { email: email.toLowerCase().trim() } });
   const ok = !!u && u.ativo && u.acessoSistema && !!u.senhaHash && (await conferirSenha(senha, u.senhaHash));
   if (!ok) {
-    const n = (f && f.ate > Date.now() ? f.n : 0) + 1;
-    falhas.set(chave, { n, ate: Date.now() + 15 * 60000 });
+    for (const { k } of chaves) {
+      const f = falhas.get(k);
+      falhas.set(k, { n: (f && f.ate > Date.now() ? f.n : 0) + 1, ate: Date.now() + 15 * 60000 });
+    }
     return null;
   }
-  falhas.delete(chave);
+  for (const { k } of chaves) falhas.delete(k);
   return u!;
 }

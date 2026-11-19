@@ -71,7 +71,7 @@ export async function excluirVendaAcao(id: string) {
 export async function excluirVendaEVoltarAcao(id: string, voltar: string) {
   const r = await excluirVendaAcao(id);
   if (!r.ok) return r;
-  redirect(voltar);
+  redirect(voltar.startsWith("/") && !voltar.startsWith("//") ? voltar : "/vendas"); // só volta para dentro do sistema
 }
 
 export async function excluirVendasAcao(_: Resultado, form: FormData): Promise<Resultado> {

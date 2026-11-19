@@ -1,6 +1,7 @@
 import type { Prisma, TipoPessoa, ContribuinteIcms } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
+import { lerNumero } from "@/lib/itens/tipos";
 import type { DadosPessoa, PapelPessoa } from "./tipos";
 export * from "./tipos";
 
@@ -100,7 +101,7 @@ export async function salvarPessoa(papel: PapelPessoa, d: DadosPessoa, opts: { i
   const enderecos = d.enderecos.filter((e) => Object.entries(e).some(([k, v]) => k !== "tipo" && String(v ?? "").trim()));
   const principal = enderecos.find((e) => !/entrega/i.test(e.tipo)) ?? enderecos[0];
   const ie = d.ieIsento ? "ISENTO" : t(d.inscricaoEstadual);
-  const limite = d.limiteCredito.trim() ? Number(d.limiteCredito.replace(/\./g, "").replace(",", ".")) : null;
+  const limite = d.limiteCredito.trim() ? lerNumero(d.limiteCredito) : null;
   if (limite !== null && !(limite >= 0)) throw new Error("Limite de crédito inválido");
   const pj = d.tipoPessoa === "JURIDICA";
   const dados = {

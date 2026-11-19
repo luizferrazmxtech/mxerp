@@ -5,9 +5,11 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { baixarLancamento, criarLancamentos, estornarLancamento } from "@/lib/financeiro/lancamentos";
 import { parseDia } from "@/lib/datas";
+import { lerNumero } from "@/lib/itens/tipos";
 import { boletosDoDocumento, cancelarBoletosDoLancamento } from "@/lib/financeiro/boletos";
 
-const num = (x: FormDataEntryValue | null) => Number(String(x ?? "").replace(/\./g, "").replace(",", ".")) || 0;
+// aceita "1.234,56", "49,90" e "49.90" (antes "49.90" virava 4.990)
+const num = (x: FormDataEntryValue | null) => lerNumero(String(x ?? "")) ?? 0;
 const str = (x: FormDataEntryValue | null) => String(x ?? "").trim();
 
 export async function novoLancamento(form: FormData) {

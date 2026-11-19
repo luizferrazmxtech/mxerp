@@ -71,6 +71,13 @@ export async function cancelarRecebimentos(tx: Tx, origemTipo: OrigemDocumento, 
   await tx.lancamento.deleteMany({ where: { origemTipo, origemId } });
 }
 
+/** Mesmo dia N meses depois; se o mês não tem o dia (31/01 → fevereiro), cai no último dia do mês. */
+export function somarMeses(d: Date, meses: number) {
+  const ano = d.getUTCFullYear(), mes = d.getUTCMonth() + meses;
+  const ultimo = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(ano, mes, Math.min(d.getUTCDate(), ultimo), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()));
+}
+
 /** Lançamento manual (conta a pagar/receber), com parcelas mensais. */
 export async function criarLancamentos(
   tx: Tx,
@@ -92,8 +99,7 @@ export async function criarLancamentos(
   const valores = dividirParcelas(args.valorTotal, n);
   const criados = [];
   for (let i = 0; i < n; i++) {
-    const venc = new Date(args.primeiroVencimento);
-    venc.setUTCMonth(venc.getUTCMonth() + i);
+    const venc = somarMeses(args.primeiroVencimento, i);
     criados.push(
       await tx.lancamento.create({
         data: {

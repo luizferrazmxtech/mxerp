@@ -55,6 +55,7 @@ const itensDoc = (tx: Tx, vendaId: string) => async () =>
 /** Lança as parcelas da venda em contas a receber (pendentes; a baixa é no financeiro ou na conciliação). */
 async function lancarFinanceiro(tx: Tx, vendaId: string) {
   const v = await tx.venda.findUniqueOrThrow({ where: { id: vendaId }, include: { parcelas: { orderBy: { numero: "asc" } } } });
+  if (!(Number(v.total) > 0)) return; // venda sem valor (garantia, cortesia) não gera conta a receber de R$ 0,00
   await garantirPadroes(tx);
   const rec = await receitaDocumento(tx, Number(v.totalProdutos), Number(v.totalServicos));
   const parcelas = v.parcelas.length ? v.parcelas : [{ numero: 1, vencimento: v.data, valor: v.total, formaPagamentoId: v.formaPagamentoId }];
@@ -230,7 +231,7 @@ export async function excluirPedido(id: string, opts: { forcar?: boolean } = {})
   return prisma.$transaction(async (tx) => {
     const v = await travar(tx, id);
     if (await tx.devolucao.count({ where: { vendaId: id } })) throw new PedidoError("A venda tem trocas ou devoluções: cancele em vez de excluir");
-    const notas = await tx.notaFiscal.count({ where: { origemTipo: "VENDA", origemId: id, status: "AUTORIZADA" } });
+    const notas = await tx.notaFiscal.count({ where: { origemTipo: "VENDA", origemId: id, status: { in: ["AUTORIZADA", "ENVIADA"] } } });
     if (notas) throw new PedidoError("A venda tem nota fiscal autorizada: cancele a nota antes");
     await cancelarRecebimentos(tx, "VENDA", id, opts.forcar);
     await transicionarEstoque(tx, "VENDA", id, await estadoEfetivo(tx, id, v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao)), "LIVRE", itensDoc(tx, id));
@@ -279,7 +280,8 @@ export async function registrarDevolucao(args: { vendaId: string; tipo: "DEVOLUC
     const v = await tx.venda.findUniqueOrThrow({ where: { id: args.vendaId }, include: { itens: true } });
     if (v.situacao !== "CONCLUIDA") throw new PedidoError("Só volta para a loja o que saiu do estoque: a venda precisa estar concretizada");
     const ja = await devolvidoPorItem(v.id, tx);
-    const bruto = v.itens.reduce((s, i) => s + Number(i.subtotal), 0);
+    // o desconto geral vale para a venda toda (peças + serviços): a peça devolvida leva só a parte dela
+    const bruto = v.itens.reduce((s, i) => s + Number(i.subtotal), 0) + Number(v.totalServicos);
     const fatorDesconto = bruto > 0 ? 1 - Number(v.desconto) / bruto : 1;
     let total = 0;
     const linhas = [];

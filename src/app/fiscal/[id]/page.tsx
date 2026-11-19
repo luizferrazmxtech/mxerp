@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
 import BotaoImprimir from "@/app/os/[id]/separacao/BotaoImprimir";
-import { cancelar, cancelarServico } from "../actions";
+import { cancelar, cancelarServico, consultarNotaAcao } from "../actions";
 import { URL_DANFSE } from "@/lib/fiscal/nfse";
 
 export const dynamic = "force-dynamic";
@@ -98,6 +98,14 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
             </select>
             <textarea name="justificativa" minLength={15} required rows={2} className="campo" placeholder="Motivo (mínimo 15 caracteres)" />
           </BotaoAcao>
+        </div>
+      )}
+
+      {n.status === "ENVIADA" && n.modelo !== "NFSE" && (
+        <div className="no-print cartao mx-auto max-w-md p-4">
+          <h2 className="mb-2 font-semibold">Aguardando a SEFAZ</h2>
+          <p className="mb-2 text-xs text-slate-500">A nota foi enviada e a SEFAZ não devolveu o resultado. Consulte antes de emitir outra, para não duplicar a venda.</p>
+          <BotaoAcao acao={consultarNotaAcao} campos={{ notaId: n.id }} rotulo="Consultar na SEFAZ" />
         </div>
       )}
 

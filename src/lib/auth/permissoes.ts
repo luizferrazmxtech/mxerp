@@ -36,6 +36,8 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/api/notas", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/pdv", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   { prefixo: "/vendas", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
+  // a exportação segue a mesma regra da tela de vendas
+  { prefixo: "/api/vendas", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
 ];
 
 export function podeAcessar(papel: PapelUsuario, caminho: string) {

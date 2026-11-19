@@ -4,7 +4,7 @@ import { exigirUsuario } from "@/lib/auth/atual";
 import { revalidatePath } from "next/cache";
 import type { RegimeTributario, AmbienteFiscal } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { cancelarNfse, cancelarNota, emitirNfseOs, emitirNfseVenda, emitirNotaOs, emitirNotaVenda, empresa } from "@/lib/fiscal/emissao";
+import { cancelarNfse, cancelarNota, consultarNota, emitirNfseOs, emitirNfseVenda, emitirNotaOs, emitirNotaVenda, empresa } from "@/lib/fiscal/emissao";
 import { certificadoDoAmbiente } from "@/lib/fiscal/certificado";
 import { ClienteSefaz } from "@/lib/fiscal/sefaz";
 
@@ -108,6 +108,17 @@ export async function cancelarServico(_: Res, form: FormData): Promise<Res> {
     await cancelarNfse(s(form.get("notaId")), Number(form.get("cMotivo")) as 1 | 2 | 9, s(form.get("justificativa")));
     revalidatePath("/fiscal");
     return { ok: true, mensagem: "NFS-e cancelada." };
+  } catch (e) {
+    return { ok: false, mensagem: msg(e) };
+  }
+}
+
+export async function consultarNotaAcao(_: Res, form: FormData): Promise<Res> {
+  await exigirUsuario(["ADMIN", "GERENTE", "OPERADOR", "CAIXA"]);
+  try {
+    const n = await consultarNota(s(form.get("notaId")));
+    revalidatePath(`/fiscal/${n.id}`);
+    return { ok: n.status === "AUTORIZADA", mensagem: `Nota ${n.numero}: ${n.status.toLowerCase()} (${n.motivo ?? ""})`, notaId: n.id };
   } catch (e) {
     return { ok: false, mensagem: msg(e) };
   }

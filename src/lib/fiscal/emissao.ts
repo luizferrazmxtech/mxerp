@@ -79,6 +79,18 @@ function itensDe(itens: ItemOrigem[], interestadual: boolean): ItemNota[] {
 
 export type Dependencias = { cert?: Certificado; transporte?: Transporte; agora?: Date };
 
+/**
+ * Desconto geral de um documento com peças e serviços: cada nota leva a sua parte, na proporção dos valores.
+ * (Antes a NF-e levava o desconto todo e a NFS-e nenhum: a soma das notas não batia com o cobrado por nota
+ * e, com peças baratas e serviço caro, a NF-e ficava negativa.)
+ */
+export function dividirDesconto(produtos: number, servicos: number, desconto: number) {
+  const base = Math.max(0, produtos) + Math.max(0, servicos);
+  if (!(desconto > 0) || !(base > 0)) return { produtos: 0, servicos: 0 };
+  const dp = Math.round(desconto * (Math.max(0, produtos) / base) * 100) / 100;
+  return { produtos: dp, servicos: Math.round((desconto - dp) * 100) / 100 };
+}
+
 /** Numeração: um contador por modelo, série e ambiente. */
 const chaveSeq = (modelo: 55 | 65, serie: number, amb: 1 | 2) => `NF-${modelo}-${serie}-${amb === 1 ? "P" : "H"}`;
 
@@ -101,6 +113,11 @@ async function emitir(args: {
     where: { origemTipo: args.origemTipo, origemId: args.origemId, status: "AUTORIZADA", modelo: nfce ? "NFCE" : "NFE" },
   });
   if (jaAutorizada) throw new FiscalError(`Já existe nota autorizada para este documento (nº ${jaAutorizada.numero})`);
+  // nota enviada sem resposta da SEFAZ: pode ter sido autorizada. Emitir outra com outro número duplicaria a venda.
+  const pendente = await prisma.notaFiscal.findFirst({
+    where: { origemTipo: args.origemTipo, origemId: args.origemId, status: "ENVIADA", modelo: nfce ? "NFCE" : "NFE" },
+  });
+  if (pendente) throw new FiscalError(`A nota nº ${pendente.numero} foi enviada e a SEFAZ não respondeu: abra a nota e clique em "Consultar na SEFAZ" antes de emitir outra`);
 
   const cert = args.deps.cert ?? certificadoDoAmbiente();
   const dest = destinatarioDe(args.cliente, !nfce);
@@ -124,6 +141,7 @@ async function emitir(args: {
   const modeloEnum: ModeloNota = nfce ? "NFCE" : "NFE";
   const agora = args.deps.agora ?? new Date();
 
+  let enviou = false;
   // reserva o número numa transação própria (número consumido mesmo se rejeitar → inutilizar depois)
   const nota = await prisma.$transaction(async (tx) => {
     const numero = await proximoNumero(tx, chaveSeq(args.modelo, serie, amb));
@@ -144,8 +162,12 @@ async function emitir(args: {
     await prisma.notaFiscal.update({ where: { id: nota.id }, data: { chave: montada.chave, status: "ASSINADA", xml: assinada, valorTotal: montada.totais.vNF } });
 
     const cli = new ClienteSefaz(cert, e.uf!, amb, args.deps.transporte);
+    enviou = true;
     const r = await cli.autorizar(assinada, args.modelo, nota.numero);
     const motivo = `${r.cStat} - ${r.xMotivo}`;
+    // sem protocolo (lote recebido/em processamento): o resultado sai depois, pela consulta
+    if (!r.protXml && !r.autorizada && ["103", "105"].includes(r.cStat))
+      return prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "ENVIADA", motivo: `${motivo}. Consulte a nota na SEFAZ em instantes.` } });
     if (r.autorizada && r.protXml) {
       return prisma.notaFiscal.update({
         where: { id: nota.id },
@@ -156,27 +178,50 @@ async function emitir(args: {
     const denegada = ["110", "301", "302", "303"].includes(r.cStat);
     return prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: denegada ? "DENEGADA" : "REJEITADA", motivo } });
   } catch (err) {
-    await prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "REJEITADA", motivo: (err as Error).message.slice(0, 500) } });
+    // erro depois de mandar (tempo esgotado, conexão caiu): a SEFAZ pode ter autorizado; fica "enviada" até a consulta
+    const m = (err as Error).message.slice(0, 400);
+    await prisma.notaFiscal.update({ where: { id: nota.id }, data: enviou ? { status: "ENVIADA", motivo: `Sem resposta da SEFAZ: ${m}. Consulte a nota antes de emitir de novo.` } : { status: "REJEITADA", motivo: m } });
     throw err;
   }
+}
+
+/** Consulta na SEFAZ uma nota que ficou sem resposta e grava o resultado (autorizada ou rejeitada). */
+export async function consultarNota(notaId: string, deps: Dependencias = {}) {
+  const n = await prisma.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
+  if (n.modelo === "NFSE") throw new FiscalError("A consulta é só para NF-e e NFC-e");
+  if (!n.chave || !n.xml) throw new FiscalError("A nota não chegou a ser assinada: não há o que consultar");
+  if (n.status === "AUTORIZADA" || n.status === "CANCELADA") return n;
+  const e = await empresa();
+  const amb: 1 | 2 = n.ambiente === "PRODUCAO" ? 1 : 2;
+  const r = await new ClienteSefaz(deps.cert ?? certificadoDoAmbiente(), e.uf!, amb, deps.transporte).consultar(n.chave, n.modelo === "NFCE" ? 65 : 55);
+  const motivo = `${r.cStat} - ${r.xMotivo}`;
+  if (r.autorizada && r.protXml)
+    return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "AUTORIZADA", xml: montarProc(n.xml, r.protXml), protocolo: r.protocolo, motivo, emitidaEm: n.emitidaEm ?? new Date() } });
+  if (r.cancelada) return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "CANCELADA", motivo } });
+  const temProt = !!r.protXml; // protocolo de rejeição da própria nota
+  if (r.naoConsta || temProt)
+    return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "REJEITADA", motivo } });
+  return prisma.notaFiscal.update({ where: { id: n.id }, data: { motivo: `${motivo}. Ainda em processamento: consulte de novo em instantes.` } });
 }
 
 /** NFC-e (modelo 65) ou NF-e (55) de uma venda concluída. */
 export async function emitirNotaVenda(vendaId: string, modelo: 55 | 65, deps: Dependencias = {}) {
   const v = await prisma.venda.findUniqueOrThrow({
     where: { id: vendaId },
-    include: { cliente: true, itens: { include: { produto: true } }, pagamentos: { include: { formaPagamento: true } }, parcelas: { include: { formaPagamento: true } } },
+    include: { cliente: true, itens: { include: { produto: true } }, servicos: { select: { subtotal: true } }, pagamentos: { include: { formaPagamento: true } }, parcelas: { include: { formaPagamento: true } } },
   });
   if (v.situacao !== "CONCLUIDA") throw new FiscalError("Conclua a venda antes de emitir a nota");
   if (!v.itens.length) throw new FiscalError("Venda sem produtos");
   // PDV guarda os pagamentos; o pedido guarda as parcelas. Na NF-e entram só os produtos.
-  const vProd = v.itens.reduce((s, i) => s + Number(i.subtotal), 0) - Number(v.desconto);
+  const brutoProd = v.itens.reduce((s, i) => s + Number(i.subtotal), 0);
+  const desc = dividirDesconto(brutoProd, v.servicos.reduce((s, i) => s + Number(i.subtotal), 0), Number(v.desconto)).produtos;
+  const vProd = brutoProd - desc;
   const pagamentos = v.pagamentos.length
     ? v.pagamentos.map((p) => ({ tPag: p.formaPagamento.tPag, valor: Number(p.valor), descricao: p.formaPagamento.nome }))
     : [{ tPag: v.parcelas[0]?.formaPagamento?.tPag ?? "99", valor: Math.round(vProd * 100) / 100, descricao: v.parcelas[0]?.formaPagamento?.nome ?? "A combinar" }];
   return emitir({
     modelo, origemTipo: "VENDA", origemId: v.id, cliente: v.cliente, itens: v.itens, pagamentos,
-    desconto: Number(v.desconto), infCpl: `Venda ${v.numero}`, deps,
+    desconto: desc, infCpl: `Venda ${v.numero}`, deps,
   });
 }
 
@@ -184,16 +229,18 @@ export async function emitirNotaVenda(vendaId: string, modelo: 55 | 65, deps: De
 export async function emitirNotaOs(osId: string, deps: Dependencias = {}) {
   const os = await prisma.ordemServico.findUniqueOrThrow({
     where: { id: osId },
-    include: { cliente: true, produtos: { include: { produto: true } } },
+    include: { cliente: true, produtos: { include: { produto: true } }, servicos: { select: { subtotal: true } } },
   });
   if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a nota");
   if (!os.produtos.length) throw new FiscalError("OS sem peças: emita só a NFS-e dos serviços");
   const lanc = await prisma.lancamento.findFirst({ where: { origemTipo: "OS", origemId: osId }, include: { formaPagamento: true } });
-  const vNF = os.produtos.reduce((s, i) => s + Number(i.subtotal), 0);
+  const brutoProd = os.produtos.reduce((s, i) => s + Number(i.subtotal), 0);
+  const desc = dividirDesconto(brutoProd, os.servicos.reduce((s, i) => s + Number(i.subtotal), 0), Number(os.desconto)).produtos;
+  const vNF = brutoProd - desc;
   return emitir({
     modelo: 55, origemTipo: "OS", origemId: os.id, cliente: os.cliente, itens: os.produtos,
     pagamentos: [{ tPag: lanc?.formaPagamento?.tPag ?? "99", valor: Math.round(vNF * 100) / 100, descricao: lanc?.formaPagamento?.nome ?? "A combinar" }],
-    infCpl: `OS ${os.numero}`, deps,
+    desconto: desc, infCpl: `OS ${os.numero}`, deps,
   });
 }
 
@@ -228,28 +275,30 @@ export type DependenciasNfse = { cert?: Certificado; transporte?: TransporteRest
 export async function emitirNfseOs(osId: string, deps: DependenciasNfse = {}) {
   const os = await prisma.ordemServico.findUniqueOrThrow({
     where: { id: osId },
-    include: { cliente: true, servicos: { include: { servico: true } }, equipamentos: { orderBy: { ordem: "asc" } } },
+    include: { cliente: true, servicos: { include: { servico: true } }, produtos: { select: { subtotal: true } }, equipamentos: { orderBy: { ordem: "asc" } } },
   });
   if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a NFS-e");
   return emitirNfse({
     origemTipo: "OS", origemId: osId, rotulo: "OS", referencia: `OS ${os.numero}`, cliente: os.cliente, servicos: os.servicos,
     extras: os.equipamentos.map((q) => `Equipamento: ${[q.equipamento, q.marca, q.modelo, q.serie].filter(Boolean).join(" ")}`),
     competencia: os.saida ?? undefined,
+    desconto: dividirDesconto(os.produtos.reduce((s, i) => s + Number(i.subtotal), 0), os.servicos.reduce((s, i) => s + Number(i.subtotal), 0), Number(os.desconto)).servicos,
   }, deps);
 }
 
 /** NFS-e dos serviços de uma venda concretizada. */
 export async function emitirNfseVenda(vendaId: string, deps: DependenciasNfse = {}) {
-  const v = await prisma.venda.findUniqueOrThrow({ where: { id: vendaId }, include: { cliente: true, servicos: { include: { servico: true } } } });
+  const v = await prisma.venda.findUniqueOrThrow({ where: { id: vendaId }, include: { cliente: true, servicos: { include: { servico: true } }, itens: { select: { subtotal: true } } } });
   if (v.situacao !== "CONCLUIDA") throw new FiscalError("Concretize a venda antes de emitir a NFS-e");
   if (!v.cliente) throw new FiscalError("Informe o cliente da venda");
-  return emitirNfse({ origemTipo: "VENDA", origemId: vendaId, rotulo: "venda", referencia: `Venda ${v.numero}`, cliente: v.cliente, servicos: v.servicos, extras: [], competencia: v.data }, deps);
+  return emitirNfse({ origemTipo: "VENDA", origemId: vendaId, rotulo: "venda", referencia: `Venda ${v.numero}`, cliente: v.cliente, servicos: v.servicos, extras: [], competencia: v.data,
+    desconto: dividirDesconto(v.itens.reduce((s, i) => s + Number(i.subtotal), 0), v.servicos.reduce((s, i) => s + Number(i.subtotal), 0), Number(v.desconto)).servicos }, deps);
 }
 
 type Tomador = { documento: string | null; nome: string; email: string | null; telefone: string | null; codigoMunicipio: string | null; cep: string | null; logradouro: string | null; numero: string | null; complemento: string | null; bairro: string | null };
 type ServicoNota = { quantidade: Prisma.Decimal; subtotal: Prisma.Decimal; servico: { nome: string; codigoTributacaoNacional: string | null; codigoNbs: string | null; aliquotaIss: Prisma.Decimal | null } };
 
-async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; rotulo: string; referencia: string; cliente: Tomador; servicos: ServicoNota[]; extras: string[]; competencia?: Date }, deps: DependenciasNfse) {
+async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; rotulo: string; referencia: string; cliente: Tomador; servicos: ServicoNota[]; extras: string[]; competencia?: Date; desconto?: number }, deps: DependenciasNfse) {
   const e = await empresa();
   if (!e.inscricaoMunicipal) throw new FiscalError("Informe a inscrição municipal da empresa");
   if (!a.servicos.length) throw new FiscalError(`A ${a.rotulo === "OS" ? "OS" : "venda"} não tem serviços`);
@@ -262,7 +311,9 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; rot
   const cert = deps.cert ?? certificadoDoAmbiente();
   const amb: 1 | 2 = e.ambienteFiscal === "PRODUCAO" ? 1 : 2;
   const agora = deps.agora ?? new Date();
-  const valor = a.servicos.reduce((s, i) => s + Number(i.subtotal), 0);
+  // valor do serviço já com a parte do desconto geral (o que foi cobrado do cliente)
+  const valor = Math.round((a.servicos.reduce((s, i) => s + Number(i.subtotal), 0) - (a.desconto ?? 0)) * 100) / 100;
+  if (!(valor > 0)) throw new FiscalError("O valor dos serviços (com o desconto) precisa ser maior que zero");
   const c = a.cliente;
   const serie = "1";
   const nota = await prisma.$transaction(async (tx) => {

@@ -54,6 +54,11 @@ export async function calcularDre(ano: number, regime: Regime = "COMPETENCIA") {
       SELECT EXTRACT(MONTH FROM ${local("o.saida")})::int, i.quantidade * i."custoUnit"
         FROM "OsItemProduto" i JOIN "OrdemServico" o ON o.id = i."osId"
        WHERE o.situacao IN ('CONCLUIDA','FATURADA') AND ${local("o.saida")} >= ${iniL}::date AND ${local("o.saida")} < ${fimL}::date
+      UNION ALL
+      -- peças devolvidas/trocadas voltaram ao estoque: saem do CMV no mês da devolução
+      SELECT EXTRACT(MONTH FROM ${local("d.\"createdAt\"")})::int, -(di.quantidade * vi."custoUnit")
+        FROM "DevolucaoItem" di JOIN "Devolucao" d ON d.id = di."devolucaoId" JOIN "VendaItem" vi ON vi.id = di."vendaItemId"
+       WHERE ${local("d.\"createdAt\"")} >= ${iniL}::date AND ${local("d.\"createdAt\"")} < ${fimL}::date
     ) x GROUP BY mes`;
 
   const vazio = () => Array(12).fill(0) as number[];
