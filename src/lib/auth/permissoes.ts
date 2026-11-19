@@ -27,6 +27,8 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   // custos e margens são da gerência
   { prefixo: "/estoque/custos", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/migracao", papeis: ["ADMIN"] },
+  // contratos mexem com cobrança e financeiro
+  { prefixo: "/contratos", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/financeiro", papeis: ["ADMIN", "GERENTE"] },
   // ver/imprimir uma nota (DANFCE) é de quem vende; a configuração fiscal e a lista ficam com a gerência
   { prefixo: "/fiscal/", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },

@@ -76,6 +76,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
   const balcao = v.tipo === "BALCAO";
   const tl = v.tipo === "SERVICO" ? "SERVICO" : balcao ? "BALCAO" : "PEDIDO";
   const notas = await prisma.notaFiscal.count({ where: { origemTipo: "VENDA", origemId: id } });
+  const doContrato = await prisma.contratoCobranca.findUnique({ where: { vendaId: id }, select: { referencia: true, contrato: { select: { id: true, numero: true } } } });
   const ABAS = [
     { chave: "cliente", rotulo: "Cliente", icone: "pessoa", tem: !!v.cliente }, { chave: "produtos", rotulo: "Produtos", icone: "produtos", tem: v.itens.length > 0 },
     { chave: "servicos", rotulo: "Serviços", icone: "servicos", tem: v.servicos.length > 0 }, { chave: "pagamento", rotulo: "Pagamento", icone: "dinheiro", tem: true },
@@ -138,6 +139,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
               <div><b>Situação:</b> {v.situacaoCfg?.nome ?? v.situacao}</div>
               <div><b>Cliente:</b> {v.cliente ? <Link href={`/clientes/${v.clienteId}`} className="text-marca hover:underline">{v.cliente.nome}</Link> : "Consumidor"}</div>
               <div><b>Vendedor:</b> {v.vendedor?.nome ?? "—"}</div>
+              {doContrato && <div><b>Contrato:</b> <Link href={`/contratos/${doContrato.contrato.id}`} className="text-marca hover:underline">nº {doContrato.contrato.numero}</Link> ({doContrato.referencia})</div>}
               {!balcao && <div><b>Previsão de entrega:</b> {dia(v.prazoEntrega)}</div>}
               <div><b>Canal de venda:</b> {v.canal}</div>
               <div><b>Loja:</b> {nomeEmpresa}</div>
