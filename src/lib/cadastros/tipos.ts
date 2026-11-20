@@ -36,6 +36,10 @@ export type DadosCnpj = {
   email: string;
   telefone: string;
   endereco: Omit<EnderecoForm, "tipo"> | null;
+  /** CNAE principal, só dígitos */
+  cnae: string;
+  /** regime pela Receita (opção pelo Simples/MEI); null = a fonte não informa */
+  regime: "SIMPLES_NACIONAL" | "MEI" | "REGIME_NORMAL" | null;
   /** null = não deu para saber (mantém o que está no formulário) */
   inscricaoEstadual: string | null;
   contribuinteIcms: ContribuinteIcms | null;
