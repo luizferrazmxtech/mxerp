@@ -1,0 +1,145 @@
+// Central MXTECH: clientes da revenda, planos, mensalidades, tarefas da VPS e configurações.
+// Banco próprio ("central"), separado dos bancos dos clientes.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  nome      String
+  email     String   @unique
+  senhaHash String
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  sessoes   Sessao[]
+}
+
+model Sessao {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  adminId   String
+  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expira    DateTime
+  createdAt DateTime @default(now())
+}
+
+model Plano {
+  id          String    @id @default(cuid())
+  nome        String    @unique
+  descricao   String?
+  valorMensal Decimal   @db.Decimal(12, 2)
+  maxEmpresas Int       @default(1)
+  maxUsuarios Int       @default(3)
+  ativo       Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  clientes    Cliente[]
+}
+
+enum SituacaoCliente {
+  CRIANDO // aguardando a VPS criar banco e sistema
+  ATIVO
+  SUSPENSO // fora do ar (dados guardados)
+  CANCELADO // não cobra mais; continua suspenso
+}
+
+model Cliente {
+  id             String          @id @default(cuid())
+  slug           String          @unique // nome do banco e do sistema na VPS
+  nome           String // razão social / nome do pagador
+  documento      String // CPF ou CNPJ, só números
+  email          String
+  telefone       String?
+  logradouro     String?
+  numero         String?
+  complemento    String?
+  bairro         String?
+  cidade         String?
+  uf             String?
+  cep            String?
+  dominio        String
+  planoId        String
+  plano          Plano           @relation(fields: [planoId], references: [id])
+  // valor combinado com o cliente (se vazio, vale o do plano)
+  valorMensal    Decimal?        @db.Decimal(12, 2)
+  maxEmpresas    Int? // exceção ao plano
+  maxUsuarios    Int?
+  diaVencimento  Int             @default(10)
+  inicioCobranca DateTime        @db.Date // primeira mensalidade vence no dia do vencimento a partir desta data
+  situacao       SituacaoCliente @default(CRIANDO)
+  // liberação manual (promessa de pagamento): até esta data não bloqueia por atraso
+  liberadoAte    DateTime?       @db.Date
+  licencaToken   String          @unique
+  backupHorarios String          @default("0300,1230,1930")
+  observacoes    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  faturas        Fatura[]
+  tarefas        Tarefa[]
+}
+
+enum SituacaoFatura {
+  ABERTA
+  PAGA
+  CANCELADA
+}
+
+model Fatura {
+  id                String         @id @default(cuid())
+  clienteId         String
+  cliente           Cliente        @relation(fields: [clienteId], references: [id])
+  competencia       String // AAAA-MM
+  vencimento        DateTime       @db.Date
+  valor             Decimal        @db.Decimal(12, 2)
+  situacao          SituacaoFatura @default(ABERTA)
+  pagaEm            DateTime?      @db.Date
+  valorPago         Decimal?       @db.Decimal(12, 2)
+  formaPagamento    String? // BOLETO, PIX, MANUAL
+  // boleto do Inter (BolePix)
+  seuNumero         String?        @unique
+  codigoSolicitacao String?        @unique
+  boletoSituacao    String?
+  boletoErro        String?
+  linhaDigitavel    String?
+  pixCopiaECola     String?
+  emailEnviadoEm    DateTime?
+  lembreteEm        DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([clienteId, competencia])
+}
+
+enum SituacaoTarefa {
+  PENDENTE
+  EXECUTANDO
+  OK
+  ERRO
+}
+
+// pedidos para a VPS (executados pelo serviço "operador", que tem acesso ao docker)
+model Tarefa {
+  id         String         @id @default(cuid())
+  tipo       String // CRIAR, BACKUP, RESTAURAR, ATUALIZAR, ATUALIZAR_TODOS, SUSPENDER, REATIVAR, HORARIOS, DOMINIO
+  clienteId  String?
+  cliente    Cliente?       @relation(fields: [clienteId], references: [id])
+  parametros Json           @default("{}")
+  situacao   SituacaoTarefa @default(PENDENTE)
+  saida      String?
+  pedidoPor  String?
+  createdAt  DateTime       @default(now())
+  iniciadoEm DateTime?
+  fimEm      DateTime?
+
+  @@index([situacao, createdAt])
+}
+
+model Configuracao {
+  chave     String   @id
+  valor     Json
+  updatedAt DateTime @updatedAt
+}

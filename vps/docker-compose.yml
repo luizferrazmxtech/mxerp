@@ -61,6 +61,7 @@ services:
       TZ: "<-03>3"  # a imagem do curl não tem a tabela de fusos: horário de Brasília fixo
     volumes:
       - ./clientes:/clientes:ro
+      - ./central:/central:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -68,6 +69,11 @@ services:
         while true; do
           h=$$(date +%H)
           if [ "$$h" -ge 8 ] && [ "$$h" -le 20 ]; then
+            # Central: baixa mensalidades pagas, gera as novas, emite boletos e manda e-mails
+            if [ -f /central/central.env ]; then
+              segredo=$$(grep '^CRON_SECRET=' /central/central.env | cut -d= -f2-)
+              echo "central processar: $$(curl -s -m 600 -X POST -H "Authorization: Bearer $$segredo" http://central:3000/api/processar)"
+            fi
             for env in /clientes/*/cliente.env; do
               [ -f "$$env" ] || continue
               slug=$$(basename $$(dirname "$$env"))
@@ -80,6 +86,37 @@ services:
           fi
           sleep 3600
         done
+
+  # Central MXTECH: clientes da revenda, mensalidades e backups (banco "central"); endereço DOMINIO_CENTRAL no vps/.env
+  central:
+    image: mxerp-central:atual
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: ./central/central.env
+        required: false
+    volumes:
+      - ./backups:/backups:ro
+    mem_limit: 512m
+
+  # executa na VPS o que a Central pede (criar cliente, backup, restaurar, atualizar...). Sem porta aberta.
+  operador:
+    image: mxerp-operador:atual
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${DB_SENHA_ADMIN}
+      TZ: America/Sao_Paulo
+    working_dir: ${RAIZ:-/opt/mxerp}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${RAIZ:-/opt/mxerp}:${RAIZ:-/opt/mxerp}
+      - /root/.ssh:/root/.ssh:ro
+    entrypoint: ["bash", "vps/scripts/operador.sh"]
 
   # cópia dos backups para fora da VPS (Backblaze B2, S3, Google Drive...). Só roda com: ./vps/mxerp.sh copia-externa ligar
   copia-externa:

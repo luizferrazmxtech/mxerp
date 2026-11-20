@@ -5,6 +5,7 @@ import type { PapelUsuario } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { hashSenha } from "@/lib/auth/senha";
+import { conferirLimiteUsuarios } from "@/lib/licenca/licenca";
 
 export type Estado = { ok: boolean; mensagem: string } | null;
 const str = (x: FormDataEntryValue | null) => String(x ?? "").trim();
@@ -17,6 +18,7 @@ export async function criarUsuario(_: Estado, form: FormData): Promise<Estado> {
     const email = str(form.get("email")).toLowerCase();
     if (!email.includes("@")) throw new Error("E-mail inválido");
     if (await prisma.usuario.findUnique({ where: { email } })) throw new Error("Já existe usuário com esse e-mail");
+    await conferirLimiteUsuarios();
     await prisma.usuario.create({
       data: {
         nome: str(form.get("nome")) || email, email, papel: papel(str(form.get("papel"))),
@@ -37,6 +39,10 @@ export async function alterarUsuario(form: FormData) {
   const ativo = form.get("ativo") === "on";
   const novo = papel(str(form.get("papel")));
   if (id === eu.id && (!ativo || novo !== "ADMIN")) throw new Error("Você não pode tirar o seu próprio acesso de administrador");
+  if (ativo) {
+    const antes = await prisma.usuario.findUnique({ where: { id }, select: { ativo: true, acessoSistema: true } });
+    if (antes?.acessoSistema && !antes.ativo) await conferirLimiteUsuarios(id);
+  }
   await prisma.usuario.update({ where: { id }, data: { papel: novo, ativo, tecnico: form.get("tecnico") === "on", vendedor: form.get("vendedor") === "on" } });
   if (!ativo) await prisma.sessao.deleteMany({ where: { usuarioId: id } });
   revalidatePath("/usuarios");
