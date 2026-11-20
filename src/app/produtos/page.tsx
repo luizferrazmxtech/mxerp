@@ -16,6 +16,7 @@ import Suspenso from "@/components/ui/Suspenso";
 import FormSelecao, { FormAcao } from "@/components/ui/FormSelecao";
 import Icone from "@/components/Icone";
 import BuscaFornecedor from "@/components/itens/BuscaFornecedor";
+import CelulaEstoque from "@/components/estoque/CelulaEstoque";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Produtos" };
@@ -28,7 +29,7 @@ export default async function Produtos({ searchParams }: { searchParams: Promise
   const where = await whereProdutos(sp);
   const { pagina, porPagina, skip, take } = lerPagina(sp);
   const [lista, total, grupos, empresas, campos, tipos, fornecedor] = await Promise.all([
-    prisma.produto.findMany({ where, orderBy: [ordemProdutos(sp.o), { id: "asc" }], skip, take, select: { id: true, codigo: true, nome: true, precoVenda: true, unidade: true, controlaEstoque: true, ativo: true, createdAt: true } }),
+    prisma.produto.findMany({ where, orderBy: [ordemProdutos(sp.o), { id: "asc" }], skip, take, select: { id: true, codigo: true, nome: true, precoVenda: true, unidade: true, controlaEstoque: true, estoqueMinimo: true, estoqueMaximo: true, ativo: true, createdAt: true } }),
     prisma.produto.count({ where }),
     prisma.grupoProduto.findMany({ orderBy: { nome: "asc" }, select: { id: true, nome: true, paiId: true } }),
     prisma.empresa.findMany({ select: { id: true, nomeFantasia: true, razaoSocial: true } }),
@@ -65,7 +66,7 @@ export default async function Produtos({ searchParams }: { searchParams: Promise
                 {tem("codigo") && <td>{p.codigo}</td>}
                 {tem("nome") && <td><Link href={`/produtos/${p.id}`} className="hover:underline">{p.nome}</Link>{!p.ativo && <span className="ml-2 text-[11px]">(inativo)</span>}</td>}
                 {tem("valor") && <td className="text-right">{num2(p.precoVenda)}</td>}
-                {tem("estoque") && <td className={`text-right ${p.controlaEstoque && e.fisico <= 0 ? "text-red-600" : ""}`}>{p.controlaEstoque ? qtd(e.fisico) : "—"}</td>}
+                {tem("estoque") && <td className="text-right"><CelulaEstoque controla={p.controlaEstoque} fisico={e.fisico} reservado={e.reservado} minimo={p.estoqueMinimo} maximo={p.estoqueMaximo} /></td>}
                 {tem("cadastrado") && <td>{dataSP(p.createdAt)}</td>}
                 <td>
                   <div className="flex justify-end gap-1">
