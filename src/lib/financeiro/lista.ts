@@ -21,13 +21,19 @@ export function iconeForma(f: { tPag: string; boletoInter?: boolean } | null) {
 }
 
 /** Link e ícone do documento que gerou a conta (venda, OS, compra). */
-export function origemConta(l: { origemTipo: string | null; origemId: string | null }) {
+/** Link do documento que gerou a conta. Com o id da conta, a venda/OS/compra mostra "Voltar para a conta". */
+export function origemConta(l: { id?: string; origemTipo: string | null; origemId: string | null }) {
   if (!l.origemId) return null;
-  if (l.origemTipo === "VENDA") return { href: `/vendas/${l.origemId}`, icone: "carrinho", rotulo: "Ver venda" };
-  if (l.origemTipo === "OS") return { href: `/os/${l.origemId}`, icone: "os", rotulo: "Ver OS" };
-  if (l.origemTipo === "COMPRA") return { href: `/compras/${l.origemId}`, icone: "carrinho", rotulo: "Ver compra" };
+  const q = l.id ? `?conta=${l.id}` : "";
+  if (l.origemTipo === "VENDA") return { href: `/vendas/${l.origemId}${q}`, icone: "carrinho", rotulo: "Ver venda" };
+  if (l.origemTipo === "OS") return { href: `/os/${l.origemId}${q}`, icone: "os", rotulo: "Ver OS" };
+  if (l.origemTipo === "COMPRA") return { href: `/compras/${l.origemId}${q}`, icone: "carrinho", rotulo: "Ver compra" };
   return null;
 }
+
+/** Boleto que dá para abrir em PDF (registrado no Inter e ainda valendo). */
+export const boletoAbrivel = (b?: { id: string; situacao: string } | null) =>
+  b && ["EM_PROCESSAMENTO", "A_RECEBER", "ATRASADO", "PROTESTO"].includes(b.situacao) ? `/api/boletos/${b.id}/pdf` : null;
 
 /** Contas lançadas à mão (ou trazidas na implantação) podem ser editadas e excluídas na tela do financeiro. */
 export const contaAvulsa = (l: { origemTipo: string | null }) => !l.origemTipo || l.origemTipo === "IMPLANTACAO";

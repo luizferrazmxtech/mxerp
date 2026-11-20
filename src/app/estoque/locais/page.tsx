@@ -1,4 +1,6 @@
-import { Pagina } from "@/components/ui/Pagina";
+import Link from "next/link";
+import { Bloco, Campo, Pagina } from "@/components/ui/Pagina";
+import Icone from "@/components/Icone";
 import { prisma } from "@/lib/db";
 import { criarLocal } from "../actions";
 
@@ -11,32 +13,38 @@ export default async function LocaisPage() {
   });
   return (
     <Pagina titulo="Locais de estoque" icone="locais" trilha={[{ rotulo: "Estoque", href: "/estoque" }, { rotulo: "Locais" }]}>
-    <div className="space-y-4">
-      <form action={criarLocal} className="cartao grid gap-2 p-4 md:grid-cols-6">
-        <input name="deposito" className="campo" placeholder="Depósito (ex.: Loja)" defaultValue="Loja" />
-        <input name="corredor" className="campo" placeholder="Corredor (A)" />
-        <input name="prateleira" className="campo" placeholder="Prateleira (03)" />
-        <input name="nivel" className="campo" placeholder="Nível (2)" />
-        <input name="codigo" className="campo" placeholder="Código (automático)" />
-        <button className="btn">Adicionar local</button>
+    <div className="no-print mb-3 flex flex-wrap items-center gap-2">
+      <Link href="/estoque" className="btn-sec"><Icone nome="direita" size={14} className="rotate-180" /> Voltar ao estoque</Link>
+      <span className="ml-auto text-[13px] text-slate-500">{locais.length} local(is) cadastrado(s)</span>
+    </div>
+    <Bloco icone="mais" titulo={<>Adicionar <b>local</b></>} subtitulo="O código é montado sozinho (ex.: LOJA-A-03-2) se ficar em branco.">
+      <form action={criarLocal} className="grid items-end gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <Campo rotulo="Depósito"><input name="deposito" className="campo" defaultValue="Loja" /></Campo>
+        <Campo rotulo="Corredor"><input name="corredor" className="campo" placeholder="A" /></Campo>
+        <Campo rotulo="Prateleira"><input name="prateleira" className="campo" placeholder="03" /></Campo>
+        <Campo rotulo="Nível"><input name="nivel" className="campo" placeholder="2" /></Campo>
+        <Campo rotulo="Código"><input name="codigo" className="campo" placeholder="automático" /></Campo>
+        <button className="btn"><Icone nome="mais" size={14} /> Adicionar local</button>
       </form>
-      <div className="cartao overflow-x-auto">
-        <table className="tabela">
-          <thead><tr><th>Código</th><th>Depósito</th><th>Corredor</th><th>Prateleira</th><th>Nível</th><th className="text-right">Produtos</th></tr></thead>
-          <tbody>
-            {locais.map((l) => (
-              <tr key={l.id}>
-                <td className="font-mono">{l.codigo}</td>
-                <td>{l.deposito.nome}</td>
-                <td>{l.corredor}</td>
-                <td>{l.prateleira}</td>
-                <td>{l.nivel}</td>
-                <td className="text-right">{l._count.saldos}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    </Bloco>
+    <div className="cartao overflow-x-auto">
+      <table className="tabela">
+        <thead><tr><th>Código</th><th>Depósito</th><th>Corredor</th><th>Prateleira</th><th>Nível</th><th className="text-center">Situação</th><th className="text-right">Produtos com saldo</th></tr></thead>
+        <tbody>
+          {locais.map((l) => (
+            <tr key={l.id}>
+              <td className="font-semibold">{l.codigo}</td>
+              <td>{l.deposito.nome}</td>
+              <td>{l.corredor ?? "—"}</td>
+              <td>{l.prateleira ?? "—"}</td>
+              <td>{l.nivel ?? "—"}</td>
+              <td className="text-center"><span className={`pilula ${l.ativo ? "text-emerald-700" : "text-slate-500"}`}>{l.ativo ? "Ativo" : "Inativo"}</span></td>
+              <td className="text-right">{l._count.saldos}</td>
+            </tr>
+          ))}
+          {!locais.length && <tr><td colSpan={7} className="py-10 text-center text-slate-500">Nenhum local cadastrado.</td></tr>}
+        </tbody>
+      </table>
     </div>
     </Pagina>
   );

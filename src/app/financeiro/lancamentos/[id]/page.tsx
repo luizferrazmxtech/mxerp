@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db";
 import { diaSP } from "@/lib/datas";
 import { brl } from "@/lib/ui/format";
 import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
-import { contaAvulsa, iconeForma, origemConta, situacaoConta } from "@/lib/financeiro/lista";
+import { boletoAbrivel, contaAvulsa, iconeForma, origemConta, situacaoConta } from "@/lib/financeiro/lista";
+import { ATIVOS } from "@/lib/financeiro/boletos";
 import { baixarContaAcao, estornarContaAcao, excluirContaAcao } from "../../actions";
 import { Bloco, Campo, Pagina } from "@/components/ui/Pagina";
 import FormAcao from "@/components/financeiro/FormAcao";
@@ -12,6 +13,7 @@ import BoletoParcela from "@/components/BoletoParcela";
 import BotaoAcao from "@/components/ui/BotaoAcao";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import Icone from "@/components/Icone";
+import ResumoOrigem from "@/components/financeiro/ResumoOrigem";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Conta" };
@@ -43,6 +45,7 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
   const hoje = diaSP();
   const s = situacaoConta(l, hoje);
   const orig = origemConta(l);
+  const pdf = boletoAbrivel(l.boletos.find((b) => ATIVOS.includes(b.situacao)));
   const ic = iconeForma(l.formaPagamento);
   const [contas, interAtivo, base] = await Promise.all([
     prisma.contaBancaria.findMany({ where: { ativa: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
@@ -57,6 +60,7 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
         {!l.pagoEm && <Link href={`/financeiro/lancamentos/${l.id}/editar`} className="btn-laranja"><Icone nome="editar" size={14} /> Editar</Link>}
         <Link href={`/financeiro/adicionar?tipo=${l.tipo}&copia=${l.id}`} className="btn-sec"><Icone nome="copiar" size={14} /> Duplicar</Link>
         {orig && <Link href={orig.href} className="btn-sec"><Icone nome={orig.icone} size={14} /> {orig.rotulo}</Link>}
+        {!pagar && pdf && <a href={pdf} target="_blank" rel="noreferrer" className="btn-sec"><Icone nome="boleto" size={14} /> Abrir boleto</a>}
         {l.pagoEm && !l.transferenciaId && (
           <BotaoAcao acao={estornarContaAcao.bind(null, l.id)} icone="atualizar" className="btn-sec" confirmar="Estornar esta baixa? A conta volta a ficar em aberto.">Estornar baixa</BotaoAcao>
         )}
@@ -66,6 +70,7 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
       </div>
 
       <div className="grid gap-3 lg:grid-cols-[3fr_2fr]">
+        <div className="min-w-0">
         <Bloco icone="detalhes" titulo={<>Dados {pagar ? "do pagamento" : "do recebimento"}</>} acoes={<span className={`pilula ${s.pilula}`}>{s.rotulo}</span>}>
           <Linha rotulo="Descrição">{l.descricao}</Linha>
           <Linha rotulo={pagar ? "Fornecedor" : "Cliente"}>{l.pessoa ? <Link href={`/${pagar && l.pessoa.fornecedor ? "fornecedores" : "clientes"}/${l.pessoa.id}`} className="sublinhado">{l.pessoa.nome}</Link> : "—"}</Linha>
@@ -79,6 +84,9 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
           {l.observacao && <Linha rotulo="Observações"><span className="whitespace-pre-line">{l.observacao}</span></Linha>}
           <Linha rotulo="Cadastrada em">{l.createdAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" })}</Linha>
         </Bloco>
+
+          <ResumoOrigem origemTipo={l.origemTipo} origemId={l.origemId} contaId={l.id} />
+        </div>
 
         <div>
           <Bloco icone="confirmado" titulo={l.pagoEm ? <><b>{pagar ? "Pago" : "Recebido"}</b></> : <>Confirmar <b>{pagar ? "pagamento" : "recebimento"}</b></>}>

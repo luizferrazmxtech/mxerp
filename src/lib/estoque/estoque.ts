@@ -214,8 +214,9 @@ export async function transferir(
   args: { produtoId: string; deLocalId: string; paraLocalId: string; quantidade: number; usuarioId?: string },
 ) {
   const base = { produtoId: args.produtoId, quantidade: args.quantidade, origemTipo: "TRANSFERENCIA" as const, usuarioId: args.usuarioId };
-  await saida(tx, { ...base, localId: args.deLocalId, observacao: `para ${args.paraLocalId}` });
-  await entrada(tx, { ...base, localId: args.paraLocalId, observacao: `de ${args.deLocalId}` });
+  const cods = new Map((await tx.local.findMany({ where: { id: { in: [args.deLocalId, args.paraLocalId] } }, select: { id: true, codigo: true } })).map((l) => [l.id, l.codigo]));
+  await saida(tx, { ...base, localId: args.deLocalId, observacao: `para ${cods.get(args.paraLocalId) ?? args.paraLocalId}` });
+  await entrada(tx, { ...base, localId: args.paraLocalId, observacao: `de ${cods.get(args.deLocalId) ?? args.deLocalId}` });
   // se o local de origem ficou com reservado > físico, move reservas excedentes
   const locais = await disponivelPorLocal(tx, args.produtoId);
   const origem = locais.find((l) => l.localId === args.deLocalId);

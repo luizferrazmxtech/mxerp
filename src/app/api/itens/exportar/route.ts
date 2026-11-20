@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   const sp = Object.fromEntries(new URL(req.url).searchParams) as Record<string, string>;
   const wb = new ExcelJS.Workbook();
   if (sp.tipo === "servicos") {
-    const l = await prisma.servico.findMany({ where: whereServicos(sp), orderBy: ordemServicos(sp.o) });
+    const l = await prisma.servico.findMany({ where: await whereServicos(sp), orderBy: ordemServicos(sp.o) });
     const ws = wb.addWorksheet("Serviços");
     ws.columns = [
       { header: "Código", key: "codigo", width: 10 }, { header: "Nome", key: "nome", width: 45 }, { header: "Valor de custo", key: "custo", width: 14 },

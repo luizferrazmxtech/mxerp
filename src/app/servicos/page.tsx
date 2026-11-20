@@ -23,7 +23,7 @@ const COLUNAS = [{ chave: "codigo", rotulo: "Código" }, { chave: "nome", rotulo
 export default async function Servicos({ searchParams }: { searchParams: Promise<ParamsLista> }) {
   const sp = await searchParams;
   const u = await usuarioAtual();
-  const where = whereServicos(sp);
+  const where = await whereServicos(sp);
   const { pagina, porPagina, skip, take } = lerPagina(sp);
   const [lista, total, empresas, fornecedor] = await Promise.all([
     prisma.servico.findMany({ where, orderBy: [ordemServicos(sp.o), { id: "asc" }], skip, take, select: { id: true, codigo: true, nome: true, custo: true, preco: true, ativo: true, createdAt: true } }),

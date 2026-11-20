@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { todasAsLojas } from "@/lib/empresa/loja";
 import { ORIGENS } from "@/lib/itens/tipos";
+import { documentoDe, documentosDosMovimentos } from "@/lib/estoque/origens";
 import { clonarProdutoAcao, excluirProdutoAcao } from "@/lib/itens/acoes";
 import { brl, data, dataSP, horaSP, num2, qtd } from "@/lib/ui/format";
 import { Pagina, Pilula } from "@/components/ui/Pagina";
@@ -204,6 +205,7 @@ async function Movimentacoes({ id, sp, base, unidade }: { id: string; sp: { de?:
     where: { produtoId: id, createdAt: { gte: new Date(de + "T00:00:00-03:00"), lte: new Date(ate + "T23:59:59-03:00") } },
     include: { local: { select: { codigo: true } }, usuario: { select: { nome: true } } }, orderBy: { createdAt: "desc" }, take: 500,
   });
+  const docs = await documentosDosMovimentos(lista);
   return (
     <div>
       <form action={base} className="mb-3 flex flex-wrap items-end gap-2">
@@ -215,10 +217,10 @@ async function Movimentacoes({ id, sp, base, unidade }: { id: string; sp: { de?:
       {lista.length ? (
         <div className="cartao overflow-x-auto">
           <table className="tabela">
-            <thead><tr><th>Data</th><th>Tipo</th><th>Origem</th><th>Local</th><th className="text-right">Quantidade</th><th>Usuário</th><th>Observação</th></tr></thead>
+            <thead><tr><th>Data</th><th>Tipo</th><th>Origem / destino</th><th>Local</th><th className="text-right">Quantidade</th><th>Usuário</th><th>Observação</th></tr></thead>
             <tbody>{lista.map((m) => (
               <tr key={m.id}>
-                <td>{dataSP(m.createdAt)} {horaSP(m.createdAt)}</td><td>{TIPO_MOV[m.tipo] ?? m.tipo}</td><td>{ORIGEM[m.origemTipo] ?? m.origemTipo}</td>
+                <td>{dataSP(m.createdAt)} {horaSP(m.createdAt)}</td><td>{TIPO_MOV[m.tipo] ?? m.tipo}</td><td><OrigemMov mov={m} doc={documentoDe(docs, m)} /></td>
                 <td>{m.local.codigo}</td><td className={`text-right ${m.tipo.includes("SAIDA") ? "text-red-600" : "text-emerald-700"}`}>{m.tipo.includes("SAIDA") ? "−" : "+"}{qtd(m.quantidade)} {unidade}</td>
                 <td>{m.usuario?.nome ?? ""}</td><td className="text-[12px] text-slate-500">{m.observacao}</td>
               </tr>
@@ -228,6 +230,18 @@ async function Movimentacoes({ id, sp, base, unidade }: { id: string; sp: { de?:
       ) : (
         <div className="cartao flex flex-col items-center py-12 text-slate-500"><Icone nome="atualizar" size={28} /><b className="mt-2 text-slate-700">Nenhuma movimentação no período</b><span className="text-[13px]">Troque as datas para ver outras movimentações.</span></div>
       )}
+    </div>
+  );
+}
+
+/** "Venda #8698" com link e o cliente embaixo; sem documento, só o tipo (Implantação, Transferência). */
+function OrigemMov({ mov, doc }: { mov: { origemTipo: string }; doc?: { rotulo: string; href: string; pessoa?: string } }) {
+  if (!doc) return <>{ORIGEM[mov.origemTipo] ?? mov.origemTipo}</>;
+  return (
+    <div>
+      <Link href={doc.href} className="font-medium text-marca hover:underline">{doc.rotulo}</Link>
+      {mov.origemTipo === "IMPLANTACAO" && <span className="ml-1 text-[11px] text-slate-500">(implantação)</span>}
+      {doc.pessoa && <div className="max-w-[16rem] truncate text-[12px] text-slate-500" title={doc.pessoa}>{doc.pessoa}</div>}
     </div>
   );
 }

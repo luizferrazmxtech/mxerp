@@ -1,14 +1,25 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { palavras, wherePalavras } from "@/lib/busca/palavras";
 
 export type ParamsLista = Record<string, string | undefined>;
+
+/** Ids da tabela em que toda palavra da busca aparece em alguma das colunas, em qualquer ordem e sem acento (igual à busca da venda). */
+export async function idsPorPalavras(tabela: "Produto" | "Servico", q: string, colunas: string[], exato?: string): Promise<string[]> {
+  if (!palavras(q).length) return [];
+  const cols = colunas.map((c) => Prisma.sql`t.${Prisma.raw(`"${c}"`)}`);
+  const ex = exato ? Prisma.sql`t.${Prisma.raw(`"${exato}"`)} = ${q.trim()} OR ` : Prisma.empty;
+  const linhas = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT t.id FROM ${Prisma.raw(`"${tabela}"`)} t WHERE ${ex}(${wherePalavras(q, cols)})`);
+  return linhas.map((l) => l.id);
+}
 
 /** Filtros da lista de produtos (busca simples e avançada do Gestão Click). */
 export async function whereProdutos(sp: ParamsLista): Promise<Prisma.ProdutoWhereInput> {
   const and: Prisma.ProdutoWhereInput[] = [];
   const cont = (v: string) => ({ contains: v.trim(), mode: "insensitive" as const });
-  if (sp.q) and.push({ OR: [{ nome: cont(sp.q) }, { codigo: cont(sp.q) }, { gtin: sp.q.trim() }] });
-  if (sp.nome) and.push({ nome: cont(sp.nome) });
+  if (sp.q?.trim()) and.push({ id: { in: await idsPorPalavras("Produto", sp.q, ["nome", "codigo", "gtin"], "gtin") } });
+  if (sp.nome?.trim()) and.push({ id: { in: await idsPorPalavras("Produto", sp.nome, ["nome"]) } });
   if (sp.codigo) and.push({ OR: [{ codigo: cont(sp.codigo) }, { gtin: sp.codigo.trim() }] });
   if (sp.loja) and.push({ lojas: { has: sp.loja } });
   if (sp.grupo) {
@@ -49,11 +60,11 @@ export function ordemProdutos(o?: string): Prisma.ProdutoOrderByWithRelationInpu
 }
 
 /** Filtros da lista de serviços. */
-export function whereServicos(sp: ParamsLista): Prisma.ServicoWhereInput {
+export async function whereServicos(sp: ParamsLista): Promise<Prisma.ServicoWhereInput> {
   const and: Prisma.ServicoWhereInput[] = [];
   const cont = (v: string) => ({ contains: v.trim(), mode: "insensitive" as const });
-  if (sp.q) and.push({ OR: [{ nome: cont(sp.q) }, { codigo: cont(sp.q) }] });
-  if (sp.nome) and.push({ nome: cont(sp.nome) });
+  if (sp.q?.trim()) and.push({ id: { in: await idsPorPalavras("Servico", sp.q, ["nome", "codigo"]) } });
+  if (sp.nome?.trim()) and.push({ id: { in: await idsPorPalavras("Servico", sp.nome, ["nome"]) } });
   if (sp.codigo) and.push({ codigo: cont(sp.codigo) });
   if (sp.loja) and.push({ lojas: { has: sp.loja } });
   if (sp.ativo === "sim") and.push({ ativo: true });

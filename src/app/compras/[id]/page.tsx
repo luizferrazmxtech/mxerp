@@ -15,6 +15,7 @@ import { LinkSuspenso } from "@/components/ui/BarraLista";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import BotaoAcao from "@/components/ui/BotaoAcao";
 import Icone from "@/components/Icone";
+import VoltarConta from "@/components/financeiro/VoltarConta";
 import { FormAnexo } from "@/components/cadastros/FormsVer";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
 import CopiarLink from "@/components/orcamentos/CopiarLink";
@@ -30,7 +31,7 @@ function Vazio({ icone, titulo, texto }: { icone: string; titulo: string; texto?
   return <div className="cartao flex flex-col items-center px-4 py-10 text-center text-slate-500"><Icone nome={icone} size={28} /><b className="mt-2 text-slate-700">{titulo}</b>{texto && <span className="text-[13px]">{texto}</span>}</div>;
 }
 
-export default async function VerCompra({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string }> }) {
+export default async function VerCompra({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string; conta?: string }> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const c = await prisma.compra.findUnique({
     where: { id },
@@ -79,6 +80,7 @@ export default async function VerCompra({ params, searchParams }: { params: Prom
 
   return (
     <Pagina titulo="Visualizar compra" trilha={[{ rotulo: tituloCompras(c.tipo), href: baseCompras(c.tipo) }, { rotulo: "Visualizar" }]}>
+      <VoltarConta contaId={sp.conta} />
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="carrinho" size={18} /> Compra #{c.numero}
@@ -127,7 +129,7 @@ export default async function VerCompra({ params, searchParams }: { params: Prom
 
         <section>
           <nav className="mb-3 flex flex-wrap gap-1">
-            {ABAS.map((a) => <Link key={a.chave} href={a.chave === ABAS[0].chave ? base : `${base}?aba=${a.chave}`} className={`aba ${aba === a.chave ? "aba-ativa" : ""}`}><Icone nome={a.icone} size={14} /> {a.rotulo}</Link>)}
+            {ABAS.map((a) => <Link key={a.chave} href={a.chave === ABAS[0].chave ? (sp.conta ? `${base}?conta=${sp.conta}` : base) : `${base}?aba=${a.chave}${sp.conta ? `&conta=${sp.conta}` : ""}`} className={`aba ${aba === a.chave ? "aba-ativa" : ""}`}><Icone nome={a.icone} size={14} /> {a.rotulo}</Link>)}
           </nav>
 
           {aba === "produtos" && (

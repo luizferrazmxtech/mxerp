@@ -7,7 +7,7 @@ import { avisosPendentes } from "@/lib/financeiro/avisosBoleto";
 import { ROTULO_BOLETO } from "@/lib/financeiro/boletos";
 import { diaSP, periodoDia } from "@/lib/datas";
 import { brl, num2 } from "@/lib/ui/format";
-import { contaAvulsa, iconeForma, ordemContas, origemConta, situacaoConta, whereContas, whereSituacao, type ParamsContas } from "@/lib/financeiro/lista";
+import { boletoAbrivel, contaAvulsa, iconeForma, ordemContas, origemConta, situacaoConta, whereContas, whereSituacao, type ParamsContas } from "@/lib/financeiro/lista";
 import { baixarVariasAcao, estornarContaAcao, excluirContaAcao, excluirVariasAcao } from "./actions";
 import { Pagina } from "@/components/ui/Pagina";
 import { LinkSuspenso, urlCom } from "@/components/ui/BarraLista";
@@ -52,7 +52,7 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
       where, orderBy: ordemContas(sp.o), skip, take,
       include: {
         pessoa: { select: { id: true, nome: true, fantasia: true, cliente: true, fornecedor: true } }, formaPagamento: true, contaBancaria: { select: { nome: true } },
-        categoria: { select: { nome: true, codigo: true } }, boletos: { orderBy: { createdAt: "desc" }, take: 1, select: { situacao: true } },
+        categoria: { select: { nome: true, codigo: true } }, boletos: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, situacao: true } },
       },
     }),
     prisma.lancamento.count({ where }),
@@ -114,6 +114,7 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
             const nf = nfe(l.origemId), ns = nfse(l.origemId);
             const nfc = l.origemId ? nfCompra.get(l.origemId) : null;
             const bol = l.boletos[0];
+            const pdf = boletoAbrivel(bol);
             return (
               <tr key={l.id}>
                 {selecao && <td><input type="checkbox" name="ids" value={l.id} disabled={modo === "baixar" ? !!l.pagoEm : !!l.pagoEm || !contaAvulsa(l)} /></td>}
@@ -129,7 +130,9 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
                 </td>
                 <td>
                   {l.formaPagamento ? <span className="inline-flex items-center gap-1.5">{l.formaPagamento.nome}{ic && <Icone nome={ic.nome} size={14} className={ic.cor} />}</span> : <span className="text-slate-400">—</span>}
-                  {bol && <div className="text-[11px] text-slate-500">boleto: {(ROTULO_BOLETO[bol.situacao] ?? bol.situacao).toLowerCase()}</div>}
+                  {bol && (pdf
+                    ? <a href={pdf} target="_blank" rel="noreferrer" className="block text-[11px] text-slate-500 hover:text-slate-900 hover:underline" title="Abrir o boleto">boleto: {(ROTULO_BOLETO[bol.situacao] ?? bol.situacao).toLowerCase()}</a>
+                    : <div className="text-[11px] text-slate-500">boleto: {(ROTULO_BOLETO[bol.situacao] ?? bol.situacao).toLowerCase()}</div>)}
                 </td>
                 <td>
                   {diaBr(l.vencimento)}
@@ -151,7 +154,8 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
                     <Suspenso direita classe="btn-icone" botao={<Icone nome="opcoes" size={13} />}>
                       {!l.pagoEm && <LinkSuspenso href={`/financeiro/lancamentos/${l.id}#baixa`} icone="confirmado">{pagar ? "Confirmar pagamento" : "Confirmar recebimento"}</LinkSuspenso>}
                       {l.pagoEm && !l.transferenciaId && <BotaoAcao acao={estornarContaAcao.bind(null, l.id)} icone="atualizar" confirmar={`Estornar a baixa de "${l.descricao}"? A conta volta a ficar em aberto.`}>Estornar baixa</BotaoAcao>}
-                      {!pagar && !l.pagoEm && <LinkSuspenso href={`/financeiro/lancamentos/${l.id}#boleto`} icone="boleto">Boleto (emitir, imprimir, enviar)</LinkSuspenso>}
+                      {!pagar && pdf && <a href={pdf} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="boleto" size={15} /> Abrir boleto</a>}
+                      {!pagar && !l.pagoEm && <LinkSuspenso href={`/financeiro/lancamentos/${l.id}#boleto`} icone="envios">{pdf ? "Enviar ou cancelar boleto" : "Emitir boleto"}</LinkSuspenso>}
                       {orig && <LinkSuspenso href={orig.href} icone={orig.icone}>{orig.rotulo}</LinkSuspenso>}
                       <LinkSuspenso href={`/financeiro/adicionar?tipo=${tipo}&copia=${l.id}`} icone="copiar">Duplicar</LinkSuspenso>
                       {!l.pagoEm && contaAvulsa(l) && <BotaoExcluir acao={excluirContaAcao.bind(null, l.id)} pergunta={`Excluir "${l.descricao}" (${brl(l.valor)})?`} rotulo="Excluir" />}

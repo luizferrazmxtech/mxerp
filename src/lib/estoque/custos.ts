@@ -1,3 +1,4 @@
+import { idsPorPalavras } from "@/lib/itens/filtros";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { parseDia } from "@/lib/datas";
@@ -52,7 +53,7 @@ export async function relatorioCustos(sp: ParamsCustos) {
 
   const wProd: Prisma.ProdutoWhereInput[] = [{ possuiComposicao: false }];
   if (sp.inativos !== "1") wProd.push({ ativo: true });
-  if (q) wProd.push({ OR: [{ nome: { contains: q, mode: "insensitive" } }, { codigo: { contains: q, mode: "insensitive" } }, { gtin: q }] });
+  if (q) wProd.push({ id: { in: await idsPorPalavras("Produto", q, ["nome", "codigo", "gtin"], "gtin") } });
   if (sp.grupo) wProd.push({ OR: [{ grupoId: sp.grupo }, { grupo: { paiId: sp.grupo } }] });
   if (sp.filtro === "conversao") wProd.push({ unidadeCompra: { not: null } });
   if (sp.filtro === "semCusto") wProd.push({ custo: { lte: 0 } });
