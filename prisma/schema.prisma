@@ -21,6 +21,7 @@ model Empresa {
   inscricaoMunicipal  String?
   regimeTributario    RegimeTributario @default(SIMPLES_NACIONAL)
   logradouro          String?
+  complemento         String?
   numero              String?
   bairro              String?
   cidade              String?

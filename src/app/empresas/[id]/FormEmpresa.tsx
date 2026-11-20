@@ -11,7 +11,7 @@ import { consultarCnpjEmpresa, salvarEmpresa, testarSefaz, type Res } from "../a
 
 type Dados = {
   id: string; razaoSocial: string; nomeFantasia: string | null; cnpj: string; ie: string | null; im: string | null; cnae: string | null;
-  regime: string; logradouro: string | null; numero: string | null; bairro: string | null; cidade: string | null; codigoMunicipio: string | null;
+  regime: string; logradouro: string | null; complemento: string | null; numero: string | null; bairro: string | null; cidade: string | null; codigoMunicipio: string | null;
   uf: string | null; cep: string | null; telefone: string | null; email: string | null; ativa: boolean;
   ambiente: string; ambienteNfse: string; serieNfe: number; serieNfce: number; serieDps: number; regimeEspecialNfse: number;
   cscId: string | null; temCsc: boolean; infCplNfe: string | null; infCplNfse: string | null;
@@ -63,7 +63,8 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
     // "Simples (excesso de sublimite)" a Receita não informa: não troca quem já escolheu
     if (r.regime && !(r.regime === "SIMPLES_NACIONAL" && campo("regime")?.value === "SIMPLES_EXCESSO_SUBLIMITE")) por("regime", r.regime);
     if (r.endereco) {
-      por("logradouro", [r.endereco.logradouro, r.endereco.complemento].filter(Boolean).join(", "));
+      por("logradouro", r.endereco.logradouro);
+      { const c = campo("complemento"); if (c) c.value = r.endereco.complemento; }
       por("numero", r.endereco.numero); por("bairro", r.endereco.bairro); por("cidade", r.endereco.cidade);
       por("codigoMunicipio", r.endereco.codigoMunicipio); por("uf", r.endereco.uf); por("cep", r.endereco.cep);
       if (!r.endereco.codigoMunicipio && r.endereco.cep) buscarCep(r.endereco.cep).then((x) => por("codigoMunicipio", x?.codigoMunicipio));
@@ -126,6 +127,7 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
           </Campo>
           {t("logradouro", "Logradouro", e?.logradouro, "md:col-span-2")}
           {t("numero", "Número", e?.numero)}
+          {t("complemento", "Complemento", e?.complemento)}
           {t("bairro", "Bairro", e?.bairro)}
           {t("cidade", "Cidade", e?.cidade)}
           {t("codigoMunicipio", "Código IBGE do município", e?.codigoMunicipio, "", { placeholder: "3548906" })}
