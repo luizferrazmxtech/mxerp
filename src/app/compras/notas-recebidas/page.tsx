@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { exigirArea } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
+import { temCertificadoServidor } from "@/lib/fiscal/certificado";
+import { lojaAtual } from "@/lib/empresa/atual";
 import { estadoDfe, MANIFESTACOES, type TipoManifestacao } from "@/lib/fiscal/dfe";
 import { baixarXmlAcao, manifestarAcao, sincronizarDfeAcao } from "@/lib/fiscal/acoesDfe";
 import { brl, data, dataHora } from "@/lib/ui/format";
@@ -17,6 +19,7 @@ export default async function NotasRecebidas({ searchParams }: { searchParams: P
   await exigirArea("/compras/notas-recebidas");
   const sp = await searchParams;
   const f = FILTROS.some(([k]) => k === sp.f) ? sp.f! : "pendentes";
+  const loja = await lojaAtual();
   const [notas, est, temEmpresa] = await Promise.all([
     prisma.notaRecebida.findMany({
       where: {
@@ -25,13 +28,13 @@ export default async function NotasRecebidas({ searchParams }: { searchParams: P
       },
       orderBy: { emissao: "desc" }, take: 300,
     }),
-    estadoDfe(),
+    estadoDfe(loja?.id),
     prisma.empresa.count(),
   ]);
   const compras = await prisma.compra.findMany({ where: { chaveNfe: { in: notas.map((n) => n.chave) } }, select: { id: true, numero: true, chaveNfe: true } });
   const compraDe = new Map(compras.map((c) => [c.chaveNfe!, c]));
   const lista = f === "sem-compra" ? notas.filter((n) => !compraDe.has(n.chave) && n.situacao === "AUTORIZADA" && n.manifestacao !== "DESCONHECIDA" && n.manifestacao !== "NAO_REALIZADA") : notas;
-  const certOk = !!process.env.CERTIFICADO_A1_PATH;
+  const certOk = !!loja?.certificadoValidade || temCertificadoServidor();
 
   return (
     <Pagina titulo="Notas recebidas (SEFAZ)" icone="importar" trilha={[{ rotulo: "Compras", href: "/compras" }, { rotulo: "Notas recebidas" }]}>

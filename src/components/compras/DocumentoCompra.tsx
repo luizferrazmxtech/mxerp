@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { configEstoque } from "@/lib/estoque/config";
 
 const brl = (v: unknown) => Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -19,7 +20,7 @@ export default async function DocumentoCompra({ id, token }: { id?: string; toke
     },
   });
   if (!c) return <p className="p-8 text-center">Compra não encontrada.</p>;
-  const [empresa, cfg] = await Promise.all([prisma.empresa.findFirst(), configEstoque()]);
+  const [empresa, cfg] = await Promise.all([empresaDoDocumento(c.empresaId), configEstoque()]);
   const doc = cfg.documentos;
   const f = c.fornecedor;
   const end = (e: { logradouro: string | null; numero: string | null; bairro: string | null; cidade: string | null; uf: string | null; cep: string | null }) =>

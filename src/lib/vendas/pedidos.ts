@@ -66,7 +66,7 @@ async function lancarFinanceiro(tx: Tx, vendaId: string) {
       data: {
         tipo: "RECEBER", descricao: parcelas.length > 1 ? `Venda de nº ${v.numero} (${p.numero}/${parcelas.length})` : `Venda de nº ${v.numero}`,
         pessoaId: v.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? v.formaPagamentoId, valor: p.valor,
-        vencimento: p.vencimento, competencia: diaSP(v.data), parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "VENDA", origemId: v.id, centroCustoId: centro,
+        vencimento: p.vencimento, competencia: diaSP(v.data), parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "VENDA", origemId: v.id, centroCustoId: centro, empresaId: v.empresaId,
         rateio: { create: rec.rateio },
       },
     });
@@ -300,7 +300,7 @@ export async function registrarDevolucao(args: { vendaId: string; tipo: "DEVOLUC
     total = Math.round(total * 100) / 100;
     const numero = await proximoNumero(tx, "DEVOLUCAO");
     const dev = await tx.devolucao.create({
-      data: { numero, tipo: args.tipo, vendaId: v.id, clienteId: v.clienteId, total: D(total), observacao: t(args.observacao), usuarioNome: u.nome,
+      data: { numero, tipo: args.tipo, vendaId: v.id, empresaId: v.empresaId, clienteId: v.clienteId, total: D(total), observacao: t(args.observacao), usuarioNome: u.nome,
         itens: { create: linhas.map((l) => ({ vendaItemId: l.it.id, produtoId: l.it.produtoId, quantidade: new Prisma.Decimal(l.quantidade), valorUnit: D(l.unit), total: D(l.tl) })) } },
     });
     for (const l of linhas) {
@@ -316,7 +316,7 @@ export async function registrarDevolucao(args: { vendaId: string; tipo: "DEVOLUC
       await garantirPadroes(tx);
       const cat = await categoria(tx, "Devoluções de vendas", "PAGAR");
       const hoje = diaSP(new Date());
-      await tx.lancamento.create({ data: { tipo: "PAGAR", descricao: `Devolução nº ${numero} da venda ${v.numero}`, pessoaId: v.clienteId, categoriaId: cat.id, valor: D(total), vencimento: hoje, competencia: hoje, origemTipo: "DEVOLUCAO", origemId: dev.id } });
+      await tx.lancamento.create({ data: { tipo: "PAGAR", descricao: `Devolução nº ${numero} da venda ${v.numero}`, pessoaId: v.clienteId, categoriaId: cat.id, valor: D(total), vencimento: hoje, competencia: hoje, origemTipo: "DEVOLUCAO", origemId: dev.id, empresaId: v.empresaId } });
     }
     await tx.vendaHistorico.create({ data: { vendaId: v.id, descricao: `${args.tipo === "TROCA" ? "Troca" : "Devolução"} nº ${numero}: ${linhas.map((l) => `${l.quantidade} un.`).join(", ")} voltaram ao estoque`, usuarioNome: u.nome } });
     return dev;

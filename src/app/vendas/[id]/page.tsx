@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { cor, aplicarTags } from "@/lib/orcamentos/tipos";
 import { excluirAnotacaoAcao } from "@/lib/orcamentos/acoes";
 import { alterarSituacaoVendaAcao, anotarVendaAcao, clonarVendaAcao, emitirNotaVendaAcao, excluirVendaEVoltarAcao } from "@/lib/vendas/acoes";
@@ -49,7 +50,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
   const [situacoes, criador, empresa, anexos, anotacoes, campos, modelo, lancamentos, reservas, orcamento] = await Promise.all([
     prisma.situacaoVendaConfig.findMany({ orderBy: { ordem: "asc" } }),
     v.criadoPorId ? prisma.usuario.findUnique({ where: { id: v.criadoPorId }, select: { nome: true } }) : null,
-    prisma.empresa.findFirst(),
+    empresaDoDocumento(v.empresaId),
     prisma.anexo.findMany({ where: { entidade: "VENDA", entidadeId: id }, select: { id: true, nome: true, tamanho: true, createdAt: true } }),
     prisma.anotacao.findMany({ where: { entidade: "VENDA", entidadeId: id }, orderBy: { createdAt: "desc" } }),
     prisma.campoExtra.findMany({ where: { entidade: "VENDA" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),

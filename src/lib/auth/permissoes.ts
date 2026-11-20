@@ -3,6 +3,8 @@ import type { PapelUsuario } from "@prisma/client";
 /** Quem entra em cada área. O primeiro prefixo que bater vale; o que não está aqui é liberado para todos os logados. */
 const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/usuarios", papeis: ["ADMIN"] },
+  // empresas (lojas): dados fiscais, certificado e numeração
+  { prefixo: "/empresas", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/auditoria", papeis: ["ADMIN"] },
   { prefixo: "/funcionarios", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/campos-extras", papeis: ["ADMIN", "GERENTE"] },

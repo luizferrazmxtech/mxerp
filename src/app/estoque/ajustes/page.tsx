@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { num2 } from "@/lib/ui/format";
 import { periodoInstantes } from "@/lib/estoque/periodo";
 import { Pagina } from "@/components/ui/Pagina";
@@ -25,7 +26,7 @@ export default async function Ajustes({ searchParams }: { searchParams: Promise<
   const [lista, total, empresa] = await Promise.all([
     prisma.ajusteEstoque.findMany({ where, orderBy: { numero: "desc" }, skip, take }),
     prisma.ajusteEstoque.count({ where }),
-    prisma.empresa.findFirst({ select: { nomeFantasia: true, razaoSocial: true } }),
+    empresaDoDocumento(null),
   ]);
   const loja = empresa?.nomeFantasia || empresa?.razaoSocial || "";
   return (

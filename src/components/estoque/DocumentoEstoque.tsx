@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 
 const brl = (v: unknown) => Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const qt = (v: unknown) => Number(v ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 4 });
@@ -7,10 +7,10 @@ const cnpjFmt = (c: string) => c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/
 type Linha = { codigo: string; nome: string; unidade: string; quantidade: unknown; custo: unknown; total: unknown };
 
 /** Impressão A4 de ajuste ou transferência de estoque (marca MXTECH). */
-export default async function DocumentoEstoque({ titulo, data, por, info, linhas, frete, total, observacoes }: {
-  titulo: string; data: Date; por?: string | null; info: [string, string][]; linhas: Linha[]; frete?: unknown; total: unknown; observacoes?: string | null;
+export default async function DocumentoEstoque({ titulo, data, por, info, linhas, frete, total, observacoes, empresaId }: {
+  empresaId?: string | null; titulo: string; data: Date; por?: string | null; info: [string, string][]; linhas: Linha[]; frete?: unknown; total: unknown; observacoes?: string | null;
 }) {
-  const empresa = await prisma.empresa.findFirst();
+  const empresa = await empresaDoDocumento(empresaId);
   return (
     <article className="documento mx-auto max-w-[21cm] bg-white p-[1.2cm] text-[13px] text-[#222]">
       <header className="flex items-start gap-4 border-b-2 border-[#018E83] pb-3">

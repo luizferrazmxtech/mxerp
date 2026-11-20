@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { cor, aplicarTags } from "@/lib/orcamentos/tipos";
 import { excluirAnotacaoAcao } from "@/lib/orcamentos/acoes";
 import { alterarSituacaoCompraAcao, anotarCompraAcao, clonarCompraAcao, excluirCompraEVoltarAcao } from "@/lib/compras/acoes";
@@ -45,7 +46,7 @@ export default async function VerCompra({ params, searchParams }: { params: Prom
   const [situacoes, criador, empresa, anexos, anotacoes, campos, modelo, lancamentos, cotacao, locais] = await Promise.all([
     prisma.situacaoCompraConfig.findMany({ orderBy: { ordem: "asc" } }),
     c.criadoPorId ? prisma.usuario.findUnique({ where: { id: c.criadoPorId }, select: { nome: true } }) : null,
-    prisma.empresa.findFirst(),
+    empresaDoDocumento(c.empresaId),
     prisma.anexo.findMany({ where: { entidade: "COMPRA", entidadeId: id }, select: { id: true, nome: true, tamanho: true, createdAt: true } }),
     prisma.anotacao.findMany({ where: { entidade: "COMPRA", entidadeId: id }, orderBy: { createdAt: "desc" } }),
     prisma.campoExtra.findMany({ where: { entidade: "COMPRA" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),

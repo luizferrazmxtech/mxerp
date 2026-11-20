@@ -76,7 +76,7 @@ async function lancarFinanceiro(tx: Tx, osId: string) {
       data: {
         tipo: "RECEBER", descricao: parcelas.length > 1 ? `OS de nº ${o.numero} (${p.numero}/${parcelas.length})` : `OS de nº ${o.numero}`,
         pessoaId: o.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? o.formaPagamentoId, valor: p.valor,
-        vencimento: p.vencimento, competencia: o.saida ?? o.entrada, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "OS", origemId: o.id, centroCustoId: centro,
+        vencimento: p.vencimento, competencia: o.saida ?? o.entrada, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "OS", origemId: o.id, centroCustoId: centro, empresaId: o.empresaId,
         rateio: { create: rec.rateio },
       },
     });

@@ -1,6 +1,7 @@
 import { Prisma, OrigemDocumento } from "@prisma/client";
 import type { Tx } from "@/lib/db";
 import { alocar, arred, type Alocacao } from "./alocacao";
+import { lojaAtualId } from "@/lib/empresa/loja";
 
 /**
  * Regras de estoque do MXERP.
@@ -25,8 +26,12 @@ export async function travarProduto(tx: Tx, produtoId: string) {
   return rows[0];
 }
 
-/** Disponível por local (físico do local - reservas ativas naquele local). */
+/**
+ * Disponível por local (físico do local - reservas ativas naquele local).
+ * Só os locais da loja atual (depósito da loja ou sem loja): cada CNPJ vende do próprio estoque.
+ */
 export async function disponivelPorLocal(tx: Tx, produtoId: string) {
+  const loja = await lojaAtualId();
   const rows = await tx.$queryRaw<{ localId: string; fisico: Prisma.Decimal; reservado: Prisma.Decimal }[]>`
     SELECT s."localId",
            s.quantidade AS fisico,
@@ -34,7 +39,10 @@ export async function disponivelPorLocal(tx: Tx, produtoId: string) {
                      WHERE r."produtoId" = s."produtoId" AND r."localId" = s."localId"
                        AND r.status = 'ATIVA'), 0) AS reservado
       FROM "Saldo" s
-     WHERE s."produtoId" = ${produtoId}`;
+     WHERE s."produtoId" = ${produtoId}
+       AND (${loja}::text IS NULL OR s."localId" IN (
+             SELECT l.id FROM "Local" l JOIN "Deposito" d ON d.id = l."depositoId"
+              WHERE d."empresaId" IS NULL OR d."empresaId" = ${loja}))`;
   return rows.map((r) => ({
     localId: r.localId,
     fisico: n(r.fisico),

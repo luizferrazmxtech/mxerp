@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { devolvidoPorItem } from "@/lib/vendas/pedidos";
 import { Bloco, Pagina } from "@/components/ui/Pagina";
 import FormDevolucao from "@/components/vendas/FormDevolucao";
@@ -31,7 +32,7 @@ export default async function AdicionarDevolucao({ searchParams }: { searchParam
   }) : null;
   if (v && v.situacao !== "CONCLUIDA") aviso = "Esta venda não saiu do estoque (a situação dela não lança estoque), então não há o que devolver.";
   const ja = v ? await devolvidoPorItem(v.id) : new Map<string, number>();
-  const empresa = await prisma.empresa.findFirst({ select: { nomeFantasia: true, razaoSocial: true } });
+  const empresa = await empresaDoDocumento(v?.empresaId);
   const bruto = v ? v.itens.reduce((s, i) => s + Number(i.subtotal), 0) : 0;
   const fator = v && bruto > 0 ? 1 - Number(v.desconto) / bruto : 1;
 

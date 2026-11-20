@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { configVenda } from "@/lib/vendas/config";
 import { configOrcamento } from "@/lib/orcamentos/config";
 
@@ -23,7 +24,7 @@ export default async function DocumentoVenda({ id, token, cobranca }: { id?: str
   });
   if (!v || (cobranca && v.situacaoCfg?.exibirCobranca === false)) return <p className="p-8 text-center">Pedido não encontrado.</p>;
   const [empresa, cfg, cfgImp, entrega, lanc] = await Promise.all([
-    prisma.empresa.findFirst(), configVenda(), configOrcamento(),
+    empresaDoDocumento(v.empresaId), configVenda(), configOrcamento(),
     v.mostrarEntrega && v.enderecoEntregaId ? prisma.pessoaEndereco.findUnique({ where: { id: v.enderecoEntregaId } }) : null,
     prisma.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: v.id }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }], include: { formaPagamento: true } }),
   ]);

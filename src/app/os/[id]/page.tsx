@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { cor, aplicarTags } from "@/lib/orcamentos/tipos";
 import { excluirAnotacaoAcao } from "@/lib/orcamentos/acoes";
 import { alterarSituacaoOsAcao, anotarOsAcao, clonarOsAcao, emitirNotaOsAcao, excluirOsEVoltarAcao } from "@/lib/os/acoes";
@@ -51,7 +52,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   const [situacoes, criador, empresa, anexos, anotacoes, campos, modelo, lancamentos, reservas, orcamento, tecnicos] = await Promise.all([
     prisma.situacaoOsConfig.findMany({ orderBy: { ordem: "asc" } }),
     o.criadoPorId ? prisma.usuario.findUnique({ where: { id: o.criadoPorId }, select: { nome: true } }) : null,
-    prisma.empresa.findFirst(),
+    empresaDoDocumento(o.empresaId),
     prisma.anexo.findMany({ where: { entidade: "OS", entidadeId: id }, select: { id: true, nome: true, tamanho: true, createdAt: true } }),
     prisma.anotacao.findMany({ where: { entidade: "OS", entidadeId: id }, orderBy: { createdAt: "desc" } }),
     prisma.campoExtra.findMany({ where: { entidade: "OS" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),

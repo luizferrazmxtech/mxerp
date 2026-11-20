@@ -155,10 +155,12 @@ export const MENU: ItemMenu[] = [
     rotulo: "Fiscal", icone: "fiscal", filhos: [
       { rotulo: "Notas fiscais", href: "/fiscal", icone: "notas" },
       { rotulo: "Inutilizar numeração", href: "/fiscal/inutilizacao", icone: "excluir" },
+      { rotulo: "Configurações fiscais", href: "/empresas", icone: "configuracoes" },
     ],
   },
   {
     rotulo: "Configurações", icone: "configuracoes", filhos: [
+      { rotulo: "Empresas (lojas)", href: "/empresas", icone: "lojas" },
       { rotulo: "Usuários e permissões", href: "/usuarios", icone: "funcionarios" },
       { rotulo: "Registro de auditoria", href: "/auditoria", icone: "lista" },
       { rotulo: "Banco Inter (API)", href: "/financeiro/conciliacao/inter", icone: "conciliacao" },
@@ -195,6 +197,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/grupos-produtos", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
   { prefixo: "/unidades", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
   { prefixo: "/grades", rotulo: "Itens", cor: "#5b6573", icone: "itens" },
+  { prefixo: "/empresas", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/auditoria", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/usuarios", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/migracao", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },

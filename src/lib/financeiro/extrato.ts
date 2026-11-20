@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import { todasAsLojas } from "@/lib/empresa/loja";
 import { prisma, type Tx } from "@/lib/db";
 import { lerPlanilha, normalizar, numeroBr, campo } from "@/lib/migracao/planilha";
 import { baixarLancamento, estornarLancamento } from "./lancamentos";
@@ -156,7 +157,8 @@ export async function sugestoes(contaBancariaId?: string) {
   if (!ts.length) return [];
   const min = new Date(Math.min(...ts.map((t) => t.data.getTime())) - 45 * DIA);
   const max = new Date(Math.max(...ts.map((t) => t.data.getTime())) + 15 * DIA);
-  const abertos = await prisma.lancamento.findMany({ where: { pagoEm: null, vencimento: { gte: min, lte: max } }, include: { pessoa: true } });
+  // a conta bancária é de todas as lojas: procura o lançamento em qualquer uma
+  const abertos = await todasAsLojas(() => prisma.lancamento.findMany({ where: { pagoEm: null, vencimento: { gte: min, lte: max } }, include: { pessoa: true } }));
   return casar(
     ts.map((t) => ({ id: t.id, data: t.data, valor: Number(t.valor), descricao: t.descricao })),
     abertos.map((l) => ({ id: l.id, tipo: l.tipo, valor: Number(l.valor), vencimento: l.vencimento, descricao: l.descricao, pessoa: l.pessoa ? `${l.pessoa.nome} ${l.pessoa.fantasia ?? ""}` : null })),

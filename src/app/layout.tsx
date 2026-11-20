@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { usuarioAtual } from "@/lib/auth/atual";
-import { prisma } from "@/lib/db";
 import AppShell from "@/components/shell/AppShell";
 import { menuDoPapel } from "@/components/shell/menu";
 import { sair } from "./login/actions";
+import { lojasDoUsuario, lojaAtual, nomeLoja } from "@/lib/empresa/atual";
+import { trocarLoja } from "./empresas/actions";
 
 export const metadata: Metadata = {
   title: { default: "MXTECH · Gestão", template: "%s · MXTECH" },
@@ -16,7 +17,7 @@ const cnpjFmt = (c: string) => c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const usuario = await usuarioAtual();
-  const empresa = usuario ? await prisma.empresa.findFirst({ select: { razaoSocial: true, nomeFantasia: true, cnpj: true } }) : null;
+  const [empresa, lojas] = usuario ? await Promise.all([lojaAtual(), lojasDoUsuario()]) : [null, []];
   return (
     <html lang="pt-BR">
       <head>
@@ -32,7 +33,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <AppShell
             menu={menuDoPapel(usuario.papel)}
             usuario={{ nome: usuario.nome, papel: PAPEL[usuario.papel] ?? usuario.papel }}
-            empresa={{ nome: empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH", cnpj: empresa ? cnpjFmt(empresa.cnpj) : null }}
+            empresa={{ nome: empresa ? nomeLoja(empresa) : "MXTECH", cnpj: empresa ? cnpjFmt(empresa.cnpj) : null }}
+            lojas={lojas.map((l) => ({ id: l.id, nome: nomeLoja(l), cnpj: cnpjFmt(l.cnpj), atual: l.id === empresa?.id }))}
+            trocarLoja={trocarLoja}
             sair={sair}
           >
             {children}

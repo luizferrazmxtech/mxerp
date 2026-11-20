@@ -1,5 +1,7 @@
 import { Prisma, type Contrato, type PapelUsuario } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
+import { naLoja } from "@/lib/empresa/loja";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { diaSP, parseDia, somarDias } from "@/lib/datas";
 import { proximoNumero } from "@/lib/sequencia";
 import { ATIVOS, boletosDoDocumento, pdfBoleto, contextoBoletos, baseLinks } from "@/lib/financeiro/boletos";
@@ -148,7 +150,13 @@ async function abrirCobrancas(tx: Tx, contratoId: string, hoje: Date, agora = fa
 type Deps = { hoje?: Date; cliente?: ClienteInter; transporte?: Transporte; nfse?: DependenciasNfse };
 
 /** Gera a venda de serviços de uma cobrança aberta (ou que deu erro). Pega a cobrança antes, para dois processos não gerarem duas vendas. */
+/** Gera a venda da cobrança na loja (CNPJ) do contrato, mesmo quando roda pelo agendador ou por outra loja. */
 export async function gerarVendaDaCobranca(cobrancaId: string, deps: Deps = {}) {
+  const cob = await prisma.contratoCobranca.findUnique({ where: { id: cobrancaId }, select: { contrato: { select: { empresaId: true } } } });
+  return naLoja(cob?.contrato.empresaId ?? null, () => gerarVendaNaLoja(cobrancaId, deps));
+}
+
+async function gerarVendaNaLoja(cobrancaId: string, deps: Deps) {
   const pega = await prisma.contratoCobranca.updateMany({ where: { id: cobrancaId, vendaId: null, situacao: { in: ["PENDENTE", "ERRO"] } }, data: { situacao: "GERANDO", erro: null } });
   if (!pega.count) return null;
   const cob = await prisma.contratoCobranca.findUniqueOrThrow({
@@ -227,7 +235,7 @@ export async function enviarEmailCobranca(cobrancaId: string, tipo: "BOLETO" | "
   if (!para) throw new ContratoError(`O cliente ${c.cliente.nome} não tem e-mail: preencha no cadastro ou no campo "E-mail de cobrança" do contrato`);
 
   const cfg = await configContratos();
-  const emp = await prisma.empresa.findFirst({ select: { razaoSocial: true, nomeFantasia: true } });
+  const emp = await empresaDoDocumento(c.empresaId);
   const base = await baseLinks();
   const valores: Record<string, string> = {
     nome_cliente: c.cliente.nome, numero_contrato: String(c.numero), referencia: cob.referencia, valor: brl(Number(l.valor)), vencimento: dataBr(l.vencimento),
