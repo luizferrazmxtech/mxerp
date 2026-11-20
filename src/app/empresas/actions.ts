@@ -8,7 +8,11 @@ import { prisma } from "@/lib/db";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { lojasDoUsuario } from "@/lib/empresa/atual";
 import { COOKIE_LOJA, limparCacheLojas } from "@/lib/empresa/loja";
-import { atribuirSemLoja, criarDepositoDaLoja, definirUltimoNumero } from "@/lib/empresa/empresas";
+import { atribuirSemLoja, conferirIeEmpresa, criarDepositoDaLoja, definirUltimoNumero } from "@/lib/empresa/empresas";
+import { buscarDadosCnpj } from "@/lib/cadastros/consultaCnpj";
+import { cnpjValido } from "@/lib/cadastros/documentos";
+import type { DadosCnpj } from "@/lib/cadastros/tipos";
+import type { Certificado } from "@/lib/fiscal/certificado";
 import { conferirCnpjCertificado, lerCertificado } from "@/lib/fiscal/certificado";
 import { cifrar } from "@/lib/seguranca/segredos";
 import { ClienteSefaz } from "@/lib/fiscal/sefaz";
@@ -43,6 +47,7 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
   try {
     const cnpj = s(form.get("cnpj")).replace(/\D/g, "");
     if (cnpj.length !== 14) throw new Error("Informe o CNPJ com 14 dígitos");
+    if (!cnpjValido(cnpj)) throw new Error("CNPJ inválido: os dígitos verificadores não conferem");
     const razaoSocial = s(form.get("razaoSocial"));
     if (!razaoSocial) throw new Error("Informe a razão social");
     const ie = s(form.get("ie"));
@@ -109,10 +114,13 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
       if (n != null && n !== inteiro(form.get(`${campo}Antes`))) await definirUltimoNumero(e, tipo as "NFE" | "NFCE" | "DPS", n);
     }
 
+    // certificado novo: confere a inscrição estadual na SEFAZ (corrige se a cadastrada estiver diferente)
+    const conferencia = cert.certificadoPfx ? await conferirIeEmpresa(e.id) : null;
+
     limparCacheLojas();
     revalidatePath("/empresas");
     revalidatePath("/", "layout");
-    return { ok: true, mensagem: primeira ? "Empresa cadastrada. Os registros que já existiam ficaram nesta loja." : "Dados salvos.", id };
+    return { ok: true, mensagem: [primeira ? "Empresa cadastrada. Os registros que já existiam ficaram nesta loja." : "Dados salvos.", conferencia].filter(Boolean).join(" "), id };
   } catch (err) {
     return { ok: false, mensagem: msg(err), id: id ?? undefined };
   }
@@ -140,6 +148,25 @@ export async function testarSefaz(_: Res, form: FormData): Promise<Res> {
     const modelo = Number(form.get("modelo")) === 65 ? 65 : 55;
     const r = await new ClienteSefaz(certificadoDaEmpresa(e), e.uf, e.ambienteFiscal === "PRODUCAO" ? 1 : 2).status(modelo);
     return { ok: r.cStat === "107", mensagem: `SEFAZ-${e.uf} ${modelo === 65 ? "NFC-e" : "NF-e"} (${e.ambienteFiscal === "PRODUCAO" ? "produção" : "homologação"}): ${r.cStat} - ${r.xMotivo}` };
+  } catch (err) {
+    return { ok: false, mensagem: msg(err) };
+  }
+}
+
+/**
+ * Busca os dados da empresa pelo CNPJ (Receita pela base pública; IE pela SEFAZ com o certificado desta empresa,
+ * ou o da loja atual; sem certificado, IE da base pública).
+ */
+export async function consultarCnpjEmpresa(cnpj: string, id?: string | null): Promise<{ ok: true; dados: DadosCnpj } | { ok: false; mensagem: string }> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
+  try {
+    const propria = id ? await prisma.empresa.findUnique({ where: { id } }) : null;
+    const candidatas = [propria, ...(await lojasDoUsuario())].filter((x): x is NonNullable<typeof x> => !!x);
+    let cert: Certificado | null = null;
+    for (const c of candidatas) {
+      try { cert = certificadoDaEmpresa(c); break; } catch { /* sem certificado nesta: tenta a próxima */ }
+    }
+    return { ok: true, dados: await buscarDadosCnpj(cnpj, { cert, ufLoja: propria?.uf ?? candidatas[0]?.uf ?? null }) };
   } catch (err) {
     return { ok: false, mensagem: msg(err) };
   }

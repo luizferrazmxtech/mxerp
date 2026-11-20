@@ -1,6 +1,9 @@
 import type { Empresa } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { chaveDps, chaveSeq } from "@/lib/fiscal/emissao";
+import { certificadoDaEmpresa, type Certificado } from "@/lib/fiscal/certificado";
+import { consultarCadastroSefaz, endpointCadastro } from "@/lib/fiscal/consultaCadastro";
+import type { Transporte } from "@/lib/fiscal/sefaz";
 import { MODELOS_POR_LOJA, todasAsLojas } from "./loja";
 
 const tabela = (m: string) => `"${m}"`;
@@ -54,4 +57,30 @@ export async function definirUltimoNumero(e: Empresa, tipo: "NFE" | "NFCE" | "DP
   if (maior._max.numero && valor < maior._max.numero)
     throw new Error(`A ${tipo === "DPS" ? "DPS" : tipo === "NFCE" ? "NFC-e" : "NF-e"} nº ${maior._max.numero} já foi emitida por aqui nesta série: a última não pode ser menor que ela`);
   await prisma.sequencia.upsert({ where: { chave }, create: { chave, valor }, update: { valor } });
+}
+
+/**
+ * Confere a inscrição estadual da própria empresa na SEFAZ da UF dela (com o certificado A1 dela).
+ * Chamada ao enviar o certificado: se a SEFAZ tem uma IE habilitada diferente da cadastrada, grava a da SEFAZ.
+ * Nunca lança erro: devolve a frase para mostrar na tela (ou null se não havia o que conferir).
+ */
+export async function conferirIeEmpresa(empresaId: string, deps: { cert?: Certificado; transporte?: Transporte } = {}): Promise<string | null> {
+  const e = await prisma.empresa.findUniqueOrThrow({ where: { id: empresaId } });
+  if (!e.uf || !endpointCadastro(e.uf)) return null;
+  try {
+    const cert = deps.cert ?? certificadoDaEmpresa(e);
+    const r = await Promise.race([
+      consultarCadastroSefaz(e.uf, e.cnpj, cert, deps.transporte),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("sem resposta")), 15000)),
+    ]);
+    if (!r.ok) return r.naoContribuinte ? `A SEFAZ-${e.uf} não tem inscrição estadual para este CNPJ.` : `Não deu para conferir a IE na SEFAZ-${e.uf} (${r.cStat} - ${r.xMotivo}).`;
+    const hab = r.cadastros.filter((c) => c.habilitada && c.ie);
+    if (!hab.length) return `A inscrição estadual deste CNPJ não está habilitada na SEFAZ-${e.uf}.`;
+    const atual = e.inscricaoEstadual ?? "";
+    if (hab.some((c) => c.ie === atual)) return `Inscrição estadual ${atual} conferida na SEFAZ-${e.uf}.`;
+    await prisma.empresa.update({ where: { id: e.id }, data: { inscricaoEstadual: hab[0].ie } });
+    return `Inscrição estadual atualizada pela SEFAZ-${e.uf}: ${hab[0].ie}${atual ? ` (antes ${atual})` : ""}.`;
+  } catch (err) {
+    return `Não deu para conferir a IE na SEFAZ-${e.uf} (${(err as Error).message}).`;
+  }
 }

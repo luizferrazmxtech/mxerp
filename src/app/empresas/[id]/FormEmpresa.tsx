@@ -1,9 +1,13 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Icone from "@/components/Icone";
+import { buscarCep } from "@/components/cadastros/Endereco";
 import { Bloco, Campo } from "@/components/ui/Pagina";
-import { salvarEmpresa, testarSefaz, type Res } from "../actions";
+import { cnpjValido } from "@/lib/cadastros/documentos";
+import type { DadosCnpj } from "@/lib/cadastros/tipos";
+import { consultarCnpjEmpresa, salvarEmpresa, testarSefaz, type Res } from "../actions";
 
 type Dados = {
   id: string; razaoSocial: string; nomeFantasia: string | null; cnpj: string; ie: string | null; im: string | null; cnae: string | null;
@@ -42,9 +46,52 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
   );
   const venc = e?.certificado ? new Date(e.certificado.validade) : null;
 
+  // busca pelo CNPJ: preenche os campos (o formulário é não controlado, então escreve direto nos inputs)
+  const formRef = useRef<HTMLFormElement>(null);
+  const ultimoCnpj = useRef(e?.cnpj.replace(/\D/g, "") ?? "");
+  const [consulta, setConsulta] = useState<{ carregando: boolean; fontes?: string[]; avisos?: string[]; erro?: string } | null>(null);
+  const campo = (nome: string) => formRef.current?.elements.namedItem(nome) as HTMLInputElement | HTMLSelectElement | null;
+  const por = (nome: string, v: string | null | undefined, soSeVazio = false) => {
+    const el = campo(nome);
+    if (el && v && (!soSeVazio || !el.value.trim())) el.value = v;
+  };
+  function aplicar(r: DadosCnpj) {
+    por("razaoSocial", r.razaoSocial);
+    por("nomeFantasia", r.nomeFantasia);
+    if (r.inscricaoEstadual !== null) { const el = campo("ie"); if (el) el.value = r.inscricaoEstadual; }
+    por("cnae", r.cnae);
+    // "Simples (excesso de sublimite)" a Receita não informa: não troca quem já escolheu
+    if (r.regime && !(r.regime === "SIMPLES_NACIONAL" && campo("regime")?.value === "SIMPLES_EXCESSO_SUBLIMITE")) por("regime", r.regime);
+    if (r.endereco) {
+      por("logradouro", [r.endereco.logradouro, r.endereco.complemento].filter(Boolean).join(", "));
+      por("numero", r.endereco.numero); por("bairro", r.endereco.bairro); por("cidade", r.endereco.cidade);
+      por("codigoMunicipio", r.endereco.codigoMunicipio); por("uf", r.endereco.uf); por("cep", r.endereco.cep);
+      if (!r.endereco.codigoMunicipio && r.endereco.cep) buscarCep(r.endereco.cep).then((x) => por("codigoMunicipio", x?.codigoMunicipio));
+    }
+    por("telefone", r.telefone, true);
+    por("email", r.email, true);
+  }
+  async function consultar(valor: string) {
+    const cnpj = valor.replace(/\D/g, "");
+    if (!cnpjValido(cnpj)) { setConsulta({ carregando: false, erro: "CNPJ inválido: confira os dígitos" }); return; }
+    ultimoCnpj.current = cnpj;
+    setConsulta({ carregando: true });
+    const r = await consultarCnpjEmpresa(cnpj, e?.id);
+    if (ultimoCnpj.current !== cnpj) return;
+    if (!r.ok) { setConsulta({ carregando: false, erro: r.mensagem }); return; }
+    aplicar(r.dados);
+    setConsulta({ carregando: false, fontes: r.dados.fontes, avisos: r.dados.avisos });
+  }
+  function digitar(v: string) {
+    const cnpj = v.replace(/\D/g, "");
+    if (cnpj.length === 14 && !cnpjValido(cnpj)) setConsulta({ carregando: false, erro: "CNPJ inválido: confira os dígitos" });
+    else if (!e && cnpj.length === 14 && cnpj !== ultimoCnpj.current) consultar(cnpj);
+    else if (cnpj.length < 14) setConsulta(null);
+  }
+
   return (
     <>
-    <form action={acao}>
+    <form action={acao} ref={formRef}>
       {e && <input type="hidden" name="id" value={e.id} />}
       <input type="hidden" name="ultimaNfeAntes" value={ultimos.nfe} />
       <input type="hidden" name="ultimaNfceAntes" value={ultimos.nfce} />
@@ -54,7 +101,18 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
         <div className="grid gap-3 md:grid-cols-4">
           {t("nomeFantasia", "Nome fantasia (nome da loja)", e?.nomeFantasia)}
           {t("razaoSocial", "Razão social", e?.razaoSocial, "md:col-span-2", { required: true })}
-          {t("cnpj", "CNPJ", e?.cnpj, "", { required: true })}
+          <div>
+            <span className="rotulo">CNPJ <span className="text-red-600">*</span></span>
+            <div className="flex">
+              <input name="cnpj" defaultValue={e?.cnpj ?? ""} required className="campo rounded-r-none" inputMode="numeric"
+                placeholder="Digite para buscar os dados" onChange={(x) => digitar(x.target.value)} />
+              <button type="button" className="btn-sec whitespace-nowrap rounded-l-none border-l-0 px-2 text-[12px]" disabled={consulta?.carregando}
+                title="Busca razão social, endereço e contato na Receita e a inscrição estadual na SEFAZ" onClick={() => consultar(campo("cnpj")?.value ?? "")}>
+                <Icone nome={consulta?.carregando ? "atualizar" : "buscar"} size={13} className={consulta?.carregando ? "animate-spin" : ""} /> {consulta?.carregando ? "Buscando…" : "Buscar"}
+              </button>
+            </div>
+            {consulta?.erro && <p className="mt-1 text-[11px] text-red-600">{consulta.erro}</p>}
+          </div>
           {t("ie", "Inscrição estadual (ou ISENTO)", e?.ie)}
           {t("im", "Inscrição municipal", e?.im)}
           {t("cnae", "CNAE", e?.cnae)}
@@ -73,6 +131,13 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
           {t("codigoMunicipio", "Código IBGE do município", e?.codigoMunicipio, "", { placeholder: "3548906" })}
           {t("uf", "UF", e?.uf, "", { maxLength: 2 })}
           {t("cep", "CEP", e?.cep)}
+          {!!(consulta?.fontes?.length || consulta?.avisos?.length) && (
+            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] md:col-span-4">
+              {!!consulta.fontes?.length && <div className="flex items-center gap-1 text-emerald-700"><Icone nome="ok" size={13} /> Preenchido com {consulta.fontes.join(" · ")}. Confira antes de salvar.</div>}
+              {consulta.avisos?.map((x) => <div key={x} className="mt-0.5 flex items-center gap-1 text-amber-700"><Icone nome="alerta" size={13} /> {x}</div>)}
+              {!venc && <div className="mt-0.5 text-slate-600">Ao enviar o certificado A1 abaixo, a inscrição estadual é conferida na SEFAZ.</div>}
+            </div>
+          )}
           {t("telefone", "Telefone", e?.telefone)}
           {t("email", "E-mail", e?.email, "md:col-span-2")}
           {e && (

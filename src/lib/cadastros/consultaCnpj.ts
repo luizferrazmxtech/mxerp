@@ -19,6 +19,8 @@ type Publico = {
   situacao: string;
   email: string;
   telefone: string;
+  cnae: string;
+  regime: DadosCnpj["regime"];
   endereco: NonNullable<DadosCnpj["endereco"]> | null;
   /** inscrições estaduais da base pública (só o CNPJ.ws traz); undefined = a fonte não informa */
   inscricoes?: { ie: string; uf: string; ativa: boolean }[];
@@ -37,6 +39,10 @@ export type DepsCnpj = {
 
 const s = (v: unknown) => (v == null ? "" : String(v).trim());
 const dig = (v: unknown) => s(v).replace(/\D/g, "");
+/** opção pelo Simples/MEI → regime; null quando a fonte não diz */
+const regime = (simples: boolean | null | undefined, mei: boolean | null | undefined): DadosCnpj["regime"] =>
+  mei ? "MEI" : simples ? "SIMPLES_NACIONAL" : simples === false ? "REGIME_NORMAL" : null;
+const simNao = (v: unknown) => (v === "Sim" || v === true ? true : v === "Não" || v === "Nao" || v === false ? false : null);
 const telefone = (ddd: unknown, num: unknown) => {
   const d = dig(ddd) + dig(num);
   if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
@@ -70,6 +76,8 @@ export async function brasilApi(cnpj: string, f: typeof fetch, limite: number): 
     situacao: s(j.descricao_situacao_cadastral),
     email: s(j.email).toLowerCase(),
     telefone: telefone("", j.ddd_telefone_1),
+    cnae: dig(j.cnae_fiscal),
+    regime: regime(simNao(j.opcao_pelo_simples), simNao(j.opcao_pelo_mei)),
     endereco: {
       cep: cep(j.cep), logradouro: logradouro(j.descricao_tipo_de_logradouro, j.logradouro), numero: s(j.numero), complemento: s(j.complemento),
       bairro: s(j.bairro), cidade: s(j.municipio), uf: s(j.uf).toUpperCase(), codigoMunicipio: s(j.codigo_municipio_ibge),
@@ -90,6 +98,8 @@ export async function cnpjWs(cnpj: string, f: typeof fetch, limite: number): Pro
     situacao: s(e.situacao_cadastral),
     email: s(e.email).toLowerCase(),
     telefone: telefone(e.ddd1, e.telefone1),
+    cnae: dig((e.atividade_principal as Record<string, unknown> | undefined)?.id),
+    regime: j.simples ? regime(simNao((j.simples as Record<string, unknown>).simples), simNao((j.simples as Record<string, unknown>).mei)) : null,
     endereco: {
       cep: cep(e.cep), logradouro: logradouro(e.tipo_logradouro, e.logradouro), numero: s(e.numero), complemento: s(e.complemento),
       bairro: s(e.bairro), cidade: s(cidade.nome), uf: s(estado.sigla).toUpperCase(), codigoMunicipio: s(cidade.ibge_id),
@@ -108,6 +118,8 @@ export async function receitaWs(cnpj: string, f: typeof fetch, limite: number): 
     situacao: s(j.situacao),
     email: s(j.email).toLowerCase(),
     telefone: s(j.telefone).split("/")[0].trim(),
+    cnae: dig((j.atividade_principal as Record<string, unknown>[] | undefined)?.[0]?.code),
+    regime: j.simples ? regime(simNao((j.simples as Record<string, unknown>).optante), simNao((j.simei as Record<string, unknown> | undefined)?.optante)) : null,
     endereco: {
       cep: cep(j.cep), logradouro: s(j.logradouro), numero: s(j.numero), complemento: s(j.complemento),
       bairro: s(j.bairro), cidade: s(j.municipio), uf: s(j.uf).toUpperCase(), codigoMunicipio: "",
@@ -156,6 +168,7 @@ export async function buscarDadosCnpj(valor: string, deps: DepsCnpj = {}): Promi
   const r: DadosCnpj = {
     cnpj, razaoSocial: pub?.razaoSocial ?? "", nomeFantasia: pub?.nomeFantasia ?? "", situacao: pub?.situacao ?? "",
     email: pub?.email ?? "", telefone: pub?.telefone ?? "", endereco: pub?.endereco ?? null,
+    cnae: pub?.cnae ?? "", regime: pub?.regime ?? null,
     inscricaoEstadual: null, contribuinteIcms: null, fontes, avisos,
   };
 
@@ -181,6 +194,8 @@ export async function buscarDadosCnpj(valor: string, deps: DepsCnpj = {}): Promi
         if (!pub && c) {
           r.razaoSocial = c.razaoSocial;
           r.nomeFantasia = c.nomeFantasia;
+          r.cnae = c.cnae;
+          r.regime = /simples/i.test(c.regime) ? "SIMPLES_NACIONAL" : c.regime ? "REGIME_NORMAL" : null;
           if (c.endereco) r.endereco = { ...c.endereco, cep: cep(c.endereco.cep), uf: c.uf || uf };
         }
         fontes.push(`IE pela SEFAZ-${uf}`);

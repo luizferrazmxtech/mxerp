@@ -14,9 +14,10 @@ const brasilApi = {
   cnpj: CNPJ, razao_social: "ACAB-BEM ARAMADOS LTDA", nome_fantasia: "ACAB", descricao_situacao_cadastral: "ATIVA",
   cep: "13560000", descricao_tipo_de_logradouro: "RUA", logradouro: "EPISCOPAL", numero: "100", complemento: "SALA 2",
   bairro: "CENTRO", municipio: "SAO CARLOS", uf: "SP", codigo_municipio_ibge: 3548906, ddd_telefone_1: "1633614848", email: "CONTATO@ACAB.COM.BR",
+  cnae_fiscal: 2599399, opcao_pelo_simples: true, opcao_pelo_mei: false,
 };
 const cnpjWs = {
-  razao_social: "ACAB-BEM ARAMADOS LTDA",
+  razao_social: "ACAB-BEM ARAMADOS LTDA", simples: { simples: "Não", mei: "Não" },
   estabelecimento: {
     nome_fantasia: "ACAB", situacao_cadastral: "Ativa", tipo_logradouro: "Rua", logradouro: "Episcopal", numero: "100", complemento: null, bairro: "Centro",
     cep: "13560000", ddd1: "16", telefone1: "33614848", email: "contato@acab.com.br", cidade: { nome: "São Carlos", ibge_id: 3548906 }, estado: { sigla: "SP" },
@@ -99,7 +100,7 @@ describe("busca de dados pelo CNPJ", () => {
     expect(r).toMatchObject({
       razaoSocial: "ACAB-BEM ARAMADOS LTDA", nomeFantasia: "ACAB", email: "contato@acab.com.br", telefone: "(16) 3361-4848",
       endereco: { logradouro: "RUA EPISCOPAL", numero: "100", cep: "13560-000", uf: "SP", codigoMunicipio: "3548906", cidade: "SAO CARLOS" },
-      inscricaoEstadual: "637271680113", contribuinteIcms: "CONTRIBUINTE", avisos: [],
+      inscricaoEstadual: "637271680113", contribuinteIcms: "CONTRIBUINTE", avisos: [], cnae: "2599399", regime: "SIMPLES_NACIONAL",
     });
     expect(r.fontes).toEqual(["Receita (BrasilAPI)", "IE pela SEFAZ-SP"]);
     expect(chamadas).toHaveLength(1);
@@ -124,7 +125,7 @@ describe("busca de dados pelo CNPJ", () => {
   it("BrasilAPI fora do ar: usa o CNPJ.ws, que já traz a IE quando a SEFAZ falha", async () => {
     const { f, chamadas } = fetchFalso({ brasilapi: [503, {}], "cnpj.ws": [200, cnpjWs] });
     const r = await buscarDadosCnpj(CNPJ, { fetch: f, cert, transporte: transporteFalso(new Error("ECONNRESET")).t });
-    expect(r).toMatchObject({ razaoSocial: "ACAB-BEM ARAMADOS LTDA", telefone: "(16) 3361-4848", inscricaoEstadual: "637271680113", contribuinteIcms: "CONTRIBUINTE", endereco: { logradouro: "Rua Episcopal", uf: "SP" } });
+    expect(r).toMatchObject({ razaoSocial: "ACAB-BEM ARAMADOS LTDA", telefone: "(16) 3361-4848", inscricaoEstadual: "637271680113", contribuinteIcms: "CONTRIBUINTE", endereco: { logradouro: "Rua Episcopal", uf: "SP" }, regime: "REGIME_NORMAL" });
     expect(r.avisos[0]).toMatch(/SEFAZ-SP não respondeu/);
     expect(r.fontes).toEqual(["Receita (CNPJ.ws)", "IE pela base pública (CNPJ.ws)"]);
     expect(chamadas.filter((c) => c.includes("cnpj.ws"))).toHaveLength(1);
