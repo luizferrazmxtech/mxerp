@@ -99,7 +99,7 @@ describe("busca de dados pelo CNPJ", () => {
     const r = await buscarDadosCnpj("07.105.759/0001-88", { fetch: f, cert, transporte: sefaz.t });
     expect(r).toMatchObject({
       razaoSocial: "ACAB-BEM ARAMADOS LTDA", nomeFantasia: "ACAB", email: "contato@acab.com.br", telefone: "(16) 3361-4848",
-      endereco: { logradouro: "RUA EPISCOPAL", numero: "100", cep: "13560-000", uf: "SP", codigoMunicipio: "3548906", cidade: "SAO CARLOS" },
+      endereco: { logradouro: "RUA EPISCOPAL", numero: "100", complemento: "SALA 2", cep: "13560-000", uf: "SP", codigoMunicipio: "3548906", cidade: "SAO CARLOS" },
       inscricaoEstadual: "637271680113", contribuinteIcms: "CONTRIBUINTE", avisos: [], cnae: "2599399", regime: "SIMPLES_NACIONAL",
     });
     expect(r.fontes).toEqual(["Receita (BrasilAPI)", "IE pela SEFAZ-SP"]);

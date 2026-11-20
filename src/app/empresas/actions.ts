@@ -58,7 +58,7 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
       inscricaoEstadual: /^isent/i.test(ie) ? "ISENTO" : ie.replace(/\D/g, "") || null,
       inscricaoMunicipal: s(form.get("im")).replace(/\D/g, "") || null, cnae: s(form.get("cnae")).replace(/\D/g, "") || null,
       regimeTributario: (s(form.get("regime")) || "SIMPLES_NACIONAL") as RegimeTributario,
-      logradouro: s(form.get("logradouro")) || null, numero: s(form.get("numero")) || null, bairro: s(form.get("bairro")) || null,
+      logradouro: s(form.get("logradouro")) || null, complemento: s(form.get("complemento")) || null, numero: s(form.get("numero")) || null, bairro: s(form.get("bairro")) || null,
       cidade: s(form.get("cidade")) || null, codigoMunicipio: s(form.get("codigoMunicipio")).replace(/\D/g, "") || null,
       uf: s(form.get("uf")).toUpperCase() || null, cep: s(form.get("cep")).replace(/\D/g, "") || null,
       telefone: s(form.get("telefone")) || null, email: s(form.get("email")) || null,

@@ -23,7 +23,7 @@ export default async function Empresa({ params }: { params: Promise<{ id: string
       <FormEmpresa
         e={e && {
           id: e.id, razaoSocial: e.razaoSocial, nomeFantasia: e.nomeFantasia, cnpj: e.cnpj, ie: e.inscricaoEstadual, im: e.inscricaoMunicipal,
-          cnae: e.cnae, regime: e.regimeTributario, logradouro: e.logradouro, numero: e.numero, bairro: e.bairro, cidade: e.cidade,
+          cnae: e.cnae, regime: e.regimeTributario, logradouro: e.logradouro, complemento: e.complemento, numero: e.numero, bairro: e.bairro, cidade: e.cidade,
           codigoMunicipio: e.codigoMunicipio, uf: e.uf, cep: e.cep, telefone: e.telefone, email: e.email, ativa: e.ativa,
           ambiente: e.ambienteFiscal, ambienteNfse: e.ambienteNfse, serieNfe: e.serieNfe, serieNfce: e.serieNfce, serieDps: e.serieDps,
           regimeEspecialNfse: e.regimeEspecialNfse, cscId: e.cscId, temCsc: !!e.cscToken, infCplNfe: e.infCplNfe, infCplNfse: e.infCplNfse,

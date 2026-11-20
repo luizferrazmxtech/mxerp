@@ -38,7 +38,7 @@ function emitenteDe(e: Empresa): DadosNota["emitente"] {
     cnpj: e.cnpj, razaoSocial: e.razaoSocial, nomeFantasia: e.nomeFantasia, ie: e.inscricaoEstadual!, im: e.inscricaoMunicipal,
     cnae: e.cnae, crt: CRT[e.regimeTributario],
     endereco: {
-      logradouro: e.logradouro!, numero: e.numero ?? "SN", bairro: e.bairro!, codigoMunicipio: e.codigoMunicipio!,
+      logradouro: e.logradouro!, numero: e.numero ?? "SN", complemento: e.complemento, bairro: e.bairro!, codigoMunicipio: e.codigoMunicipio!,
       municipio: e.cidade!, uf: e.uf!, cep: e.cep!, telefone: e.telefone,
     },
   };
