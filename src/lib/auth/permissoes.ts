@@ -41,6 +41,7 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/api/relatorios", papeis: ["ADMIN", "GERENTE"] },
   // ver/imprimir uma nota (DANFCE) é de quem vende; a configuração fiscal e a lista ficam com a gerência
   { prefixo: "/fiscal/inutilizacao", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/fiscal/impostos", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/fiscal/", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   { prefixo: "/fiscal", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/api/notas", papeis: ["ADMIN", "GERENTE"] },

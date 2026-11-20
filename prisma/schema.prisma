@@ -1645,6 +1645,7 @@ enum StatusNota {
 
 model NotaFiscal {
   id         String           @id @default(cuid())
+  cnae      String? // atividade da nota (para o imposto do Simples por CNAE): comércio = CNAE da empresa; NFS-e = CNAE do serviço
   empresaId  String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   modelo     ModeloNota
   serie      Int
@@ -2145,4 +2146,19 @@ model ChamadoInteracao {
   createdAt   DateTime @default(now())
 
   @@index([chamadoId, createdAt])
+}
+
+/// Alíquota efetiva do Simples Nacional por CNAE e mês, como o contador informa (imposto aproximado das notas).
+/// cnae "*" vale para as atividades que não têm alíquota própria no mês.
+model AliquotaSimples {
+  id          String   @id @default(cuid())
+  empresaId   String
+  competencia String // AAAA-MM
+  cnae        String
+  descricao   String?
+  aliquota    Decimal  @db.Decimal(7, 4) // em %, ex.: 10.8800
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([empresaId, competencia, cnae])
 }
