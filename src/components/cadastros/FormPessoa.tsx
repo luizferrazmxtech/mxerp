@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import type { ContribuinteIcms, TipoCampoExtra, TipoPessoa } from "@prisma/client";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
-import { salvarPessoaForm, type Resultado } from "@/lib/cadastros/acoes";
-import { contatoVazio, enderecoVazio, type ContatoForm, type DadosPessoa, type EnderecoForm, type PapelPessoa } from "@/lib/cadastros/tipos";
+import { consultarCnpjForm, salvarPessoaForm, type Resultado } from "@/lib/cadastros/acoes";
+import { cnpjValido, erroDocumento } from "@/lib/cadastros/documentos";
+import { contatoVazio, enderecoVazio, type ContatoForm, type DadosCnpj, type DadosPessoa, type EnderecoForm, type PapelPessoa } from "@/lib/cadastros/tipos";
 import { CampoSugestao, CidadeUF, buscarCep } from "./Endereco";
 
 export type CampoExtraForm = { id: string; nome: string; tipo: TipoCampoExtra; opcoes: string[]; obrigatorio: boolean };
@@ -51,6 +52,53 @@ export default function FormPessoa({ papel, inicial, vendedores, tiposEndereco, 
   const tipos: { v: TipoPessoa; r: string }[] = [{ v: "FISICA", r: "Pessoa física" }, { v: "JURIDICA", r: "Pessoa jurídica" }, ...(papel !== "transportadora" ? [{ v: "ESTRANGEIRO" as TipoPessoa, r: "Estrangeiro" }] : [])];
   const cliente = papel === "cliente";
 
+  // consulta do CNPJ: preenche nome, endereço, contato e inscrição estadual
+  const [consulta, setConsulta] = useState<{ carregando: boolean; fontes?: string[]; avisos?: string[]; erro?: string } | null>(null);
+  const ultimoCnpj = useRef(inicial.tipoPessoa === "JURIDICA" ? inicial.documento.replace(/\D/g, "") : "");
+  const erroDoc = d.tipoPessoa && d.documento.replace(/\D/g, "").length >= (d.tipoPessoa === "FISICA" ? 11 : 14) ? erroDocumento(d.documento, d.tipoPessoa) : null;
+
+  function aplicarCnpj(r: DadosCnpj) {
+    setD((x) => {
+      const atual = x.enderecos[0] ?? enderecoVazio();
+      const enderecos = r.endereco ? [{ ...atual, ...r.endereco, tipo: atual.tipo || "Comercial" }, ...x.enderecos.slice(1)] : x.enderecos;
+      return {
+        ...x,
+        nome: r.nomeFantasia || r.razaoSocial || x.nome,
+        razaoSocial: r.razaoSocial || x.razaoSocial,
+        email: x.email || r.email,
+        telefone: x.telefone || r.telefone,
+        inscricaoEstadual: r.inscricaoEstadual ?? x.inscricaoEstadual,
+        ieIsento: r.inscricaoEstadual !== null ? false : x.ieIsento,
+        contribuinteIcms: r.contribuinteIcms ?? x.contribuinteIcms,
+        enderecos,
+      };
+    });
+    // a ReceitaWS não traz o código IBGE do município (usado nas notas): completa pelo CEP
+    if (r.endereco && !r.endereco.codigoMunicipio && r.endereco.cep) {
+      buscarCep(r.endereco.cep).then((e) => { if (e?.codigoMunicipio) setEnd(0, { codigoMunicipio: e.codigoMunicipio, ...(r.endereco!.cidade ? {} : { cidade: e.cidade, uf: e.uf }) }); });
+    }
+  }
+
+  async function consultarCnpj(valor: string) {
+    const cnpj = valor.replace(/\D/g, "");
+    if (!cnpjValido(cnpj)) { setConsulta({ carregando: false, erro: "CNPJ inválido: confira os dígitos" }); return; }
+    ultimoCnpj.current = cnpj;
+    setConsulta({ carregando: true });
+    const r = await consultarCnpjForm(cnpj);
+    if (ultimoCnpj.current !== cnpj) return; // o usuário já digitou outro
+    if (!r.ok) { setConsulta({ carregando: false, erro: r.mensagem }); return; }
+    aplicarCnpj(r.dados);
+    setConsulta({ carregando: false, fontes: r.dados.fontes, avisos: r.dados.avisos });
+  }
+
+  function digitarCnpj(v: string) {
+    set("documento", v);
+    const cnpj = v.replace(/\D/g, "");
+    // no cadastro novo, busca sozinho ao completar um CNPJ válido; na edição, só pelo botão
+    if (!d.id && cnpj.length === 14 && cnpjValido(cnpj) && cnpj !== ultimoCnpj.current) consultarCnpj(cnpj);
+    else if (cnpj.length < 14) setConsulta(null);
+  }
+
   async function cep(i: number, v: string) {
     setEnd(i, { cep: v });
     const e = await buscarCep(v);
@@ -84,9 +132,10 @@ export default function FormPessoa({ papel, inicial, vendedores, tiposEndereco, 
               <div>
                 <span className="rotulo">CPF</span>
                 <div className="flex">
-                  <input className="campo rounded-r-none" value={mascaraDoc(d.documento, "FISICA")} onChange={(e) => set("documento", e.target.value)} />
+                  <input className={`campo rounded-r-none ${erroDoc ? "border-red-400" : ""}`} value={mascaraDoc(d.documento, "FISICA")} onChange={(e) => set("documento", e.target.value)} />
                   <button type="button" className="btn-sec whitespace-nowrap rounded-l-none border-l-0 px-2 text-[12px]" disabled title="Consulta SERASA: integração ainda não contratada">Consulta SERASA</button>
                 </div>
+                {erroDoc && <p className="mt-1 text-[11px] text-red-600">{erroDoc}</p>}
               </div>
               <Campo rotulo="Nome social"><input className="campo" value={d.nomeSocial} onChange={(e) => set("nomeSocial", e.target.value)} /></Campo>
               <Campo rotulo="RG"><input className="campo" value={d.rg} onChange={(e) => set("rg", e.target.value)} /></Campo>
@@ -95,7 +144,18 @@ export default function FormPessoa({ papel, inicial, vendedores, tiposEndereco, 
           )}
           {d.tipoPessoa === "JURIDICA" && (
             <>
-              <Campo rotulo="CNPJ"><input className="campo" value={mascaraDoc(d.documento, "JURIDICA")} onChange={(e) => set("documento", e.target.value)} /></Campo>
+              <div>
+                <span className="rotulo">CNPJ</span>
+                <div className="flex">
+                  <input className={`campo rounded-r-none ${erroDoc ? "border-red-400" : ""}`} value={mascaraDoc(d.documento, "JURIDICA")} onChange={(e) => digitarCnpj(e.target.value)} placeholder="Digite para buscar os dados" inputMode="numeric" />
+                  <button type="button" className="btn-sec whitespace-nowrap rounded-l-none border-l-0 px-2 text-[12px]" disabled={consulta?.carregando}
+                    title="Busca razão social, endereço e contato na Receita e a inscrição estadual na SEFAZ" onClick={() => consultarCnpj(d.documento)}>
+                    <Icone nome={consulta?.carregando ? "atualizar" : "buscar"} size={13} className={consulta?.carregando ? "animate-spin" : ""} /> {consulta?.carregando ? "Buscando…" : "Buscar"}
+                  </button>
+                </div>
+                {erroDoc ? <p className="mt-1 text-[11px] text-red-600">{erroDoc}</p>
+                  : consulta?.erro ? <p className="mt-1 text-[11px] text-red-600">{consulta.erro}</p> : null}
+              </div>
               <Campo rotulo="Razão social"><input className="campo" value={d.razaoSocial} onChange={(e) => set("razaoSocial", e.target.value)} /></Campo>
               <div>
                 <span className="rotulo">Inscrição estadual</span>
@@ -107,6 +167,12 @@ export default function FormPessoa({ papel, inicial, vendedores, tiposEndereco, 
               <Campo rotulo="Inscrição municipal"><input className="campo" value={d.inscricaoMunicipal} onChange={(e) => set("inscricaoMunicipal", e.target.value)} /></Campo>
               <Campo rotulo="Inscrição SUFRAMA"><input className="campo" value={d.suframa} onChange={(e) => set("suframa", e.target.value)} /></Campo>
               <Campo rotulo="Responsável"><input className="campo" value={d.responsavel} onChange={(e) => set("responsavel", e.target.value)} /></Campo>
+              {!erroDoc && !!(consulta?.fontes?.length || consulta?.avisos?.length) && (
+                <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] sm:col-span-2 lg:col-span-4">
+                  {!!consulta.fontes?.length && <div className="flex items-center gap-1 text-emerald-700"><Icone nome="ok" size={13} /> Preenchido com {consulta.fontes.join(" · ")}. Confira antes de salvar.</div>}
+                  {consulta.avisos?.map((x) => <div key={x} className="mt-0.5 flex items-center gap-1 text-amber-700"><Icone nome="alerta" size={13} /> {x}</div>)}
+                </div>
+              )}
             </>
           )}
           {d.tipoPessoa === "ESTRANGEIRO" && (

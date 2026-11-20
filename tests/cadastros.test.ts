@@ -60,6 +60,8 @@ describe("cadastro de clientes, fornecedores e transportadoras", () => {
 
   it("valida CPF/CNPJ e campos extras obrigatórios", async () => {
     await expect(pes.salvarPessoa("cliente", base({ tipoPessoa: "FISICA", documento: "123" }))).rejects.toThrow(/CPF/);
+    await expect(pes.salvarPessoa("cliente", base({ tipoPessoa: "FISICA", documento: "123.456.789-08" }))).rejects.toThrow(/CPF inválido/);
+    await expect(pes.salvarPessoa("cliente", base({ documento: "07.105.759/0001-89" }))).rejects.toThrow(/CNPJ inválido/);
     const ce = await prisma.campoExtra.create({ data: { nome: "Como nos conheceu", tipo: "SELECAO_UNICA", opcoes: ["Google", "Indicação"], obrigatorio: true } });
     await expect(pes.salvarPessoa("cliente", base())).rejects.toThrow(/Como nos conheceu/);
     const p = await pes.salvarPessoa("cliente", base({ camposExtras: { [ce.id]: "Google" } }));

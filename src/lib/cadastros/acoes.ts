@@ -5,6 +5,10 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { excluirFuncionario, salvarFuncionario, type DadosFuncionario } from "./funcionarios";
+import { lojaAtual } from "@/lib/empresa/atual";
+import { certificadoDaEmpresa, type Certificado } from "@/lib/fiscal/certificado";
+import { buscarDadosCnpj } from "./consultaCnpj";
+import type { DadosCnpj } from "./tipos";
 import { PAPEIS, excluirPessoa, salvarPessoa, type DadosPessoa, type PapelPessoa } from "./pessoas";
 
 export type Resultado = { ok: boolean; mensagem: string } | null;
@@ -148,4 +152,19 @@ export async function excluirFuncionarioAcao(id: string) {
     revalidatePath("/funcionarios");
     return r;
   } catch (e) { return erro(e); }
+}
+
+/** Botão/auto-preenchimento do CNPJ no cadastro: Receita pela base pública + IE na SEFAZ com o certificado da loja atual. */
+export async function consultarCnpjForm(cnpj: string): Promise<{ ok: true; dados: DadosCnpj } | { ok: false; mensagem: string }> {
+  await exigirUsuario();
+  try {
+    const loja = await lojaAtual().catch(() => null);
+    let cert: Certificado | null = null;
+    if (loja) {
+      try { cert = certificadoDaEmpresa(loja); } catch { cert = null; }
+    }
+    return { ok: true, dados: await buscarDadosCnpj(cnpj, { cert, ufLoja: loja?.uf ?? null }) };
+  } catch (e) {
+    return { ok: false, mensagem: e instanceof Error ? e.message : String(e) };
+  }
 }
