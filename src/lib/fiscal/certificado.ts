@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import tls from "node:tls";
+import path from "node:path";
 import forge from "node-forge";
 import { decifrar } from "@/lib/seguranca/segredos";
 
@@ -31,6 +32,21 @@ export function conferirTls(cert: Pick<Certificado, "chavePrivadaPem" | "cadeiaP
   } catch (e) {
     throw new Error(`O certificado não pode ser usado na conexão com a SEFAZ: ${(e as Error).message}`);
   }
+}
+
+let cacheCa: string[] | null = null;
+/**
+ * Autoridades confiáveis para a SEFAZ e a NFS-e Nacional: as do Node (Mozilla) + a cadeia ICP-Brasil
+ * (ca-icp-brasil/icp-brasil.pem, do site do ITI), que os servidores da SEFAZ usam e o Node não conhece.
+ * SEFAZ_CA_FILE acrescenta outro .pem, se precisar. A verificação do servidor continua ligada.
+ */
+export function autoridadesSefaz(): string[] {
+  if (cacheCa) return cacheCa;
+  const extras = [path.join(process.cwd(), "ca-icp-brasil", "icp-brasil.pem"), process.env.SEFAZ_CA_FILE]
+    .filter((f): f is string => !!f && fs.existsSync(f))
+    .map((f) => fs.readFileSync(f, "utf8"));
+  cacheCa = [...tls.rootCertificates, ...extras];
+  return cacheCa;
 }
 
 /** Erro antes de qualquer dado chegar à SEFAZ (certificado, rede, endereço): a nota com certeza não foi enviada. */

@@ -1,7 +1,6 @@
 import https from "node:https";
-import fs from "node:fs";
 import { XMLParser } from "fast-xml-parser";
-import { NaoEnviadoError, opcoesTls, type Certificado } from "./certificado";
+import { autoridadesSefaz, NaoEnviadoError, opcoesTls, type Certificado } from "./certificado";
 import { assinarXml } from "./assinatura";
 import { NS_NFE, VERSAO, codigoUf } from "./nfe";
 import { dataHoraTz, g, t } from "./xml";
@@ -85,8 +84,8 @@ export const transporteHttps: Transporte = (url, soapAction, corpo, cert) =>
     const falhou = (e: Error) => reject(conectou ? e : new NaoEnviadoError(`Não foi possível conectar à SEFAZ: ${e.message}`));
     try {
     // Cadeia ICP-Brasil: a SEFAZ usa certificados que não estão no repositório padrão do Node.
-    // Aponte SEFAZ_CA_FILE para o arquivo .pem com as ACs da ICP-Brasil (iti.gov.br).
-    const ca = process.env.SEFAZ_CA_FILE ? fs.readFileSync(process.env.SEFAZ_CA_FILE) : undefined;
+    // A cadeia vem de ca-icp-brasil/icp-brasil.pem (ITI); SEFAZ_CA_FILE acrescenta outra, se precisar.
+    const ca = autoridadesSefaz();
     const req = https.request(
       url,
       {
