@@ -7,6 +7,7 @@ import { cor } from "@/lib/orcamentos/tipos";
 import { Pagina } from "@/components/ui/Pagina";
 import BotaoResultado from "@/components/contratos/BotaoResultado";
 import Icone from "@/components/Icone";
+import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Contratos" };
@@ -20,7 +21,12 @@ export default async function Contratos({ searchParams }: { searchParams: Promis
   const q = sp.q?.trim();
   const where: Prisma.ContratoWhereInput = {
     ...(filtro ? { situacao: filtro } : {}),
-    ...(q ? { OR: [{ cliente: { nome: { contains: q, mode: "insensitive" } } }, { cliente: { documento: { contains: q.replace(/\D/g, "") || q } } }, ...(Number(q) ? [{ numero: Number(q) }] : [])] } : {}),
+    // cada palavra em qualquer ordem: nº, cliente (nome, fantasia, CPF/CNPJ) ou serviço do contrato
+    AND: cadaPalavra(q, (p): Prisma.ContratoWhereInput[] => {
+      const n = numeroPalavra(p), d = p.replace(/\D/g, "");
+      return [...(n ? [{ numero: n }] : []), { cliente: { nome: contem(p) } }, { cliente: { fantasia: contem(p) } },
+        ...(d.length >= 3 ? [{ cliente: { documento: { contains: d } } }] : []), { servicos: { some: { servico: { nome: contem(p) } } } }];
+    }),
   };
   const [lista, contagem, erros] = await Promise.all([
     prisma.contrato.findMany({ where, orderBy: [{ proximoVencimento: "asc" }, { numero: "asc" }], take: 500, include: { cliente: { select: { nome: true } }, servicos: { orderBy: { ordem: "asc" }, include: { servico: { select: { nome: true } } } } } }),

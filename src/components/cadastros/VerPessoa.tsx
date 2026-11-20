@@ -13,6 +13,7 @@ import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import Icone from "@/components/Icone";
 import { formatarDoc } from "./ListaPessoas";
 import { BotaoAreaCliente, FormAnexo, FormAnotacao } from "./FormsVer";
+import { cadaPalavra, contem } from "@/lib/busca/palavras";
 
 type Sp = { aba?: string; t?: string; per?: string; qt?: string };
 
@@ -169,7 +170,7 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
   let lista: Card[] = [];
   const q = sp.qt?.trim();
   if (t === "recebimentos" || t === "pagamentos") {
-    const w: Prisma.LancamentoWhereInput = { pessoaId: id, tipo: tipoLanc, ...(ini ? { vencimento: { gte: ini } } : {}), ...(q ? { descricao: { contains: q, mode: "insensitive" } } : {}) };
+    const w: Prisma.LancamentoWhereInput = { pessoaId: id, tipo: tipoLanc, ...(ini ? { vencimento: { gte: ini } } : {}), AND: cadaPalavra(q, (p): Prisma.LancamentoWhereInput[] => [{ descricao: contem(p) }]) };
     const ls = await prisma.lancamento.findMany({ where: w, include: { formaPagamento: { select: { nome: true } } }, orderBy: { vencimento: "desc" }, take: 100 });
     const nums = new Map<string, string>();
     const os = await prisma.ordemServico.findMany({ where: { id: { in: ls.filter((l) => l.origemTipo === "OS").map((l) => l.origemId!) } }, select: { id: true, numero: true } });

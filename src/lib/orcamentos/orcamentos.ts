@@ -5,6 +5,7 @@ import { diaSP, parseDia, periodoDia } from "@/lib/datas";
 import { salvarPedido } from "@/lib/vendas/pedidos";
 import { salvarOs } from "@/lib/os/os";
 import { descontoLinha, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento } from "./tipos";
+import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 export * from "./tipos";
 
@@ -212,11 +213,11 @@ export async function whereOrcamentos(sp: ParamsOrcamentos): Promise<Prisma.Orca
   const buscando = Boolean(sp.q);
   const per = buscando ? null : periodoDia(sp.periodo, sp.pde, sp.pate);
   if (per) and.push({ data: { gte: per.de, lte: per.ate } });
-  if (sp.q) {
-    const num = Number(sp.q);
-    const c = { contains: sp.q.trim(), mode: "insensitive" as const };
-    and.push({ OR: [...(Number.isInteger(num) ? [{ numero: num }] : []), { cliente: { nome: c } }, { cliente: { fantasia: c } }] });
-  }
+  and.push(...cadaPalavra(sp.q, (p): Prisma.OrcamentoWhereInput[] => {
+    const num = numeroPalavra(p), d = p.replace(/\D/g, "");
+    return [...(num ? [{ numero: num }] : []), { cliente: { nome: contem(p) } }, { cliente: { fantasia: contem(p) } },
+      ...(d.length >= 3 ? [{ cliente: { documento: { contains: d } } }] : [])];
+  }));
   if (sp.loja) and.push({ empresaId: sp.loja });
   if (sp.codigo && Number(sp.codigo)) and.push({ numero: Number(sp.codigo) });
   if (sp.de) and.push({ data: { gte: parseDia(sp.de) } });

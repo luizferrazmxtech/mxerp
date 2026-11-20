@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { diaSP, periodoDia } from "@/lib/datas";
+import { cadaPalavra, contem } from "@/lib/busca/palavras";
 
 /** Situação de uma conta como nas listas do Gestão Click (Confirmado, Atrasado, Vence hoje, Em aberto). */
 export function situacaoConta(l: { pagoEm: Date | null; vencimento: Date }, hoje = diaSP()) {
@@ -60,17 +61,14 @@ export function whereContas(tipo: "PAGAR" | "RECEBER", sp: ParamsContas): Prisma
   if (sp.forma) and.push({ formaPagamentoId: sp.forma });
   if (sp.cli) and.push({ pessoaId: sp.cli });
   const q = sp.q?.trim();
-  if (q) {
-    const valor = Number(q.replace(/\./g, "").replace(",", "."));
-    and.push({
-      OR: [
-        { descricao: { contains: q, mode: "insensitive" } },
-        { pessoa: { nome: { contains: q, mode: "insensitive" } } },
-        { pessoa: { fantasia: { contains: q, mode: "insensitive" } } },
-        ...(/^[\d.,]+$/.test(q) && valor > 0 ? [{ valor }] : []),
-      ],
-    });
-  }
+  // cada palavra em qualquer ordem: descrição ("Venda de nº 8698"), cliente/fornecedor ou o valor
+  and.push(...cadaPalavra(q, (p): Prisma.LancamentoWhereInput[] => {
+    const valor = Number(p.replace(/\./g, "").replace(",", "."));
+    const d = p.replace(/\D/g, "");
+    return [{ descricao: contem(p) }, { pessoa: { nome: contem(p) } }, { pessoa: { fantasia: contem(p) } },
+      ...(d.length >= 3 ? [{ pessoa: { documento: { contains: d } } }] : []),
+      ...(/^[\d.,]+$/.test(p) && valor > 0 ? [{ valor }] : [])];
+  }));
   return { AND: and };
 }
 

@@ -6,13 +6,14 @@ import { Pagina, Pilula } from "@/components/ui/Pagina";
 import BarraCadastro, { AcoesLinha } from "@/components/ui/BarraCadastro";
 import Paginacao, { Ordenar, lerPagina } from "@/components/ui/Paginacao";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
+import { cadaPalavra, contem } from "@/lib/busca/palavras";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Funcionários" };
 
 export default async function Funcionarios({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
-  const where: Prisma.UsuarioWhereInput = sp.q ? { OR: [{ nome: { contains: sp.q, mode: "insensitive" } }, { email: { contains: sp.q, mode: "insensitive" } }] } : {};
+  const where: Prisma.UsuarioWhereInput = { AND: cadaPalavra(sp.q, (p): Prisma.UsuarioWhereInput[] => [{ nome: contem(p) }, { email: contem(p) }]) };
   const { pagina, porPagina, skip, take } = lerPagina(sp);
   const dir = sp.o?.startsWith("-") ? "desc" : "asc";
   const orderBy: Prisma.UsuarioOrderByWithRelationInput = sp.o?.replace("-", "") === "email" ? { email: dir } : { nome: dir };

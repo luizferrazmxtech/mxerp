@@ -8,6 +8,7 @@ import { baixarXmlAcao, manifestarAcao, sincronizarDfeAcao } from "@/lib/fiscal/
 import { brl, data, dataHora } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
 import BotaoAcao from "@/components/BotaoAcao";
+import { cadaPalavra, contem } from "@/lib/busca/palavras";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Notas recebidas (SEFAZ)" };
@@ -24,7 +25,7 @@ export default async function NotasRecebidas({ searchParams }: { searchParams: P
     prisma.notaRecebida.findMany({
       where: {
         ...(f === "pendentes" ? { OR: [{ manifestacao: null }, { manifestacao: "CIENCIA" }] } : {}),
-        ...(sp.q ? { OR: [{ emitenteNome: { contains: sp.q, mode: "insensitive" } }, { chave: { contains: sp.q.replace(/\D/g, "") || "-" } }, { emitenteDocumento: { contains: sp.q.replace(/\D/g, "") || "-" } }] } : {}),
+        AND: cadaPalavra(sp.q, (p) => { const d = p.replace(/\D/g, "") || "-"; return [{ emitenteNome: contem(p) }, { chave: { contains: d } }, { emitenteDocumento: { contains: d } }]; }),
       },
       orderBy: { emissao: "desc" }, take: 300,
     }),

@@ -10,6 +10,7 @@ import { descontoLinha, lerNumero } from "@/lib/orcamentos/tipos";
 import { fatorLinha, lancaEstoque, lancaFinanceiro, subtotalCompra, totaisCompra, type DadosCompra } from "./tipos";
 import { configEstoque } from "@/lib/estoque/config";
 import { atualizarCustoPorEntrada } from "@/lib/estoque/custo";
+import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 /**
  * Compra de produtos/serviços (padrão Gestão Click). A situação decide o que é lançado:
@@ -297,10 +298,11 @@ export function whereCompras(tipo: "PRODUTO" | "SERVICO", sp: ParamsCompras): Pr
   const buscando = !!(sp.q || sp.codigo || sp.de || sp.ate || sp.forn || sp.nfe || sp.prod || sp.serv || sp.cc);
   const per = buscando && !sp.periodo ? null : periodoDia(sp.periodo, sp.pde, sp.pate);
   if (per) w.push({ data: { gte: per.de, lte: per.ate } });
-  if (sp.q) {
-    const num = Number(sp.q.replace(/\D/g, ""));
-    w.push({ OR: [...(num ? [{ numero: num }] : []), { numeroNfe: { contains: sp.q } }, { fornecedor: { nome: { contains: sp.q, mode: "insensitive" } } }, { fornecedor: { fantasia: { contains: sp.q, mode: "insensitive" } } }] });
-  }
+  w.push(...cadaPalavra(sp.q, (p): Prisma.CompraWhereInput[] => {
+    const num = numeroPalavra(p), d = p.replace(/\D/g, "");
+    return [...(num ? [{ numero: num }] : []), { numeroNfe: { contains: p } }, { fornecedor: { nome: contem(p) } }, { fornecedor: { fantasia: contem(p) } },
+      ...(d.length >= 3 ? [{ fornecedor: { documento: { contains: d } } }] : [])];
+  }));
   if (sp.codigo) w.push({ numero: Number(sp.codigo) || -1 });
   if (sp.de || sp.ate) w.push({ data: { ...(sp.de ? { gte: parseDia(sp.de) } : {}), ...(sp.ate ? { lte: parseDia(sp.ate) } : {}) } });
   if (sp.forn) w.push({ fornecedorId: sp.forn });
