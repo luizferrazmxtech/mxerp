@@ -3,6 +3,7 @@ import { prisma, type Tx } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
 import { lerNumero } from "@/lib/itens/tipos";
 import type { DadosPessoa, PapelPessoa } from "./tipos";
+import { erroDocumento } from "./documentos";
 export * from "./tipos";
 
 /** Os três cadastros de pessoa do Gestão Click. Uma mesma pessoa (mesmo CPF/CNPJ) pode ter os três papéis. */
@@ -79,11 +80,7 @@ const t = (s: string | undefined | null) => (s ?? "").trim() || null;
 const dig = (s: string | undefined | null) => (s ?? "").replace(/\D/g, "") || null;
 
 export function validarDocumento(doc: string, tipo: TipoPessoa) {
-  if (!doc || tipo === "ESTRANGEIRO") return null;
-  const d = doc.replace(/\D/g, "");
-  if (tipo === "FISICA" && d.length !== 11) return "CPF deve ter 11 dígitos";
-  if (tipo === "JURIDICA" && d.length !== 14) return "CNPJ deve ter 14 dígitos";
-  return null;
+  return erroDocumento(doc, tipo);
 }
 
 /** Cria ou altera a pessoa no papel indicado; endereços e contatos são substituídos pela lista do formulário. */
