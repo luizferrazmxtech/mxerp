@@ -44,7 +44,7 @@ export default async function VerContrato({ params }: { params: Promise<{ id: st
   const emailPara = c.emailCobranca ?? c.cliente.email;
 
   return (
-    <Pagina titulo="Visualizar contrato" icone="contratos" trilha={[{ rotulo: "Contratos", href: "/contratos" }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar="/contratos" titulo="Visualizar contrato" icone="contratos" trilha={[{ rotulo: "Contratos", href: "/contratos" }, { rotulo: "Visualizar" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="contratos" size={18} /> Contrato #{c.numero}

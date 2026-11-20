@@ -53,7 +53,7 @@ export default async function VerProduto({ params, searchParams }: { params: Pro
   const fisico = saldos.reduce((s, x) => s + Number(x.quantidade), 0);
 
   return (
-    <Pagina titulo="Visualizar produto" trilha={[{ rotulo: "Produtos", href: "/produtos" }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar="/produtos" titulo="Visualizar produto" trilha={[{ rotulo: "Produtos", href: "/produtos" }, { rotulo: "Visualizar" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="produtos" size={18} /> Produto #{p.codigo}

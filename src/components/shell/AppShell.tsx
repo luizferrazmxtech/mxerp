@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Icone from "@/components/Icone";
 import { MODULOS, type ItemMenu, type SubItem } from "./menu";
+import { RegistroNavegacao } from "@/components/ui/BotaoVoltar";
 
 type Props = {
   menu: ItemMenu[];
@@ -203,6 +204,7 @@ export default function AppShell({ menu, usuario, empresa, lojas = [], trocarLoj
           </aside>
         )}
         <main className={`min-w-0 flex-1 ${!pdv && menuAberto ? "md:ml-[210px]" : ""} ${pdv ? "" : "px-4 pb-24 pt-3 md:px-5"}`}>
+          <RegistroNavegacao />
           {children}
         </main>
       </div>

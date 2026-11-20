@@ -97,7 +97,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
   const podeEditar = !balcao && (v.situacaoCfg?.permiteEdicao ?? true);
 
   return (
-    <Pagina titulo="Visualizar venda" trilha={[{ rotulo: tituloVendas(tl), href: baseVendas(tl) }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar={baseVendas(tl)} titulo="Visualizar venda" trilha={[{ rotulo: tituloVendas(tl), href: baseVendas(tl) }, { rotulo: "Visualizar" }]}>
       <VoltarConta contaId={sp.conta} />
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>

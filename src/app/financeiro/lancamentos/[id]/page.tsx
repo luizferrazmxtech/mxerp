@@ -54,9 +54,8 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
   const lista = `/financeiro?tipo=${l.tipo}`;
 
   return (
-    <Pagina titulo={titulo} icone={pagar ? "pagar" : "receber"} trilha={[{ rotulo: titulo, href: lista }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar={lista} titulo={titulo} icone={pagar ? "pagar" : "receber"} trilha={[{ rotulo: titulo, href: lista }, { rotulo: "Visualizar" }]}>
       <div className="no-print mb-3 flex flex-wrap items-center gap-2">
-        <Link href={lista} className="btn-sec"><Icone nome="direita" size={14} className="rotate-180" /> Voltar</Link>
         {!l.pagoEm && <Link href={`/financeiro/lancamentos/${l.id}/editar`} className="btn-laranja"><Icone nome="editar" size={14} /> Editar</Link>}
         <Link href={`/financeiro/adicionar?tipo=${l.tipo}&copia=${l.id}`} className="btn-sec"><Icone nome="copiar" size={14} /> Duplicar</Link>
         {orig && <Link href={orig.href} className="btn-sec"><Icone nome={orig.icone} size={14} /> {orig.rotulo}</Link>}

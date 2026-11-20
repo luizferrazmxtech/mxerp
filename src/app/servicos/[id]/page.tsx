@@ -38,7 +38,7 @@ export default async function VerServico({ params, searchParams }: { params: Pro
   const margem = Number(s.custo) > 0 ? ((Number(s.preco) - Number(s.custo)) / Number(s.custo)) * 100 : null;
 
   return (
-    <Pagina titulo="Visualizar serviço" trilha={[{ rotulo: "Serviços", href: "/servicos" }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar="/servicos" titulo="Visualizar serviço" trilha={[{ rotulo: "Serviços", href: "/servicos" }, { rotulo: "Visualizar" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="servicos" size={18} /> Serviço #{s.codigo}
