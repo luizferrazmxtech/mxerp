@@ -4,7 +4,7 @@ import { exigirUsuario } from "@/lib/auth/atual";
 import { ABERTOS, COR_STATUS, filtroChamados, horasTexto, resumoChamados, ROTULO_PRIORIDADE, ROTULO_STATUS } from "@/lib/chamados/chamados";
 import { dataSP, horaSP } from "@/lib/ui/format";
 import { Pagina, Pilula } from "@/components/ui/Pagina";
-import { Kpi } from "@/components/relatorios/Barra";
+import Resumo from "@/components/ui/Resumo";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Atendimentos e chamados" };
@@ -29,14 +29,13 @@ export default async function Chamados({ searchParams }: { searchParams: Promise
     <Pagina titulo="Atendimentos e chamados" icone="atendimento" trilha={[{ rotulo: "Atendimentos" }]}
       acoes={<Link href="/chamados/novo" className="btn">Novo chamado</Link>}>
       <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Link href="/chamados"><Kpi rotulo="Em aberto" valor={String(r.abertos)} dica={`${r.urgentes} urgente(s)`} /></Link>
-        <Link href="/chamados?status=atrasados"><Kpi rotulo="Atrasados" valor={String(r.atrasados)} dica="prazo já passou" /></Link>
-        <Link href="/chamados?resp=sem"><Kpi rotulo="Sem responsável" valor={String(r.semResponsavel)} dica="ninguém assumiu" /></Link>
-        <Link href="/chamados?resp=meus"><Kpi rotulo="Comigo" valor={String(r.meus)} dica="abertos com você" /></Link>
-        <Kpi rotulo="Últimos 30 dias" valor={`${r.resolvidos30} resolvido(s)`}
-          dica={`1ª resposta ${horasTexto(r.horasPrimeiraResposta)} · solução ${horasTexto(r.horasResolucao)}${r.noPrazo != null ? ` · ${Math.round(r.noPrazo * 100)}% no prazo` : ""}`} />
-      </div>
+      <Resumo cartoes={[
+        { rotulo: "Em aberto", valor: String(r.abertos), legenda: `${r.urgentes} urgente(s)`, icone: "atendimento", cor: "tinta", pct: r.abertos ? 100 : 0, href: "/chamados", ativo: !sp.status && !sp.resp },
+        { rotulo: "Atrasados", valor: String(r.atrasados), legenda: "prazo já passou", icone: "atrasado", cor: "vermelho", pct: r.abertos ? (r.atrasados / r.abertos) * 100 : 0, href: "/chamados?status=atrasados", ativo: sp.status === "atrasados" },
+        { rotulo: "Sem responsável", valor: String(r.semResponsavel), legenda: "ninguém assumiu", icone: "alerta", cor: "amarelo", pct: r.abertos ? (r.semResponsavel / r.abertos) * 100 : 0, href: "/chamados?resp=sem", ativo: sp.resp === "sem" },
+        { rotulo: "Comigo", valor: String(r.meus), legenda: "abertos com você", icone: "pessoa", cor: "azul", pct: r.abertos ? (r.meus / r.abertos) * 100 : 0, href: "/chamados?resp=meus", ativo: sp.resp === "meus" },
+        { rotulo: "Resolvidos em 30 dias", valor: String(r.resolvidos30), legenda: `1ª resposta ${horasTexto(r.horasPrimeiraResposta)} · solução ${horasTexto(r.horasResolucao)}`, icone: "confirmado", cor: "verde", ...(r.noPrazo != null ? { pct: r.noPrazo * 100 } : {}) },
+      ]} />
 
       <form className="cartao flex flex-wrap items-end gap-3 p-3">
         <label><span className="rotulo">Situação</span>

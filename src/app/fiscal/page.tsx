@@ -12,6 +12,7 @@ import { estimativaDoMes, mesAnterior, mesAtual } from "@/lib/fiscal/impostos";
 import { URL_DANFSE } from "@/lib/fiscal/nfse";
 import { consultarStatus } from "./actions";
 import AcoesNota from "./AcoesNota";
+import Resumo from "@/components/ui/Resumo";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Notas fiscais" };
@@ -64,6 +65,9 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
     : 0;
   const autorizadas = notas.filter((n) => n.status === "AUTORIZADA");
   const soma = (ls: typeof notas) => ls.reduce((s, n) => s + Number(n.valorTotal), 0);
+  const canceladas = notas.filter((n) => n.status === "CANCELADA");
+  const rejeitadas = notas.filter((n) => ["REJEITADA", "DENEGADA"].includes(n.status));
+  const aguardando = notas.filter((n) => ["ENVIADA", "ASSINADA"].includes(n.status));
   const link = (p: Record<string, string | undefined>) => {
     const base: Record<string, string | undefined> = { modelo: modelo ?? undefined, mes: comp, ...p };
     const q = new URLSearchParams(Object.entries(base).filter((x): x is [string, string] => !!x[1]));
@@ -85,22 +89,21 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
         </div>
       </div>
 
-      {/* totais do mês */}
-      <div className="mb-3 grid gap-3 md:grid-cols-4">
-        <div className="cartao p-3"><div className="text-[12px] text-slate-500">Autorizadas no mês</div><div className="text-[20px] font-semibold">{autorizadas.length}</div><div className="text-[11px] text-slate-500">{brl(soma(autorizadas))}</div></div>
-        <div className="cartao p-3"><div className="text-[12px] text-slate-500">Canceladas / rejeitadas</div><div className="text-[20px] font-semibold">{notas.filter((n) => n.status === "CANCELADA").length} / {notas.filter((n) => ["REJEITADA", "DENEGADA"].includes(n.status)).length}</div><div className="text-[11px] text-slate-500">{notas.filter((n) => n.status === "ENVIADA").length} aguardando a SEFAZ</div></div>
-        <Link href={`/fiscal/impostos?mes=${comp}`} className="cartao block p-3 hover:border-marca">
-          <div className="text-[12px] text-slate-500">Imposto aproximado (Simples) · todas as notas</div>
-          <div className="text-[20px] font-semibold text-marca">{est ? brl(est.imposto) : "—"}</div>
-          <div className="text-[11px] text-slate-500">{est?.semAliquota.length ? "informe as alíquotas do mês ›" : est?.total ? `sobre ${brl(est.total)} em produção ›` : "alíquotas por CNAE ›"}</div>
-        </Link>
-        <div className="cartao p-3 text-[13px]">
-          <div className="text-[12px] text-slate-500">Loja emitente</div>
-          <div className="font-semibold uppercase">{e ? nomeLoja(e) : "nenhuma empresa"}</div>
-          <div>NF-e/NFC-e: <b className={e?.ambienteFiscal === "PRODUCAO" ? "text-red-700" : "text-amber-700"}>{e?.ambienteFiscal === "PRODUCAO" ? "PRODUÇÃO" : "homologação"}</b> · NFS-e: <b className={e?.ambienteNfse === "PRODUCAO" ? "text-red-700" : "text-amber-700"}>{e?.ambienteNfse === "PRODUCAO" ? "PRODUÇÃO" : "homologação"}</b></div>
-          <div className={certOk ? "text-emerald-700" : "text-red-700"}>{e?.certificadoValidade ? `Certificado até ${e.certificadoValidade.toLocaleDateString("pt-BR")}` : certOk ? "Certificado do servidor" : "Sem certificado"}</div>
-          <Link href={e ? `/empresas/${e.id}` : "/empresas/nova"} className="text-marca hover:underline">Configurações fiscais ›</Link>
-        </div>
+      {/* totais do mês, no padrão dos cartões das listas */}
+      <Resumo cartoes={[
+        { rotulo: "Autorizadas no mês", valor: brl(soma(autorizadas)), legenda: `${autorizadas.length} nota${autorizadas.length === 1 ? "" : "s"} autorizada${autorizadas.length === 1 ? "" : "s"}`, icone: "confirmado", cor: "verde", pct: notas.length ? (autorizadas.length / notas.length) * 100 : 0 },
+        { rotulo: "Canceladas", valor: brl(soma(canceladas)), legenda: `${canceladas.length} cancelada${canceladas.length === 1 ? "" : "s"}`, icone: "fechar", cor: "cinza", pct: notas.length ? (canceladas.length / notas.length) * 100 : 0 },
+        { rotulo: "Rejeitadas", valor: String(rejeitadas.length), legenda: "rejeitadas ou denegadas", icone: "atrasado", cor: "vermelho", pct: notas.length ? (rejeitadas.length / notas.length) * 100 : 0 },
+        { rotulo: "Aguardando a SEFAZ", valor: String(aguardando.length), legenda: aguardando.length ? "consulte a situação na nota" : "nenhuma pendente", icone: "hoje", cor: "amarelo", pct: notas.length ? (aguardando.length / notas.length) * 100 : 0 },
+        { rotulo: "Imposto aproximado", valor: est ? brl(est.imposto) : "—", legenda: est?.semAliquota.length ? "informe as alíquotas do mês ›" : est?.total ? `sobre ${brl(est.total)} em produção ›` : "alíquotas por CNAE ›", icone: "percentual", cor: "roxo", href: `/fiscal/impostos?mes=${comp}` },
+      ]} />
+
+      {/* loja emitente, ambiente e certificado */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px]">
+        <span><span className="text-slate-500">Loja emitente:</span> <b className="uppercase">{e ? nomeLoja(e) : "nenhuma empresa"}</b></span>
+        <span>NF-e/NFC-e: <b className={e?.ambienteFiscal === "PRODUCAO" ? "text-red-700" : "text-amber-700"}>{e?.ambienteFiscal === "PRODUCAO" ? "PRODUÇÃO" : "homologação"}</b> · NFS-e: <b className={e?.ambienteNfse === "PRODUCAO" ? "text-red-700" : "text-amber-700"}>{e?.ambienteNfse === "PRODUCAO" ? "PRODUÇÃO" : "homologação"}</b></span>
+        <span className={certOk ? "text-emerald-700" : "text-red-700"}>{e?.certificadoValidade ? `Certificado até ${e.certificadoValidade.toLocaleDateString("pt-BR")}` : certOk ? "Certificado do servidor" : "Sem certificado"}</span>
+        <Link href={e ? `/empresas/${e.id}` : "/empresas/nova"} className="ml-auto text-marca hover:underline">Configurações fiscais ›</Link>
       </div>
 
       <div className="mb-2 flex flex-wrap items-start gap-2">

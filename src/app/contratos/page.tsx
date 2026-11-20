@@ -8,6 +8,7 @@ import { Pagina } from "@/components/ui/Pagina";
 import BotaoResultado from "@/components/contratos/BotaoResultado";
 import Icone from "@/components/Icone";
 import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
+import Resumo from "@/components/ui/Resumo";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Contratos" };
@@ -34,6 +35,7 @@ export default async function Contratos({ searchParams }: { searchParams: Promis
     prisma.contratoCobranca.count({ where: { OR: [{ situacao: "ERRO" }, { envioErro: { not: null } }], contrato: { situacao: "ATIVO" } } }),
   ]);
   const qtd = (s: string) => contagem.find((c) => c.situacao === s)?._count ?? 0;
+  const totalC = contagem.reduce((a, c) => a + c._count, 0);
   const mensal = lista.filter((c) => c.situacao === "ATIVO").reduce((s, c) => s + Number(c.total) / ({ MENSAL: 1, TRIMESTRAL: 3, SEMESTRAL: 6, ANUAL: 12 }[c.periodicidade] ?? 1), 0);
   const aba = (s: string, rotulo: string, n?: number) => (
     <Link href={`/contratos?s=${s}${q ? `&q=${encodeURIComponent(q)}` : ""}`} className={`aba ${(filtro ?? "todos") === s ? "aba-ativa" : ""}`}>{rotulo}{n != null ? ` (${n})` : ""}</Link>
@@ -46,6 +48,13 @@ export default async function Contratos({ searchParams }: { searchParams: Promis
         <BotaoResultado acao={processarAgoraAcao} icone="atualizar">Processar agora</BotaoResultado>
       </div>}>
       {erros > 0 && <p className="mb-3 flex items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800"><Icone nome="alerta" size={15} /> {erros === 1 ? "Uma cobrança precisa" : `${erros} cobranças precisam`} de atenção (venda ou e-mail com erro). Abra o contrato para ver o motivo.</p>}
+      <Resumo cartoes={[
+        { rotulo: "Ativos", valor: String(qtd("ATIVO")), legenda: "contratos gerando cobrança", icone: "contratos", cor: "verde", pct: totalC ? (qtd("ATIVO") / totalC) * 100 : 0, href: "/contratos?s=ATIVO", ativo: filtro === "ATIVO" },
+        { rotulo: "Receita mensal", valor: brl(mensal), legenda: filtro === "ATIVO" && !q ? "dos contratos ativos" : "dos ativos listados", icone: "dinheiro", cor: "tinta" },
+        { rotulo: "Em aberto", valor: String(qtd("EM_ABERTO")), legenda: "aguardando início", icone: "hoje", cor: "azul", pct: totalC ? (qtd("EM_ABERTO") / totalC) * 100 : 0, href: "/contratos?s=EM_ABERTO", ativo: filtro === "EM_ABERTO" },
+        { rotulo: "Pausados", valor: String(qtd("PAUSADO")), legenda: "sem cobrança no momento", icone: "relogio", cor: "amarelo", pct: totalC ? (qtd("PAUSADO") / totalC) * 100 : 0, href: "/contratos?s=PAUSADO", ativo: filtro === "PAUSADO" },
+        { rotulo: "Com erro", valor: String(erros), legenda: erros ? "abra o contrato para ver o motivo" : "nenhuma cobrança com erro", icone: "atrasado", cor: "vermelho" },
+      ]} />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <nav className="flex flex-wrap gap-1">
           {aba("ATIVO", "Ativos", qtd("ATIVO"))}{aba("EM_ABERTO", "Em aberto", qtd("EM_ABERTO"))}{aba("PAUSADO", "Pausados", qtd("PAUSADO"))}

@@ -26,10 +26,11 @@ export function BarraRelatorio({ base, params, opcoes, csv }: {
 
 export function Kpi({ rotulo, valor, dica, cor = "" }: { rotulo: string; valor: string; dica?: string; cor?: string }) {
   return (
-    <div className="cartao p-4">
-      <div className="text-xs text-slate-500">{rotulo}</div>
-      <div className={`text-xl font-semibold ${cor}`}>{valor}</div>
-      {dica && <div className="text-[11px] text-slate-500">{dica}</div>}
+    // mesmo desenho dos cartões de resumo das listas (título cinza em negrito, valor grande, legenda pequena)
+    <div className="cartao px-4 py-3">
+      <div className="text-[13px] font-semibold text-[#495057]">{rotulo}</div>
+      <div className={`mt-1 text-[20px] font-semibold text-[#212529] ${cor}`}>{valor}</div>
+      {dica && <div className="text-[12px] text-slate-500">{dica}</div>}
     </div>
   );
 }
