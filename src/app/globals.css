@@ -83,6 +83,12 @@ body {
 }
 .pilula::before { content: ""; width: 5px; height: 5px; border-radius: 9999px; background: currentColor; }
 
+/* etiqueta de cadastro (CPF/CNPJ, PF/PJ, IE, cidade…): mesma borda da pílula, sem a bolinha */
+.etiqueta {
+  @apply inline-flex items-center whitespace-nowrap rounded border px-1.5 py-px text-[10.5px] font-semibold leading-[14px];
+  border-color: currentColor !important;
+}
+
 .aba {
   @apply inline-flex items-center gap-1.5 rounded px-3 py-[7px] text-[14px] text-slate-700 hover:bg-slate-100;
 }

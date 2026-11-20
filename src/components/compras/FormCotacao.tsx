@@ -5,6 +5,7 @@ import { useActionState, useState, useTransition } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
 import { itensDoFornecedorAcao, salvarCotacaoForm, type Resultado } from "@/lib/compras/acoes";
 import type { DadosCotacao, FornecedorCotacaoForm, ItemCotacaoForm } from "@/lib/compras/cotacoes";
 
@@ -45,7 +46,7 @@ export default function FormCotacao({ inicial, anexos = [] }: { inicial: DadosCo
                 <tr key={i}>
                   <td>{f.fornecedorId ? <b className="text-[13px] uppercase">{f.nome}</b> : (
                     <Busca<Pessoa> url={(q) => `/api/pessoas?papel=fornecedor&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus
-                      linha={(p) => <span>{p.nome}{p.fantasia && <i className="ml-1 text-[11px] text-slate-500">{p.fantasia}</i>}</span>}
+                      linha={(p) => <LinhaPessoaBusca p={p} />}
                       onEscolher={(p) => p && setF(i, { fornecedorId: p.id, nome: p.nome, email: p.email ?? "", celular: p.celular ?? p.telefone ?? "" })} />
                   )}</td>
                   <td><input className="campo" type="email" value={f.email} onChange={(e) => setF(i, { email: e.target.value })} /></td>

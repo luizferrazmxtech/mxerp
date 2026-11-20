@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * Campo "Digite para buscar" com lista suspensa (clientes, produtos…).
  * `url` recebe o texto e devolve a lista; `rotulo` mostra o item escolhido.
+ * A lista abre num portal em `position: fixed` sobre a página: dentro de tabelas com rolagem
+ * (itens da venda, orçamento, OS) ela ficava cortada/atrás do quadro.
  */
 export default function Busca<T extends { id: string }>({ url, valor, rotulo, linha, onEscolher, placeholder = "Digite para buscar", autoFocus, limparAoEscolher, className = "", exato }: {
   url: (q: string) => string;
@@ -25,6 +28,8 @@ export default function Busca<T extends { id: string }>({ url, valor, rotulo, li
   const [aberto, setAberto] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const caixa = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number; maxH: number } | null>(null);
 
   useEffect(() => {
     if (q.trim().length < 2) { setLista([]); return; }
@@ -40,8 +45,29 @@ export default function Busca<T extends { id: string }>({ url, valor, rotulo, li
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
+  const mostrar = aberto && q.trim().length >= 2;
+
+  // posiciona a lista junto do campo (abaixo, ou acima quando não cabe) e acompanha rolagem/redimensionamento
+  useLayoutEffect(() => {
+    if (!mostrar) return;
+    const calc = () => {
+      const r = input.current?.getBoundingClientRect();
+      if (!r) return;
+      const width = Math.max(r.width, 288);
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+      const abaixo = window.innerHeight - r.bottom - 8;
+      const acima = r.top - 8;
+      if (abaixo < 220 && acima > abaixo) setPos({ left, width, bottom: window.innerHeight - r.top + 4, maxH: Math.min(320, acima - 4) });
+      else setPos({ left, width, top: r.bottom + 4, maxH: Math.min(320, abaixo - 4) });
+    };
+    calc();
+    window.addEventListener("scroll", calc, true);
+    window.addEventListener("resize", calc);
+    return () => { window.removeEventListener("scroll", calc, true); window.removeEventListener("resize", calc); };
+  }, [mostrar, lista.length]);
+
   useEffect(() => {
-    const fora = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setAberto(false); };
+    const fora = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node) && !caixa.current?.contains(e.target as Node)) setAberto(false); };
     document.addEventListener("click", fora);
     return () => document.removeEventListener("click", fora);
   }, []);
@@ -70,20 +96,23 @@ export default function Busca<T extends { id: string }>({ url, valor, rotulo, li
           if (e.key === "Escape") setAberto(false);
         }}
       />
-      {aberto && lista.length > 0 && (
-        <ul className="absolute z-30 mt-1 max-h-80 w-full min-w-72 overflow-auto rounded-md border bg-white shadow-lg">
-          {lista.map((t, i) => (
-            <li key={t.id}>
-              <button type="button" onMouseEnter={() => setFoco(i)} onClick={() => escolher(t)}
-                className={`block w-full px-3 py-2 text-left text-[13px] ${i === foco ? "bg-slate-100" : ""}`}>
-                {linha(t)}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {aberto && q.trim().length >= 2 && !lista.length && (
-        <div className="absolute z-30 mt-1 w-full rounded-md border bg-white px-3 py-2 text-[13px] text-slate-500 shadow-lg">Nada encontrado.</div>
+      {mostrar && pos && typeof document !== "undefined" && createPortal(
+        <div ref={caixa} style={{ position: "fixed", left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxH, zIndex: 1000 }}
+          className="overflow-auto rounded-md border bg-white shadow-lg">
+          {lista.length > 0 ? (
+            <ul>
+              {lista.map((t, i) => (
+                <li key={t.id}>
+                  <button type="button" onMouseEnter={() => setFoco(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => escolher(t)}
+                    className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-[13px] last:border-b-0 ${i === foco ? "bg-slate-100" : ""}`}>
+                    {linha(t)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : <div className="px-3 py-2 text-[13px] text-slate-500">Nada encontrado.</div>}
+        </div>,
+        document.body,
       )}
     </div>
   );
