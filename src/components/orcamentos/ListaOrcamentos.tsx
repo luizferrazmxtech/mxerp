@@ -4,7 +4,7 @@ import { usuarioAtual } from "@/lib/auth/atual";
 import { cor, ordemOrcamentos, whereOrcamentos, type ParamsOrcamentos } from "@/lib/orcamentos/orcamentos";
 import { clonarOrcamentoAcao, excluirOrcamentoAcao, excluirOrcamentosAcao, situacaoEmMassaAcao } from "@/lib/orcamentos/acoes";
 import { colunasVisiveis } from "@/lib/ui/colunas";
-import { num2 } from "@/lib/ui/format";
+import { brl, num2 } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
 import { LinkSuspenso, urlCom } from "@/components/ui/BarraLista";
 import GerenciarColunas from "@/components/ui/GerenciarColunas";
@@ -17,6 +17,7 @@ import SeletorPeriodo from "@/components/ui/SeletorPeriodo";
 import Icone from "@/components/Icone";
 import BuscaPessoa from "./BuscaPessoa";
 import FormSituacao from "./FormSituacao";
+import Resumo from "@/components/ui/Resumo";
 
 const COLUNAS = [
   { chave: "numero", rotulo: "Nº" }, { chave: "cliente", rotulo: "Cliente" }, { chave: "data", rotulo: "Data" }, { chave: "entrega", rotulo: "Entrega" },
@@ -52,6 +53,16 @@ export default async function ListaOrcamentos({ sp }: { sp: ParamsOrcamentos }) 
   const filtros = Object.fromEntries(Object.entries(sp).filter(([k, v]) => v && !["p", "pp", "acao", "busca", "o", "situacao"].includes(k)));
   const sem = urlCom(base, sp, { acao: undefined, situacao: undefined });
   const emSituacao = sp.situacao ? await prisma.orcamento.findUnique({ where: { id: sp.situacao }, select: { id: true, numero: true, situacaoId: true } }) : null;
+
+  // cartões de resumo do período, por grupo de situação (sem o filtro de situação), como nas vendas
+  const porSit = await prisma.orcamento.groupBy({ by: ["situacaoId"], where: await whereOrcamentos({ ...sp, s: undefined }), _sum: { total: true }, _count: true });
+  const recusada = (n: string) => /cancel|recus|perd|reprov/i.test(n);
+  const grupoDe = (id: string | null) => { const s = situacoes.find((x) => x.id === id); return !s ? "aberto" : s.geraVenda ? "aprovado" : recusada(s.nome) ? "recusado" : "aberto"; };
+  const somaGrupo = (g?: string) => porSit.filter((x) => !g || grupoDe(x.situacaoId) === g).reduce((a, x) => ({ n: a.n + x._count, v: a.v + Number(x._sum.total ?? 0) }), { n: 0, v: 0 });
+  const tudo = somaGrupo(), abertos = somaGrupo("aberto"), aprovados = somaGrupo("aprovado"), recusados = somaGrupo("recusado");
+  const pctV = (x: number) => (tudo.v > 0 ? (x / tudo.v) * 100 : 0);
+  const qtdO = (n: number) => `${n} orçamento${n === 1 ? "" : "s"}`;
+  const linkSit = (g: string) => { const ss = situacoes.filter((s) => grupoDe(s.id) === g); return ss.length === 1 ? urlCom(base, sp, { s: sp.s === ss[0].id ? undefined : ss[0].id, p: undefined }) : undefined; };
 
   const tabela = (
     <div className="cartao overflow-x-auto">
@@ -146,6 +157,14 @@ export default async function ListaOrcamentos({ sp }: { sp: ParamsOrcamentos }) 
           <div className="mt-3 flex gap-2"><button className="btn"><Icone nome="buscar" size={14} /> Buscar</button><Link href={`${base}?busca=1`} className="btn-sec"><Icone nome="fechar" size={14} /> Limpar</Link></div>
         </form>
       )}
+
+      <Resumo cartoes={[
+        { rotulo: "Total do período", valor: brl(tudo.v), legenda: `${qtdO(tudo.n)} no período`, icone: "total", cor: "tinta", pct: tudo.v > 0 ? 100 : 0 },
+        { rotulo: "Em aberto", valor: brl(abertos.v), legenda: `${qtdO(abertos.n)} aguardando resposta`, icone: "hoje", cor: "azul", pct: pctV(abertos.v), href: linkSit("aberto") },
+        { rotulo: "Aprovados", valor: brl(aprovados.v), legenda: `${qtdO(aprovados.n)} aprovados`, icone: "confirmado", cor: "verde", pct: pctV(aprovados.v), href: linkSit("aprovado") },
+        { rotulo: "Recusados ou cancelados", valor: brl(recusados.v), legenda: `${qtdO(recusados.n)}`, icone: "fechar", cor: "vermelho", pct: pctV(recusados.v), href: linkSit("recusado") },
+        { rotulo: "Taxa de aprovação", valor: `${tudo.n ? Math.round((aprovados.n / tudo.n) * 100) : 0}%`, legenda: "dos orçamentos do período", icone: "percentual", cor: "cinza", pct: tudo.n ? (aprovados.n / tudo.n) * 100 : 0 },
+      ]} />
 
       {emSituacao && <FormSituacao id={emSituacao.id} numero={emSituacao.numero} atual={emSituacao.situacaoId} situacoes={situacoes} voltar={sem} />}
 

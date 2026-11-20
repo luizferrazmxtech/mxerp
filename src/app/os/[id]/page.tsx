@@ -99,7 +99,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   const equipamentos = sp.q ? o.equipamentos.filter((e) => [e.equipamento, e.marca, e.modelo, e.serie, e.defeitos, e.laudo].join(" ").toLowerCase().includes(sp.q!.toLowerCase())) : o.equipamentos;
 
   return (
-    <Pagina titulo="Visualizar OS" trilha={[{ rotulo: "Ordens de serviços", href: "/os" }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar="/os" titulo="Visualizar OS" trilha={[{ rotulo: "Ordens de serviços", href: "/os" }, { rotulo: "Visualizar" }]}>
       <VoltarConta contaId={sp.conta} />
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>

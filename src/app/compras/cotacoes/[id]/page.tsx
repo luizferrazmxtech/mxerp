@@ -52,7 +52,7 @@ export default async function VerCotacao({ params, searchParams }: { params: Pro
     return { assunto: aplicarTags(modelo?.assunto ?? "Cotação de preços nº [numero]", tags), corpo: aplicarTags(modelo?.email ?? "Olá, [nome_fornecedor]! Pedimos a gentileza de informar seus preços para os itens da cotação nº [numero] neste link: [link]", tags) };
   };
   return (
-    <Pagina titulo="Visualizar cotação" trilha={[{ rotulo: "Cotações", href: "/compras/cotacoes" }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar="/compras/cotacoes" titulo="Visualizar cotação" trilha={[{ rotulo: "Cotações", href: "/compras/cotacoes" }, { rotulo: "Visualizar" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="cotacao" size={18} /> Cotação #{c.numero} <span className={`pilula ${corSit}`}>{rotulo}</span></h2>

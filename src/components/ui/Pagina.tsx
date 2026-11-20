@@ -1,17 +1,22 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import Icone from "@/components/Icone";
+import BotaoVoltar from "@/components/ui/BotaoVoltar";
 
 /** Título da página com ícone à esquerda e trilha "Início > Módulo > Ação" à direita. */
-export function Pagina({ titulo, icone, trilha, children, acoes }: {
+export function Pagina({ titulo, icone, trilha, children, acoes, voltar }: {
   titulo: React.ReactNode;
   icone?: string;
   trilha: { rotulo: string; href?: string }[];
   acoes?: React.ReactNode;
+  /** telas de visualizar/editar: mostra "Voltar", que leva ao registro de onde a pessoa veio (ou a esta lista, se abriu direto) */
+  voltar?: string;
   children: React.ReactNode;
 }) {
   return (
     <div>
       <div className="no-print -mx-4 mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-200 px-4 pb-3 md:-mx-5 md:px-5">
+        {voltar && <Suspense fallback={<Link href={voltar} className="btn-sec"><Icone nome="direita" size={14} className="rotate-180" /> Voltar</Link>}><BotaoVoltar padrao={voltar} /></Suspense>}
         <h1 className="flex items-center gap-2 text-[24px] font-medium text-[#212529]">
           {icone && <Icone nome={icone} size={22} />}
           {titulo}

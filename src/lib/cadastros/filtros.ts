@@ -1,5 +1,6 @@
 import type { Prisma, TipoPessoa } from "@prisma/client";
 import { PAPEIS, whereSituacao, type PapelPessoa, type SituacaoFin } from "./pessoas";
+import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 export type ParamsLista = Record<string, string | undefined>;
 
@@ -14,13 +15,17 @@ export function formatarDoc(doc: string | null | undefined) {
 export function wherePessoas(papel: PapelPessoa, sp: ParamsLista): Prisma.PessoaWhereInput {
   const and: Prisma.PessoaWhereInput[] = [{ [papel]: true }];
   const cont = (v: string) => ({ contains: v.trim(), mode: "insensitive" as const });
-  if (sp.q) {
-    const d = sp.q.replace(/\D/g, "");
-    and.push({ OR: [{ nome: cont(sp.q) }, { fantasia: cont(sp.q) }, ...(d.length >= 3 ? [{ documento: { contains: d } }] : [])] });
-  }
+  // busca por palavras, em qualquer ordem: "silva joao" acha "João da Silva"
+  const cod = PAPEIS[papel].codigo;
+  and.push(...cadaPalavra(sp.q, (p): Prisma.PessoaWhereInput[] => {
+    const d = p.replace(/\D/g, ""), num = numeroPalavra(p);
+    return [{ nome: cont(p) }, { fantasia: cont(p) }, { email: cont(p) }, { cidade: cont(p) },
+      ...(d.length >= 3 ? [{ documento: { contains: d } }, { celular: { contains: d } }, { telefone: { contains: d } }] : []),
+      ...(num ? [{ [cod]: num }] : [])];
+  }));
   if (sp.tipo) and.push({ tipoPessoa: sp.tipo as TipoPessoa });
   if (sp.codigo && Number.isInteger(Number(sp.codigo))) and.push({ [PAPEIS[papel].codigo]: Number(sp.codigo) });
-  if (sp.nome) and.push({ OR: [{ nome: cont(sp.nome) }, { fantasia: cont(sp.nome) }] });
+  and.push(...cadaPalavra(sp.nome, (p): Prisma.PessoaWhereInput[] => [{ nome: cont(p) }, { fantasia: cont(p) }]));
   if (sp.doc) and.push({ documento: { contains: sp.doc.replace(/\D/g, "") || sp.doc } });
   if (sp.fone) {
     const d = sp.fone.replace(/\D/g, "");

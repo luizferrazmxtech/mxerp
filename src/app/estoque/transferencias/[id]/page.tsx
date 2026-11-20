@@ -25,7 +25,7 @@ export default async function VerTransferencia({ params, searchParams }: { param
   const base = `/estoque/transferencias/${id}`;
   const aba = sp.aba === "anotacoes" ? "anotacoes" : "produtos";
   return (
-    <Pagina titulo="Visualizar transferência" trilha={[{ rotulo: "Transferências", href: "/estoque/transferencias" }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar="/estoque/transferencias" titulo="Visualizar transferência" trilha={[{ rotulo: "Transferências", href: "/estoque/transferencias" }, { rotulo: "Visualizar" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="transferir" size={18} /> Transferência #{t.numero}</h2>

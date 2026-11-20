@@ -8,6 +8,7 @@ import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/p
 import { proximoNumero } from "@/lib/sequencia";
 import { diaSP, parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento } from "@/lib/orcamentos/tipos";
+import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 /**
  * Pedido de venda completo (padrão Gestão Click). A situação configurável decide o que acontece:
@@ -335,10 +336,13 @@ export async function whereVendas(tipo: "PEDIDO" | "SERVICO" | "BALCAO", sp: Par
   // a data da venda tem hora: o dia vai da meia-noite às 23:59 de Brasília
   const H = 3 * 3600_000;
   if (per) w.push({ data: { gte: new Date(per.de.getTime() + H), lt: new Date(per.ate.getTime() + 86400_000 + H) } });
-  if (sp.q) {
-    const num = Number(sp.q.replace(/\D/g, ""));
-    w.push({ OR: [...(num ? [{ numero: num }] : []), { cliente: { nome: { contains: sp.q, mode: "insensitive" } } }, { cliente: { fantasia: { contains: sp.q, mode: "insensitive" } } }] });
-  }
+  // cada palavra em qualquer ordem: nº da venda, cliente (nome, fantasia, CPF/CNPJ) ou produto/serviço vendido
+  w.push(...cadaPalavra(sp.q, (p): Prisma.VendaWhereInput[] => {
+    const num = numeroPalavra(p), d = p.replace(/\D/g, "");
+    return [...(num ? [{ numero: num }] : []), { cliente: { nome: contem(p) } }, { cliente: { fantasia: contem(p) } },
+      ...(d.length >= 3 ? [{ cliente: { documento: { contains: d } } }] : []),
+      { itens: { some: { produto: { nome: contem(p) } } } }, { servicos: { some: { servico: { nome: contem(p) } } } }];
+  }));
   if (sp.codigo) w.push({ numero: Number(sp.codigo) || -1 });
   if (sp.de || sp.ate) w.push({ data: { ...(sp.de ? { gte: new Date(`${sp.de}T00:00:00-03:00`) } : {}), ...(sp.ate ? { lte: new Date(`${sp.ate}T23:59:59.999-03:00`) } : {}) } });
   if (sp.ede || sp.eate) w.push({ prazoEntrega: { ...(sp.ede ? { gte: parseDia(sp.ede) } : {}), ...(sp.eate ? { lte: parseDia(sp.eate) } : {}) } });

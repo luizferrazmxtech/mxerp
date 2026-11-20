@@ -6,7 +6,7 @@ import { ordemCompras, whereCompras, type ParamsCompras } from "@/lib/compras/co
 import { rotuloLancamento } from "@/lib/compras/tipos";
 import { alterarSituacaoCompraAcao, clonarCompraAcao, excluirCompraAcao, excluirComprasAcao, situacaoComprasEmMassaAcao } from "@/lib/compras/acoes";
 import { colunasVisiveis } from "@/lib/ui/colunas";
-import { num2 } from "@/lib/ui/format";
+import { brl, num2 } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
 import { LinkSuspenso, urlCom } from "@/components/ui/BarraLista";
 import GerenciarColunas from "@/components/ui/GerenciarColunas";
@@ -20,6 +20,7 @@ import Icone from "@/components/Icone";
 import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
 import { baseCompras, tituloCompras } from "./PaginaFormCompra";
+import Resumo from "@/components/ui/Resumo";
 
 const COLUNAS = [
   { chave: "codigo", rotulo: "Código" }, { chave: "fornecedor", rotulo: "Fornecedor" }, { chave: "data", rotulo: "Data" }, { chave: "situacao", rotulo: "Situação" },
@@ -55,6 +56,14 @@ export default async function ListaCompras({ tipo, sp }: { tipo: "PRODUTO" | "SE
   const sem = urlCom(base, sp, { acao: undefined, situacao: undefined });
   const emSituacao = sp.situacao ? await prisma.compra.findUnique({ where: { id: sp.situacao }, select: { id: true, numero: true, situacaoId: true } }) : null;
   const opcoesSit = situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: rotuloLancamento(s.lancamento).toLowerCase() }));
+
+  // cartões de resumo do período (sem o filtro de situação)
+  const resumo = await prisma.compra.findMany({ where: whereCompras(tipo, { ...sp, s: undefined }), select: { total: true, recebida: true, situacaoCfg: { select: { nome: true } } } });
+  const cancelada = (c: (typeof resumo)[number]) => /cancel/i.test(c.situacaoCfg?.nome ?? "");
+  const somaC = (f: (c: (typeof resumo)[number]) => boolean) => resumo.filter(f).reduce((a, c) => ({ n: a.n + 1, v: a.v + Number(c.total) }), { n: 0, v: 0 });
+  const tudoC = somaC(() => true), pendentes = somaC((c) => !c.recebida && !cancelada(c)), recebidas = somaC((c) => c.recebida && !cancelada(c)), canceladas = somaC(cancelada);
+  const pctC = (x: number) => (tudoC.v > 0 ? (x / tudoC.v) * 100 : 0);
+  const qtdC = (n: number) => `${n} compra${n === 1 ? "" : "s"}`;
 
   const tabela = (
     <div className="cartao overflow-x-auto">
@@ -151,6 +160,14 @@ export default async function ListaCompras({ tipo, sp }: { tipo: "PRODUTO" | "SE
           <div className="mt-3 flex gap-2"><button className="btn"><Icone nome="buscar" size={14} /> Buscar</button><Link href={`${base}?busca=1`} className="btn-sec"><Icone nome="fechar" size={14} /> Limpar</Link></div>
         </form>
       )}
+
+      <Resumo cartoes={[
+        { rotulo: "Total do período", valor: brl(tudoC.v), legenda: `${qtdC(tudoC.n)} no período`, icone: "total", cor: "tinta", pct: tudoC.v > 0 ? 100 : 0 },
+        { rotulo: "Pendentes", valor: brl(pendentes.v), legenda: `${qtdC(pendentes.n)} sem entrada no estoque`, icone: "hoje", cor: "amarelo", pct: pctC(pendentes.v) },
+        { rotulo: "Recebidas", valor: brl(recebidas.v), legenda: `${qtdC(recebidas.n)} com entrada no estoque`, icone: "confirmado", cor: "verde", pct: pctC(recebidas.v) },
+        { rotulo: "Canceladas", valor: brl(canceladas.v), legenda: qtdC(canceladas.n), icone: "fechar", cor: "vermelho", pct: pctC(canceladas.v) },
+        { rotulo: "Ticket médio", valor: brl(tudoC.n ? tudoC.v / tudoC.n : 0), legenda: "por compra", icone: "valor", cor: "cinza" },
+      ]} />
 
       {emSituacao && <FormSituacao id={emSituacao.id} numero={emSituacao.numero} atual={emSituacao.situacaoId ?? ""} situacoes={opcoesSit} voltar={sem} acao={alterarSituacaoCompraAcao} rotulo="da compra" />}
 

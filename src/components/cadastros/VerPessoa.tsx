@@ -13,6 +13,10 @@ import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import Icone from "@/components/Icone";
 import { formatarDoc } from "./ListaPessoas";
 import { BotaoAreaCliente, FormAnexo, FormAnotacao } from "./FormsVer";
+import { cadaPalavra, contem } from "@/lib/busca/palavras";
+import { boletoAbrivel } from "@/lib/financeiro/lista";
+import { ATIVOS } from "@/lib/financeiro/boletos";
+import Resumo from "@/components/ui/Resumo";
 
 type Sp = { aba?: string; t?: string; per?: string; qt?: string };
 
@@ -90,7 +94,7 @@ export default async function VerPessoa({ papel, id, sp }: { papel: PapelPessoa;
   ];
 
   return (
-    <Pagina titulo={`Visualizar ${cfg.rotulo.toLowerCase()}`} trilha={[{ rotulo: cfg.plural, href: cfg.base }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar={cfg.base} titulo={`Visualizar ${cfg.rotulo.toLowerCase()}`} trilha={[{ rotulo: cfg.plural, href: cfg.base }, { rotulo: "Visualizar" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome={cfg.icone} size={18} /> {cfg.rotulo} #{p[cfg.codigo] ?? "—"} {sit && <Pilula rotulo={sit.rotulo} cor={sit.cor} />}
@@ -159,18 +163,19 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
   const todos = await prisma.lancamento.findMany({ where: { pessoaId: id, tipo: tipoLanc }, select: { valor: true, valorPago: true, pagoEm: true, vencimento: true } });
   const soma = (l: typeof todos) => l.reduce((s, x) => s + Number(x.pagoEm ? x.valorPago ?? x.valor : x.valor), 0);
   const cards = [
-    { r: "Vencidos", v: soma(todos.filter((x) => !x.pagoEm && x.vencimento < hoje)), s: "Valores que já venceram", cor: "bg-red-100 text-red-600", txt: "text-red-600", i: "alerta" },
-    { r: "A vencer", v: soma(todos.filter((x) => !x.pagoEm && x.vencimento >= hoje)), s: "Valores a vencer", cor: "bg-amber-100 text-amber-600", txt: "text-amber-600", i: "relogio" },
-    { r: papel === "cliente" ? "Pagos" : "Pagos", v: soma(todos.filter((x) => x.pagoEm)), s: "Valores já quitados", cor: "bg-emerald-100 text-emerald-600", txt: "text-emerald-600", i: "ok" },
-    { r: "Em aberto", v: soma(todos.filter((x) => !x.pagoEm)), s: "Valores ainda pendentes", cor: "bg-sky-100 text-sky-600", txt: "text-sky-700", i: "lista" },
+    { r: "Vencidos", v: soma(todos.filter((x) => !x.pagoEm && x.vencimento < hoje)), s: "Valores que já venceram", k: "vermelho" as const, i: "atrasado" },
+    { r: "A vencer", v: soma(todos.filter((x) => !x.pagoEm && x.vencimento >= hoje)), s: "Valores a vencer", k: "amarelo" as const, i: "hoje" },
+    { r: "Pagos", v: soma(todos.filter((x) => x.pagoEm)), s: "Valores já quitados", k: "verde" as const, i: "confirmado" },
+    { r: "Em aberto", v: soma(todos.filter((x) => !x.pagoEm)), s: "Valores ainda pendentes", k: "azul" as const, i: "lista" },
   ];
+  const totalCards = soma(todos);
 
-  type Card = { id: string; icone: string; titulo: string; href?: string; pilula: { r: string; c: string }; extra?: string; data: Date; valor: number };
+  type Card = { id: string; icone: string; titulo: string; href?: string; origem?: { rotulo: string; href: string }; boleto?: string | null; pilula: { r: string; c: string }; extra?: string; data: Date; valor: number };
   let lista: Card[] = [];
   const q = sp.qt?.trim();
   if (t === "recebimentos" || t === "pagamentos") {
-    const w: Prisma.LancamentoWhereInput = { pessoaId: id, tipo: tipoLanc, ...(ini ? { vencimento: { gte: ini } } : {}), ...(q ? { descricao: { contains: q, mode: "insensitive" } } : {}) };
-    const ls = await prisma.lancamento.findMany({ where: w, include: { formaPagamento: { select: { nome: true } } }, orderBy: { vencimento: "desc" }, take: 100 });
+    const w: Prisma.LancamentoWhereInput = { pessoaId: id, tipo: tipoLanc, ...(ini ? { vencimento: { gte: ini } } : {}), AND: cadaPalavra(q, (p): Prisma.LancamentoWhereInput[] => [{ descricao: contem(p) }]) };
+    const ls = await prisma.lancamento.findMany({ where: w, include: { formaPagamento: { select: { nome: true } }, boletos: { select: { id: true, situacao: true }, orderBy: { createdAt: "desc" } } }, orderBy: { vencimento: "desc" }, take: 100 });
     const nums = new Map<string, string>();
     const os = await prisma.ordemServico.findMany({ where: { id: { in: ls.filter((l) => l.origemTipo === "OS").map((l) => l.origemId!) } }, select: { id: true, numero: true } });
     const vs = await prisma.venda.findMany({ where: { id: { in: ls.filter((l) => l.origemTipo === "VENDA").map((l) => l.origemId!) } }, select: { id: true, numero: true } });
@@ -179,8 +184,12 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
     lista = ls.map((l) => ({
       id: l.id,
       icone: l.origemTipo === "OS" ? "os" : l.origemTipo === "VENDA" ? "notas" : "dinheiro",
-      titulo: (l.origemId && nums.get(l.origemId)) || l.descricao,
-      href: l.origemTipo === "OS" ? `/os/${l.origemId}` : l.origemTipo === "VENDA" ? `/vendas/${l.origemId}` : `/financeiro/lancamentos/${l.id}`,
+      titulo: `${(l.origemId && nums.get(l.origemId)) || l.descricao}${l.totalParcelas > 1 ? ` · parcela ${l.parcela}/${l.totalParcelas}` : ""}`,
+      // abre o recebimento/pagamento em si; a venda ou OS de origem fica num link à parte
+      href: `/financeiro/lancamentos/${l.id}`,
+      origem: l.origemId && (l.origemTipo === "OS" || l.origemTipo === "VENDA")
+        ? { rotulo: l.origemTipo === "OS" ? "Abrir a OS" : "Abrir a venda", href: `${l.origemTipo === "OS" ? "/os" : "/vendas"}/${l.origemId}?conta=${l.id}` } : undefined,
+      boleto: l.tipo === "RECEBER" ? boletoAbrivel(l.boletos.find((b) => ATIVOS.includes(b.situacao))) : null,
       pilula: l.pagoEm ? { r: "Confirmado", c: "border-emerald-300 bg-emerald-50 text-emerald-700" } : l.vencimento < hoje ? { r: "Atrasado", c: "border-red-300 bg-red-50 text-red-700" } : { r: "Em aberto", c: "border-slate-300 bg-white text-slate-600" },
       extra: l.formaPagamento?.nome ?? undefined,
       data: l.pagoEm ?? l.vencimento,
@@ -197,7 +206,7 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
     lista = os.map((o) => ({ id: o.id, icone: "os", titulo: `Ordem de serviço de nº ${o.numero}`, href: `/os/${o.id}`, pilula: { r: s.get(o.situacao)!.rotulo, c: s.get(o.situacao)!.cor }, data: o.entrada, valor: Number(o.total) }));
   } else if (t === "compras") {
     const cs = await prisma.compra.findMany({ where: { fornecedorId: id, ...(ini ? { data: { gte: ini } } : {}) }, orderBy: { data: "desc" }, take: 100 });
-    lista = cs.map((c) => ({ id: c.id, icone: "carrinho", titulo: `Compra de nº ${c.numero}`, pilula: { r: "Confirmado", c: "border-emerald-300 bg-emerald-50 text-emerald-700" }, data: c.data, valor: Number(c.total) }));
+    lista = cs.map((c) => ({ id: c.id, icone: "carrinho", titulo: `Compra de nº ${c.numero}`, href: `/compras/${c.id}`, pilula: { r: "Confirmado", c: "border-emerald-300 bg-emerald-50 text-emerald-700" }, data: c.data, valor: Number(c.total) }));
   }
   const rotT = tipos.find((x) => x.v === t)?.r ?? tipos[0].r;
 
@@ -217,16 +226,8 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
           {PERIODOS.map((x) => <LinkSuspenso key={x.v} href={urlCom(base, params, { per: x.v || undefined })}>{x.r}</LinkSuspenso>)}
         </Suspenso>
       </div>
-      <div className="mb-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map((c) => (
-          <div key={c.r} className="cartao flex flex-col items-center px-3 py-4 text-center">
-            <span className={`mb-1 flex h-8 w-8 items-center justify-center rounded-full ${c.cor}`}><Icone nome={c.i} size={15} /></span>
-            <div className="text-[13px]">{c.r}</div>
-            <div className={`text-[20px] font-semibold ${c.txt}`}>{c.v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-            <div className="text-[11px] text-slate-500">{c.s}</div>
-          </div>
-        ))}
-      </div>
+      {/* mesmos cartões de resumo das listas (ícone, valor, anel com o percentual do total) */}
+      <Resumo cartoes={cards.map((c) => ({ rotulo: c.r, valor: brl(c.v), legenda: c.s, icone: c.i, cor: c.k, pct: totalCards > 0 ? (c.v / totalCards) * 100 : 0 }))} />
       <div className="space-y-2">
         {lista.map((c) => (
           <div key={c.id} className="cartao flex items-center gap-3 px-4 py-3">
@@ -238,11 +239,15 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
                 {c.extra && <span className="flex items-center gap-1"><Icone nome="cartao" size={11} /> {c.extra}</span>}
                 <span className="flex items-center gap-1"><Icone nome="calendario" size={11} /> {data(c.data)}</span>
                 <span className="flex items-center gap-1"><Icone nome="dinheiro" size={11} /> {brl(c.valor)}</span>
+                {c.origem && <Link href={c.origem.href} className="flex items-center gap-1 text-marca hover:underline"><Icone nome="vendas" size={11} /> {c.origem.rotulo.replace("Abrir a ", "")}</Link>}
+                {c.boleto && <a href={c.boleto} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-marca hover:underline"><Icone nome="boleto" size={11} /> boleto</a>}
               </div>
             </div>
             {c.href && (
               <Suspenso direita classe="btn-icone border-0" botao={<Icone nome="opcoes" size={15} />}>
                 <LinkSuspenso href={c.href} icone="ver">Visualizar</LinkSuspenso>
+                {c.origem && <LinkSuspenso href={c.origem.href} icone="vendas">{c.origem.rotulo}</LinkSuspenso>}
+                {c.boleto && <a href={c.boleto} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="boleto" size={15} /> Abrir boleto</a>}
               </Suspenso>
             )}
           </div>

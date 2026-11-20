@@ -5,6 +5,7 @@ import { paramsDe, periodoRelatorio } from "@/lib/relatorios/periodo";
 import { dataHora } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
 import SeletorPeriodo from "@/components/ui/SeletorPeriodo";
+import { cadaPalavra, contem } from "@/lib/busca/palavras";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Registro de auditoria" };
@@ -24,7 +25,7 @@ export default async function Auditoria({ searchParams }: { searchParams: Promis
     ...(sp.entidade ? { entidade: sp.entidade } : {}),
     ...(sp.id ? { entidadeId: sp.id } : {}),
     ...(sp.acao ? { acao: sp.acao } : {}),
-    ...(sp.q ? { descricao: { contains: sp.q, mode: "insensitive" } } : {}),
+    AND: cadaPalavra(sp.q, (p) => [{ descricao: contem(p) }]),
   };
   const [lista, total, usuarios] = await Promise.all([
     prisma.registroAuditoria.findMany({ where, orderBy: { createdAt: "desc" }, take: 500 }),

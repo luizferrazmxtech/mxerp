@@ -33,7 +33,7 @@ export default async function ProdutoEstoque({ params }: { params: Promise<{ id:
   const comSaldo = porLocal.filter((l) => l.fisico !== 0 || l.reservado !== 0);
 
   return (
-    <Pagina titulo="Estoque do produto" icone="estoque" trilha={[{ rotulo: "Estoque", href: "/estoque" }, { rotulo: "Produto" }]}>
+    <Pagina voltar="/estoque" titulo="Estoque do produto" icone="estoque" trilha={[{ rotulo: "Estoque", href: "/estoque" }, { rotulo: "Produto" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex flex-wrap items-center gap-2 text-[18px]"><Icone nome="produtos" size={18} /> {produto.nome}
@@ -43,7 +43,6 @@ export default async function ProdutoEstoque({ params }: { params: Promise<{ id:
           <p className="text-[12px] text-slate-500">Código {produto.codigo}{produto.gtin ? ` · GTIN ${produto.gtin}` : ""} · {brl(produto.precoVenda)} · local padrão: {produto.localPadrao?.codigo ?? "não definido"}</p>
         </div>
         <div className="no-print ml-auto flex gap-2">
-          <Link href="/estoque" className="btn-sec"><Icone nome="direita" size={14} className="rotate-180" /> Voltar</Link>
           <Link href={`/produtos/${id}?aba=movimentacoes`} className="btn-sec"><Icone nome="atualizar" size={14} /> Kardex completo</Link>
           <Link href={`/produtos/${id}`} className="btn-laranja"><Icone nome="produtos" size={14} /> Ver cadastro</Link>
         </div>

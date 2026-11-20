@@ -7,6 +7,8 @@ import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
 import { cancelar, cancelarServico, cartaCorrecaoAcao, consultarNotaAcao } from "../actions";
 import { URL_DANFSE } from "@/lib/fiscal/nfse";
+import { Pagina } from "@/components/ui/Pagina";
+import Icone from "@/components/Icone";
 
 export const dynamic = "force-dynamic";
 
@@ -34,12 +36,13 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
       ? await prisma.ordemServico.findUnique({ where: { id: n.origemId }, select: { id: true, numero: true } }).then((o) => o && { rotulo: `OS #${o.numero}`, href: `/os/${o.id}` })
       : null;
 
+  const curto = n.modelo === "NFE" ? "NF-e" : n.modelo === "NFCE" ? "NFC-e" : "NFS-e";
   return (
+    <Pagina voltar={`/fiscal?modelo=${n.modelo}`} titulo={`${curto} nº ${n.numero}`} icone="notas" trilha={[{ rotulo: "Fiscal", href: "/fiscal" }, { rotulo: curto, href: `/fiscal?modelo=${n.modelo}` }, { rotulo: "Visualizar" }]}>
     <div className="space-y-4">
       <div className="no-print flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
-          <Link href={`/fiscal?modelo=${n.modelo}`} className="text-sm text-slate-500 hover:underline">← Notas fiscais</Link>
-          {origem && <Link href={origem.href} className="text-sm text-marca hover:underline">Gerada pela {origem.rotulo}</Link>}
+          {origem && <Link href={origem.href} className="btn-sec"><Icone nome="vendas" size={14} /> Gerada pela {origem.rotulo}</Link>}
         </div>
         <div className="flex gap-2">
           {n.xml && <a href={`/api/notas/${n.id}/xml`} className="btn-sec">Baixar XML</a>}
@@ -182,5 +185,6 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
         </div>
       )}
     </div>
+    </Pagina>
   );
 }

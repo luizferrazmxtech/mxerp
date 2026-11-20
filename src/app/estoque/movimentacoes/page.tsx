@@ -6,6 +6,7 @@ import { num2, qtd } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
 import Paginacao, { Ordenar, lerPagina } from "@/components/ui/Paginacao";
 import Icone from "@/components/Icone";
+import CelulaEstoque from "@/components/estoque/CelulaEstoque";
 import BarraCadastro from "@/components/ui/BarraCadastro";
 import { LinkSuspenso } from "@/components/ui/BarraLista";
 
@@ -19,7 +20,7 @@ export default async function Movimentacoes({ searchParams }: { searchParams: Pr
   const where = await whereProdutos(sp);
   const { pagina, porPagina, skip, take } = lerPagina(sp);
   const [lista, total] = await Promise.all([
-    prisma.produto.findMany({ where, orderBy: [ordemProdutos(sp.o), { id: "asc" }], skip, take, select: { id: true, codigo: true, nome: true, precoVenda: true, unidade: true, controlaEstoque: true } }),
+    prisma.produto.findMany({ where, orderBy: [ordemProdutos(sp.o), { id: "asc" }], skip, take, select: { id: true, codigo: true, nome: true, precoVenda: true, unidade: true, controlaEstoque: true, estoqueMinimo: true, estoqueMaximo: true } }),
     prisma.produto.count({ where }),
   ]);
   const est = await estoquesDe(lista.map((p) => p.id));
@@ -48,7 +49,7 @@ export default async function Movimentacoes({ searchParams }: { searchParams: Pr
                   <td>{p.codigo}</td>
                   <td><Link href={`/produtos/${p.id}`} className="hover:underline">{p.nome}</Link></td>
                   <td className="text-right">{num2(p.precoVenda)}</td>
-                  <td className={`text-right ${p.controlaEstoque && e.fisico <= 0 ? "text-red-600" : ""}`}>{p.controlaEstoque ? `${qtd(e.fisico)} ${p.unidade}` : "—"}</td>
+                  <td className="text-right"><CelulaEstoque controla={p.controlaEstoque} fisico={e.fisico} reservado={e.reservado} minimo={p.estoqueMinimo} maximo={p.estoqueMaximo} unidade={p.unidade} /></td>
                   <td className="text-right"><Link href={`/produtos/${p.id}?aba=movimentacoes`} className="btn-icone" title="Movimentações"><Icone nome="transferir" size={13} /></Link></td>
                 </tr>
               );

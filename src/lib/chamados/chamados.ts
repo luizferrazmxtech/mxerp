@@ -1,6 +1,7 @@
 import type { PrioridadeChamado, Prisma, StatusChamado } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
+import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 /**
  * Atendimentos e chamados (helpdesk): o pedido do cliente (telefone, WhatsApp, e-mail…) vira um chamado numerado,
@@ -127,14 +128,11 @@ export function filtroChamados(f: FiltroChamados, usuarioId?: string): Prisma.Ch
   if (f.clienteId) and.push({ clienteId: f.clienteId });
   if (f.prioridade && f.prioridade in ROTULO_PRIORIDADE) and.push({ prioridade: f.prioridade as PrioridadeChamado });
   const q = t(f.q);
-  if (q) {
-    const n = Number(q.replace(/^#/, ""));
-    and.push({ OR: [
-      ...(Number.isInteger(n) && n > 0 ? [{ numero: n }] : []),
-      { assunto: { contains: q, mode: "insensitive" } }, { descricao: { contains: q, mode: "insensitive" } },
-      { contato: { contains: q, mode: "insensitive" } }, { cliente: { nome: { contains: q, mode: "insensitive" } } },
-    ] });
-  }
+  and.push(...cadaPalavra(q, (p): Prisma.ChamadoWhereInput[] => {
+    const n = numeroPalavra(p);
+    return [...(n ? [{ numero: n }] : []), { assunto: contem(p) }, { descricao: contem(p) }, { contato: contem(p) },
+      { cliente: { nome: contem(p) } }, { cliente: { fantasia: contem(p) } }];
+  }));
   return and.length ? { AND: and } : {};
 }
 

@@ -79,7 +79,7 @@ export default async function VerCompra({ params, searchParams }: { params: Prom
   const podeEditar = c.situacaoCfg?.permiteEdicao ?? true;
 
   return (
-    <Pagina titulo="Visualizar compra" trilha={[{ rotulo: tituloCompras(c.tipo), href: baseCompras(c.tipo) }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar={baseCompras(c.tipo)} titulo="Visualizar compra" trilha={[{ rotulo: tituloCompras(c.tipo), href: baseCompras(c.tipo) }, { rotulo: "Visualizar" }]}>
       <VoltarConta contaId={sp.conta} />
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>

@@ -32,7 +32,7 @@ export default async function VerInventario({ params }: { params: Promise<{ id: 
   const [rotulo, corSit] = SIT[inv.situacao] ?? SIT.CONTANDO;
   const cega = inv.contagemCega && aberto;
   return (
-    <Pagina titulo="Inventário" trilha={[{ rotulo: "Inventários", href: "/estoque/inventarios" }, { rotulo: `Nº ${inv.numero}` }]}>
+    <Pagina voltar="/estoque/inventarios" titulo="Inventário" trilha={[{ rotulo: "Inventários", href: "/estoque/inventarios" }, { rotulo: `Nº ${inv.numero}` }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="inventario" size={18} /> Inventário #{inv.numero} · {inv.descricao} <span className={`pilula ${corSit}`}>{rotulo}</span></h2>

@@ -25,7 +25,7 @@ export async function documentosDosMovimentos(movs: Mov[]): Promise<Map<string, 
   const nome = (p?: { nome: string; fantasia?: string | null } | null) => p ? (p.fantasia || p.nome) : undefined;
   const pessoa = { select: { nome: true, fantasia: true } } as const;
 
-  const [vendas, oss, osPorNumero, compras, devolucoes, ajs, invs, vendasAjuste] = await Promise.all([
+  const [vendas, oss, osPorNumero, compras, devolucoes, ajs, invs, vendasAjuste, transfs] = await Promise.all([
     prisma.venda.findMany({ where: { id: { in: ids("VENDA") } }, select: { id: true, numero: true, cliente: pessoa } }),
     prisma.ordemServico.findMany({ where: { id: { in: ids("OS") } }, select: { id: true, numero: true, cliente: pessoa } }),
     numerosOs.length ? prisma.ordemServico.findMany({ where: { numero: { in: numerosOs } }, select: { id: true, numero: true, cliente: pessoa } }) : [],
@@ -34,6 +34,7 @@ export async function documentosDosMovimentos(movs: Mov[]): Promise<Map<string, 
     prisma.ajusteEstoque.findMany({ where: { id: { in: ajustes } }, select: { id: true, numero: true } }),
     prisma.inventario.findMany({ where: { id: { in: ajustes } }, select: { id: true, numero: true } }),
     prisma.venda.findMany({ where: { id: { in: ajustes } }, select: { id: true, numero: true, cliente: pessoa } }),
+    prisma.transferenciaEstoque.findMany({ where: { id: { in: ids("TRANSFERENCIA") } }, select: { id: true, numero: true } }),
   ]);
 
   const mapa = new Map<string, DocumentoOrigem>();
@@ -44,6 +45,7 @@ export async function documentosDosMovimentos(movs: Mov[]): Promise<Map<string, 
   for (const a of ajs) mapa.set(`AJUSTE:${a.id}`, { rotulo: `Ajuste #${a.numero}`, href: `/estoque/ajustes/${a.id}` });
   for (const i of invs) mapa.set(`AJUSTE:${i.id}`, { rotulo: `Inventário #${i.numero}`, href: `/estoque/inventarios/${i.id}` });
   for (const v of vendasAjuste) mapa.set(`AJUSTE:${v.id}`, { rotulo: `Venda #${v.numero}`, href: `/vendas/${v.id}`, pessoa: nome(v.cliente) });
+  for (const t of transfs) mapa.set(`TRANSFERENCIA:${t.id}`, { rotulo: `Transferência #${t.numero}`, href: `/estoque/transferencias/${t.id}` });
   // movimentos sem documento (implantação) que citam a OS na observação
   for (const m of movs) {
     if (m.origemId) continue;

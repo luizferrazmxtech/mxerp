@@ -32,7 +32,7 @@ export default async function Chamado({ params }: { params: Promise<{ id: string
   const atrasado = ABERTOS.includes(c.status) && c.prazo && c.prazo < new Date();
   const fone = c.telefone ?? c.cliente?.celular ?? c.cliente?.telefone;
   return (
-    <Pagina titulo={<>Chamado nº {c.numero}</>} icone="atendimento" trilha={[{ rotulo: "Atendimentos", href: "/chamados" }, { rotulo: `Nº ${c.numero}` }]}
+    <Pagina voltar="/chamados" titulo={<>Chamado nº {c.numero}</>} icone="atendimento" trilha={[{ rotulo: "Atendimentos", href: "/chamados" }, { rotulo: `Nº ${c.numero}` }]}
       acoes={<Link href="/chamados/novo" className="btn-sec">Novo chamado</Link>}>
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <div className="space-y-4">

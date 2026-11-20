@@ -29,7 +29,7 @@ export default async function VerAjuste({ params, searchParams }: { params: Prom
   const base = `/estoque/ajustes/${id}`;
   const aba = sp.aba === "anotacoes" ? "anotacoes" : "produtos";
   return (
-    <Pagina titulo="Visualizar ajuste de estoque" trilha={[{ rotulo: "Ajustes de estoque", href: "/estoque/ajustes" }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar="/estoque/ajustes" titulo="Visualizar ajuste de estoque" trilha={[{ rotulo: "Ajustes de estoque", href: "/estoque/ajustes" }, { rotulo: "Visualizar" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="estoque" size={18} /> Ajuste de estoque #{a.numero}

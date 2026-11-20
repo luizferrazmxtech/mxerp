@@ -10,6 +10,7 @@ import { parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, lerNumero, subtotalProduto, subtotalServico } from "@/lib/orcamentos/tipos";
 import { dataLocalSP, totaisOs, type DadosOs } from "@/lib/os/tipos";
 import { estadoEstoque } from "@/lib/os/os";
+import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 /**
  * Ordem de serviço completa (padrão Gestão Click). A situação configurável decide o estoque
@@ -277,10 +278,13 @@ export function whereOrdens(sp: ParamsOs): Prisma.OrdemServicoWhereInput {
   const H = 3 * 3600_000;
   if (per) w.push({ entrada: { gte: new Date(per.de.getTime() + H), lt: new Date(per.ate.getTime() + 86400_000 + H) } });
   const ini = (s: string) => new Date(`${s}T00:00:00-03:00`), fim = (s: string) => new Date(`${s}T23:59:59.999-03:00`);
-  if (sp.q) {
-    const num = Number(sp.q.replace(/\D/g, ""));
-    w.push({ OR: [...(num ? [{ numero: num }] : []), { cliente: { nome: { contains: sp.q, mode: "insensitive" } } }, { cliente: { fantasia: { contains: sp.q, mode: "insensitive" } } }, { equipamentos: { some: { equipamento: { contains: sp.q, mode: "insensitive" } } } }] });
-  }
+  // cada palavra em qualquer ordem: nº da OS, cliente, equipamento (nome, marca, modelo, série)
+  w.push(...cadaPalavra(sp.q, (p): Prisma.OrdemServicoWhereInput[] => {
+    const num = numeroPalavra(p), d = p.replace(/\D/g, "");
+    return [...(num ? [{ numero: num }] : []), { cliente: { nome: contem(p) } }, { cliente: { fantasia: contem(p) } },
+      ...(d.length >= 3 ? [{ cliente: { documento: { contains: d } } }] : []),
+      { equipamentos: { some: { OR: [{ equipamento: contem(p) }, { marca: contem(p) }, { modelo: contem(p) }, { serie: contem(p) }] } } }];
+  }));
   if (sp.codigo) w.push({ numero: Number(sp.codigo) || -1 });
   if (sp.de || sp.ate) w.push({ entrada: { ...(sp.de ? { gte: ini(sp.de) } : {}), ...(sp.ate ? { lte: fim(sp.ate) } : {}) } });
   if (sp.sde || sp.sate) w.push({ saida: { ...(sp.sde ? { gte: ini(sp.sde) } : {}), ...(sp.sate ? { lte: fim(sp.sate) } : {}) } });

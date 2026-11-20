@@ -31,3 +31,22 @@ export function wherePalavras(q: string, colunas: Prisma.Sql[]): Prisma.Sql {
     return Prisma.sql`(${Prisma.join(cols.map((c) => Prisma.sql`${c} LIKE ${like}`), " OR ")})`;
   }), " AND ");
 }
+
+/** Palavras digitadas, como vieram (sem normalizar), para usar no `contains` do Prisma. */
+export function palavrasBusca(q: string | null | undefined) {
+  return (q ?? "").trim().split(/\s+/).map((p) => p.trim()).filter(Boolean).slice(0, 8);
+}
+
+/** Número de documento digitado como palavra ("8698" ou "#8698"); 0 se não for número. */
+export const numeroPalavra = (p: string) => (/^#?\d{1,9}$/.test(p) ? Number(p.replace("#", "")) : 0);
+
+/**
+ * Busca por palavras nas listas feitas com o Prisma: cada palavra precisa casar com alguma das condições,
+ * em qualquer ordem ("silva joao" acha "João da Silva"). Devolve as condições para juntar num AND.
+ */
+export function cadaPalavra<T>(q: string | null | undefined, condicoes: (palavra: string) => T[]): { OR: T[] }[] {
+  return palavrasBusca(q).map((p) => ({ OR: condicoes(p) }));
+}
+
+/** `contains` sem diferenciar maiúsculas. */
+export const contem = (p: string) => ({ contains: p, mode: "insensitive" as const });

@@ -28,7 +28,7 @@ export default async function VerFuncionario({ params, searchParams }: { params:
   const base = `/funcionarios/${id}`;
   const linha = (k: string, v: React.ReactNode) => <div key={k}><dt className="inline font-semibold">{k}: </dt><dd className="inline">{v || ""}</dd></div>;
   return (
-    <Pagina titulo="Visualizar funcionário" trilha={[{ rotulo: "Funcionários", href: "/funcionarios" }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar="/funcionarios" titulo="Visualizar funcionário" trilha={[{ rotulo: "Funcionários", href: "/funcionarios" }, { rotulo: "Visualizar" }]}>
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="funcionarios" size={18} /> {u.nome.toUpperCase()}
