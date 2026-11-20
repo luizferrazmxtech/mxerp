@@ -1,7 +1,6 @@
 import https from "node:https";
-import fs from "node:fs";
 import { gzipSync, gunzipSync } from "node:zlib";
-import { NaoEnviadoError, opcoesTls, type Certificado } from "./certificado";
+import { autoridadesSefaz, NaoEnviadoError, opcoesTls, type Certificado } from "./certificado";
 import { assinarXml } from "./assinatura";
 import { dataHoraTz, dec, g, so, t } from "./xml";
 
@@ -155,7 +154,7 @@ export const transporteRest: TransporteRest = (metodo, url, corpo, cert) =>
     let conectou = false;
     const falhou = (e: Error) => reject(conectou ? e : new NaoEnviadoError(`Não foi possível conectar à NFS-e Nacional: ${e.message}`));
     try {
-    const ca = process.env.SEFAZ_CA_FILE ? fs.readFileSync(process.env.SEFAZ_CA_FILE) : undefined;
+    const ca = autoridadesSefaz();
     const req = https.request(url, {
       method: metodo, ...opcoesTls(cert), ca, timeout: 30000,
       headers: { "Content-Type": "application/json", Accept: "application/json", ...(corpo ? { "Content-Length": Buffer.byteLength(corpo) } : {}) },
