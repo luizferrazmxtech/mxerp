@@ -7,7 +7,7 @@ const num = (v: unknown) => Number(v ?? 0) || 0;
 const lista = <T>(v: T | T[] | undefined): T[] => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
 export type Endereco = { logradouro: string; numero: string; complemento: string; bairro: string; municipio: string; uf: string; cep: string; fone: string };
-export type ItemDanfe = { codigo: string; descricao: string; ncm: string; cst: string; cfop: string; unidade: string; quantidade: number; valorUnit: number; valorTotal: number; desconto: number; bcIcms: number; vIcms: number; aliqIcms: number };
+export type ItemDanfe = { codigo: string; descricao: string; ncm: string; cst: string; cfop: string; unidade: string; quantidade: number; valorUnit: number; valorTotal: number; desconto: number; bcIcms: number; vIcms: number; aliqIcms: number; vIpi: number; aliqIpi: number; infAdProd: string };
 
 const endereco = (e: No | undefined): Endereco => ({
   logradouro: txt(e?.xLgr), numero: txt(e?.nro), complemento: txt(e?.xCpl), bairro: txt(e?.xBairro),
@@ -28,11 +28,13 @@ export function lerDanfe(xml: string) {
   const itens: ItemDanfe[] = lista(inf.det as No | No[]).map((d) => {
     const p = d.prod as No;
     const icmsGrupo = Object.values(((d.imposto as No)?.ICMS ?? {}) as No)[0] as No | undefined;
+    const ipi = (((d.imposto as No)?.IPI as No)?.IPITrib ?? {}) as No;
     return {
       codigo: txt(p.cProd), descricao: txt(p.xProd), ncm: txt(p.NCM), cfop: txt(p.CFOP), unidade: txt(p.uCom),
       cst: `${txt(icmsGrupo?.orig)}${txt(icmsGrupo?.CSOSN ?? icmsGrupo?.CST)}`,
       quantidade: num(p.qCom), valorUnit: num(p.vUnCom), valorTotal: num(p.vProd), desconto: num(p.vDesc),
       bcIcms: num(icmsGrupo?.vBC), vIcms: num(icmsGrupo?.vICMS), aliqIcms: num(icmsGrupo?.pICMS),
+      vIpi: num(ipi.vIPI), aliqIpi: num(ipi.pIPI), infAdProd: txt(d.infAdProd),
     };
   });
   const supl = nfe.infNFeSupl as No | undefined;
@@ -46,8 +48,14 @@ export function lerDanfe(xml: string) {
     totais: {
       bcIcms: num(tot.vBC), vIcms: num(tot.vICMS), bcSt: num(tot.vBCST), vSt: num(tot.vST), vProd: num(tot.vProd), vFrete: num(tot.vFrete),
       vSeg: num(tot.vSeg), vDesc: num(tot.vDesc), vOutro: num(tot.vOutro), vIpi: num(tot.vIPI), vNF: num(tot.vNF), vTotTrib: num(tot.vTotTrib),
+      vII: num(tot.vII), vPis: num(tot.vPIS), vCofins: num(tot.vCOFINS),
     },
     modFrete: txt(transp.modFrete),
+    transportadora: (() => {
+      const t = (transp.transporta ?? {}) as No, v = (transp.veicTransp ?? {}) as No;
+      return { nome: txt(t.xNome), documento: txt(t.CNPJ ?? t.CPF), ie: txt(t.IE), endereco: txt(t.xEnder), municipio: txt(t.xMun), uf: txt(t.UF), placa: txt(v.placa), ufPlaca: txt(v.UF), antt: txt(v.RNTC) };
+    })(),
+    volumes: lista(transp.vol as No | No[]).map((v) => ({ quantidade: txt(v.qVol), especie: txt(v.esp), marca: txt(v.marca), numeracao: txt(v.nVol), pesoBruto: num(v.pesoB), pesoLiquido: num(v.pesoL) })),
     pagamentos: pag.map((p) => ({ tPag: txt(p.tPag), valor: num(p.vPag) })),
     duplicatas: dup.map((d) => ({ numero: txt(d.nDup), vencimento: txt(d.dVenc), valor: num(d.vDup) })),
     infCpl: txt((inf.infAdic as No)?.infCpl),

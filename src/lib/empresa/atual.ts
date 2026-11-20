@@ -4,17 +4,20 @@ import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/auth/atual";
 import { COOKIE_LOJA, escolherLoja, lojasPermitidas } from "./loja";
 
+/** Empresa sem a imagem do logo (que só o DANFE e os impressos precisam). */
+export type EmpresaLoja = Omit<Empresa, "logo">;
+
 /** Lojas (empresas) que o usuário logado pode usar, na ordem de cadastro. */
-export async function lojasDoUsuario(): Promise<Empresa[]> {
+export async function lojasDoUsuario(): Promise<EmpresaLoja[]> {
   const u = await usuarioAtual();
   if (!u) return [];
-  const todas = await prisma.empresa.findMany({ orderBy: { createdAt: "asc" } });
+  const todas = await prisma.empresa.findMany({ orderBy: { createdAt: "asc" }, omit: { logo: true } });
   const ids = new Set(lojasPermitidas(todas, u.lojas ?? []).map((e) => e.id));
   return todas.filter((e) => ids.has(e.id));
 }
 
 /** Empresa da loja atual (a do cookie, se permitida; senão a primeira). null se nenhuma empresa foi cadastrada. */
-export async function lojaAtual(): Promise<Empresa | null> {
+export async function lojaAtual(): Promise<EmpresaLoja | null> {
   const lojas = await lojasDoUsuario();
   const id = escolherLoja(lojas, (await cookies()).get(COOKIE_LOJA)?.value);
   return lojas.find((e) => e.id === id) ?? null;
@@ -28,7 +31,7 @@ export async function empresaDoDocumento(empresaId: string | null | undefined): 
   }
   try {
     const atual = await lojaAtual();
-    if (atual) return atual;
+    if (atual) return prisma.empresa.findUnique({ where: { id: atual.id } });
   } catch { /* fora de uma requisição (agendador) */ }
   return prisma.empresa.findFirst({ orderBy: { createdAt: "asc" } });
 }

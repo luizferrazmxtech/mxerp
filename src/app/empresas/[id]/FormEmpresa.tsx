@@ -16,6 +16,7 @@ type Dados = {
   ambiente: string; ambienteNfse: string; serieNfe: number; serieNfce: number; serieDps: number; regimeEspecialNfse: number;
   cscId: string | null; temCsc: boolean; infCplNfe: string | null; infCplNfse: string | null;
   certificado: { titular: string | null; validade: string } | null;
+  temLogo: boolean;
 };
 
 const REG_ESP: [number, string][] = [
@@ -167,6 +168,17 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
           </Campo>
           <Campo rotulo="Senha do certificado"><input type="password" name="certificadoSenha" autoComplete="new-password" className="campo" /></Campo>
           {venc && <label className="flex items-end gap-2 pb-2 text-[13px]"><input type="checkbox" name="removerCertificado" /> Remover certificado</label>}
+        </div>
+      </Bloco>
+
+      <Bloco icone="foto" titulo={<>Envie o <b>logo</b> da loja</>} subtitulo="Sai no DANFE e nos impressos. PNG ou JPG, de preferência com fundo branco ou transparente (até 1 MB).">
+        <div className="flex flex-wrap items-center gap-4">
+          {e?.temLogo
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={`/empresas/${e.id}/logo`} alt="Logo" className="h-20 max-w-60 rounded border bg-white object-contain p-1" />
+            : <span className="text-[13px] text-slate-500">Sem logo.</span>}
+          <Campo rotulo={e?.temLogo ? "Trocar logo" : "Arquivo do logo"}><input type="file" name="logo" accept="image/png,image/jpeg" className="campo" /></Campo>
+          {e?.temLogo && <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" name="removerLogo" /> Remover logo</label>}
         </div>
       </Bloco>
 

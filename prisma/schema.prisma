@@ -49,6 +49,8 @@ model Empresa {
   regimeEspecialNfse  Int              @default(0) // regEspTrib da DPS: 0 nenhum, 1 ato cooperado, 2 estimativa, 3 ME municipal, 4 notário, 5 autônomo, 6 sociedade de profissionais
   infCplNfe           String? // informações complementares padrão da NF-e/NFC-e
   infCplNfse          String? // texto padrão acrescentado na descrição da NFS-e
+  logo                Bytes? // logo da loja (PNG ou JPG) para o DANFE e os impressos
+  logoTipo            String?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 }
@@ -1646,6 +1648,7 @@ enum StatusNota {
 model NotaFiscal {
   id         String           @id @default(cuid())
   cnae      String? // atividade da nota (para o imposto do Simples por CNAE): comércio = CNAE da empresa; NFS-e = CNAE do serviço
+  consultadaEm DateTime? // última consulta da situação na SEFAZ
   empresaId  String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   modelo     ModeloNota
   serie      Int

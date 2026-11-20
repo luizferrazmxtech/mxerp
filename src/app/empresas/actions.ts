@@ -97,6 +97,16 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
       cert = { certificadoPfx: cifrar(pfx.toString("base64")), certificadoSenha: cifrar(senha), certificadoValidade: lido.validoAte, certificadoTitular: titular };
     }
     if (form.get("removerCertificado") !== null) cert = { certificadoPfx: null, certificadoSenha: null, certificadoValidade: null, certificadoTitular: null };
+    // logo da loja (DANFE e impressos): só PNG/JPG, que o gerador de PDF lê
+    const arqLogo = form.get("logo");
+    if (arqLogo instanceof File && arqLogo.size > 0) {
+      if (arqLogo.size > 1_000_000) throw new Error("O logo pode ter até 1 MB");
+      const bytes = Buffer.from(await arqLogo.arrayBuffer());
+      const png = bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])), jpg = bytes[0] === 0xff && bytes[1] === 0xd8;
+      if (!png && !jpg) throw new Error("Envie o logo em PNG ou JPG (arquivos .ai/.pdf/.svg precisam ser exportados como PNG)");
+      cert = { ...cert, logo: bytes, logoTipo: png ? "image/png" : "image/jpeg" };
+    }
+    if (form.get("removerLogo") !== null) cert = { ...cert, logo: null, logoTipo: null };
 
     const primeira = !(await prisma.empresa.count());
     const outra = await prisma.empresa.findUnique({ where: { cnpj } });

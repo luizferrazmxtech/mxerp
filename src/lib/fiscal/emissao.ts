@@ -238,15 +238,15 @@ export async function consultarNota(notaId: string, deps: Dependencias = {}) {
   const amb: 1 | 2 = n.ambiente === "PRODUCAO" ? 1 : 2;
   const r = await new ClienteSefaz(deps.cert ?? certificadoDaEmpresa(e), e.uf!, amb, deps.transporte).consultar(n.chave, n.modelo === "NFCE" ? 65 : 55);
   const motivo = `${r.cStat} - ${r.xMotivo}`;
-  if (r.cancelada) return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "CANCELADA", motivo } });
+  if (r.cancelada) return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "CANCELADA", motivo, consultadaEm: new Date() } });
   // já autorizada aqui: só confirma (o XML de distribuição já está guardado)
-  if (n.status === "AUTORIZADA") return prisma.notaFiscal.update({ where: { id: n.id }, data: { motivo: `${motivo} (consultada em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })})` } });
+  if (n.status === "AUTORIZADA") return prisma.notaFiscal.update({ where: { id: n.id }, data: { motivo, consultadaEm: new Date() } });
   if (r.autorizada && r.protXml)
-    return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "AUTORIZADA", xml: montarProc(n.xml, r.protXml), protocolo: r.protocolo, motivo, emitidaEm: n.emitidaEm ?? new Date() } });
+    return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "AUTORIZADA", xml: montarProc(n.xml, r.protXml), protocolo: r.protocolo, motivo, emitidaEm: n.emitidaEm ?? new Date(), consultadaEm: new Date() } });
   const temProt = !!r.protXml; // protocolo de rejeição da própria nota
   if (r.naoConsta || temProt)
-    return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "REJEITADA", motivo } });
-  return prisma.notaFiscal.update({ where: { id: n.id }, data: { motivo: `${motivo}. Ainda em processamento: consulte de novo em instantes.` } });
+    return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "REJEITADA", motivo, consultadaEm: new Date() } });
+  return prisma.notaFiscal.update({ where: { id: n.id }, data: { motivo: `${motivo}. Ainda em processamento: consulte de novo em instantes.`, consultadaEm: new Date() } });
 }
 
 /** NFC-e (modelo 65) ou NF-e (55) de uma venda concluída. */
