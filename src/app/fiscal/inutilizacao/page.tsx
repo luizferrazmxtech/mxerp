@@ -2,6 +2,7 @@ import { Pagina } from "@/components/ui/Pagina";
 import Link from "next/link";
 import { exigirArea } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
+import { lojaAtual } from "@/lib/empresa/atual";
 import { numerosPendentes } from "@/lib/fiscal/inutilizacao";
 import { dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
@@ -12,10 +13,10 @@ export const metadata = { title: "Inutilizar numeração" };
 
 export default async function Inutilizacao() {
   await exigirArea("/fiscal");
-  const e = await prisma.empresa.findFirst();
+  const e = await lojaAtual();
   const ambiente = e?.ambienteFiscal ?? "HOMOLOGACAO";
   const series = e ? [{ modelo: "NFE" as const, serie: e.serieNfe, rotulo: "NF-e" }, { modelo: "NFCE" as const, serie: e.serieNfce, rotulo: "NFC-e" }] : [];
-  const pendentes = await Promise.all(series.map(async (x) => ({ ...x, faixas: await numerosPendentes(x.modelo, x.serie, ambiente) })));
+  const pendentes = await Promise.all(series.map(async (x) => ({ ...x, faixas: e ? await numerosPendentes(e, x.modelo, x.serie, ambiente) : [] })));
   const historico = await prisma.inutilizacaoNumeracao.findMany({ orderBy: { createdAt: "desc" }, take: 100 });
   return (
     <Pagina titulo="Inutilizar numeração" icone="notas" trilha={[{ rotulo: "Notas fiscais", href: "/fiscal" }, { rotulo: "Inutilizar numeração" }]}>

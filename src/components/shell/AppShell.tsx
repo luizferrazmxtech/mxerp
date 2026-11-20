@@ -10,6 +10,9 @@ type Props = {
   menu: ItemMenu[];
   usuario: { nome: string; papel: string };
   empresa: { nome: string; cnpj: string | null };
+  /** lojas (CNPJs) que o usuário pode usar; com mais de uma, o cartão vira seletor */
+  lojas?: { id: string; nome: string; cnpj: string; atual: boolean }[];
+  trocarLoja?: (form: FormData) => Promise<void>;
   sair: () => Promise<void>;
   children: React.ReactNode;
 };
@@ -32,7 +35,8 @@ function ativo(href: string, caminho: string, busca: string) {
   return caminho === p || caminho.startsWith(p + "/");
 }
 
-export default function AppShell({ menu, usuario, empresa, sair, children }: Props) {
+export default function AppShell({ menu, usuario, empresa, lojas = [], trocarLoja, sair, children }: Props) {
+  const [seletorLoja, setSeletorLoja] = useState(false);
   const caminho = usePathname();
   const busca = useSearchParams().toString();
   const pdv = caminho.startsWith("/pdv");
@@ -113,14 +117,33 @@ export default function AppShell({ menu, usuario, empresa, sair, children }: Pro
       <div className="flex pt-[50px]">
         {!pdv && menuAberto && (
           <aside className="no-print fixed bottom-0 left-0 top-[50px] z-30 w-[210px] overflow-y-auto border-r border-slate-200 bg-lateral pb-6">
-            <div className="m-2.5 rounded-md bg-topo px-3 py-3 text-white">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-marca text-xs font-bold">MX</span>
-                <div className="min-w-0">
+            <div className="relative m-2.5 rounded-md bg-topo text-white">
+              <button type="button" disabled={lojas.length < 2} onClick={() => setSeletorLoja((v) => !v)} title={lojas.length > 1 ? "Trocar de loja" : undefined}
+                className="flex w-full items-center gap-2.5 px-3 py-3 text-left disabled:cursor-default">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-marca text-xs font-bold">{empresa.nome.slice(0, 2).toUpperCase()}</span>
+                <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-semibold uppercase">{empresa.nome}</div>
                   {empresa.cnpj && <div className="text-[11px] text-slate-300">{empresa.cnpj}</div>}
                 </div>
-              </div>
+                {lojas.length > 1 && <Icone nome="abaixo" size={13} className="text-slate-300" />}
+              </button>
+              {seletorLoja && trocarLoja && (
+                <div className="absolute left-0 right-0 top-full z-40 mt-1 rounded-md border bg-white py-1 text-slate-800 shadow-lg">
+                  {lojas.map((l) => (
+                    <form key={l.id} action={trocarLoja} onSubmit={() => setSeletorLoja(false)}>
+                      <input type="hidden" name="lojaId" value={l.id} />
+                      <button className={`flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-100 ${l.atual ? "font-semibold" : ""}`}>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] uppercase">{l.nome}</span>
+                          <span className="block text-[11px] text-slate-500">{l.cnpj}</span>
+                        </span>
+                        {l.atual && <span className="text-emerald-600">✓</span>}
+                      </button>
+                    </form>
+                  ))}
+                  <Link href="/empresas" onClick={() => setSeletorLoja(false)} className="block border-t px-3 py-2 text-center text-[12px] text-marca hover:bg-slate-100">Gerenciar lojas</Link>
+                </div>
+              )}
             </div>
             <nav className="mt-3 text-[14px]">
               {menu.map((g) => {

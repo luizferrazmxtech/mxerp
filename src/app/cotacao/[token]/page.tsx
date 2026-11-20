@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import FormRespostaCotacao from "@/components/compras/FormRespostaCotacao";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ export default async function LinkCotacao({ params }: { params: Promise<{ token:
   const f = await prisma.cotacaoFornecedor.findUnique({ where: { token }, include: { fornecedor: { select: { nome: true } }, respostas: true, cotacao: { include: { itens: { orderBy: { ordem: "asc" } } } } } });
   if (!f) notFound();
   const c = f.cotacao;
-  const empresa = await prisma.empresa.findFirst();
+  const empresa = await empresaDoDocumento(c.empresaId);
   const aberta = c.situacao === "ABERTA";
   return (
     <div className="min-h-screen bg-slate-100 py-6">

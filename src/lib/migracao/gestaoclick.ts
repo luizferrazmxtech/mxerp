@@ -192,6 +192,7 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
     const data = dataHoraBr(o["cadastrado em"]) ?? dataBr(o.data) ?? new Date();
 
     const existe = await prisma.ordemServico.findFirst({ where: { OR: [{ idLegado: `os:${numero}` }, { numero }] }, select: { id: true, idLegado: true, _count: { select: { parcelas: true } } } });
+    if (existe && !simular) await moverParaLoja("ordemServico", existe.id, lojaDe(o.loja), "OS");
     if (existe) {
       // OS trazida por uma importação anterior (só as abertas, sem parcelas): completa o que faltava
       if (existe.idLegado === `os:${numero}` && existe._count.parcelas === 0 && pg.length) {
@@ -232,7 +233,7 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
       const frete = numeroBr(o["valor frete"] ?? ""), desconto = numeroBr(o["desconto valor"] ?? "");
       const os = await tx.ordemServico.create({
         data: {
-          numero, idLegado: `os:${numero}`, clienteId: cliente.id, vendedorId: ctx.usuarioPorNome(o.vendedor),
+          numero, idLegado: `os:${numero}`, empresaId: lojaDe(o.loja), clienteId: cliente.id, vendedorId: ctx.usuarioPorNome(o.vendedor),
           entrada: data, previsao: dataBr(o["prazo de entrega"]), saida: sit.preencherSaida ? ultimaData(hs) : null,
           canal: o["canal de venda"] || "Presencial", centroCusto: o["centro de custo"] || null,
           observacoes: o.observacoes || null, observacaoInterna: o["observacoes interna"] || null,
@@ -358,6 +359,7 @@ async function importarVendas(t: Tabelas, simular: boolean): Promise<Resultado> 
     const sit = sitPorNome.get(chaveNome(nomeSit)) ?? padrao;
     if (!sitPorNome.has(chaveNome(nomeSit))) semSituacao.add(nomeSit);
     const existe = await prisma.venda.findFirst({ where: { OR: [{ idLegado: `venda:${numero}` }, { numero }] }, select: { id: true } });
+    if (existe && !simular) await moverParaLoja("venda", existe.id, lojaDe(v.loja), "VENDA");
     if (existe) { r.ignorados.push({ linha: numero, motivo: `Venda ${numero} já existe no ERP` }); continue; }
     if (sit?.estoque === "RESERVAR") reservadas++;
     if (simular) { r.criados++; continue; }
@@ -384,7 +386,7 @@ async function importarVendas(t: Tabelas, simular: boolean): Promise<Resultado> 
       const data = dataBr(v.data) ?? new Date();
       const venda = await tx.venda.create({
         data: {
-          numero, idLegado: `venda:${numero}`, tipo: itens.length === 0 && servicos.length > 0 ? "SERVICO" : "PEDIDO",
+          numero, idLegado: `venda:${numero}`, empresaId: lojaDe(v.loja), tipo: itens.length === 0 && servicos.length > 0 ? "SERVICO" : "PEDIDO",
           clienteId: cliente?.id ?? null, vendedorId: ctx.usuarioPorNome(v.vendedor), data, prazoEntrega: dataBr(v["prazo de entrega"]),
           canal: v["canal de venda"] || "Presencial", centroCusto: v["centro de custo"] || null,
           observacoes: v.observacoes || null, observacaoInterna: v["observacoes interna"] || null,
@@ -450,6 +452,7 @@ async function importarOrcamentos(t: Tabelas, simular: boolean): Promise<Resulta
     const itensGc = [...ps, ...ss].reduce((a, x) => a + numeroBr(x["valor total"] ?? ""), 0) + numeroBr(o["valor frete"] ?? "") - numeroBr(o["desconto valor"] ?? "");
     if (o["total do pedido"] && Math.abs(itensGc - numeroBr(o["total do pedido"])) > 0.01) totalDiferente.push(numero);
     const existe = await prisma.orcamento.findFirst({ where: { OR: [{ idLegado: `orcamento:${numero}` }, { numero }] }, select: { id: true } });
+    if (existe && !simular) await moverParaLoja("orcamento", existe.id, lojaDe(o.loja), null);
     if (existe) { r.ignorados.push({ linha: numero, motivo: `Orçamento ${numero} já existe no ERP` }); continue; }
     if (simular) { r.criados++; continue; }
     if (!situacaoId) throw new Error("Cadastre ao menos uma situação de orçamento antes de importar");
@@ -475,7 +478,7 @@ async function importarOrcamentos(t: Tabelas, simular: boolean): Promise<Resulta
       const data = dataBr(o.data) ?? new Date();
       const orc = await tx.orcamento.create({
         data: {
-          numero, idLegado: `orcamento:${numero}`, tipo: itens.length === 0 && servicos.length > 0 ? "SERVICO" : "PRODUTO",
+          numero, idLegado: `orcamento:${numero}`, empresaId: lojaDe(o.loja), tipo: itens.length === 0 && servicos.length > 0 ? "SERVICO" : "PRODUTO",
           clienteId: cliente.id, vendedorId: usuarioPorNome(o.vendedor), data, prazoEntrega: dataBr(o["prazo de entrega"]),
           validade: o["validade da proposta"] || null, aosCuidados: o["aos cuidados de"] || null, canal: o["canal de venda"] || "Presencial",
           centroCusto: o["centro de custo"] || null, introducao: o.introducao || null, observacoes: o.observacoes || null, observacaoInterna: o["observacoes interna"] || null,
@@ -558,7 +561,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
         tipo, descricao: [l["descricao do recebimento"], !pessoa && nomeEnt ? `(${nomeEnt})` : ""].filter(Boolean).join(" ").slice(0, 300),
         pessoaId: pessoa?.id, categoriaId: cat.id, formaPagamentoId: forma?.id,
         valor: valor.toFixed(2), vencimento: venc, competencia: dataBr(l["data de competencia"]) ?? venc,
-        origemTipo: "IMPLANTACAO", idLegado,
+        origemTipo: "IMPLANTACAO", idLegado, empresaId: lojaDe(l.loja),
       },
     });
     r.criados++;
@@ -637,7 +640,7 @@ async function importarCompras(t: Tabelas, simular: boolean): Promise<Resultado>
       const frete = numeroBr(c["valor frete"] ?? ""), desconto = numeroBr(c["desconto valor"] ?? "");
       await tx.compra.create({
         data: {
-          numero, idLegado: `compra:${numero}`, tipo: "PRODUTO", fornecedorId, data, situacaoId: sit.id,
+          numero, idLegado: `compra:${numero}`, empresaId: lojaDe(c.loja), tipo: "PRODUTO", fornecedorId, data, situacaoId: sit.id,
           numeroNfe: (c["numero da nf e"] ?? "").replace(/\D/g, "") || null, chaveNfe: (c["chave nf e"] ?? "").replace(/^NFe/, "") || null,
           transportadoraId: tnome ? transportadoras.get(tnome) ?? null : null,
           frete: frete.toFixed(2), freteNoTotal: !/^n[aã]o$/i.test(c["pagar frete"] ?? ""), desconto: desconto.toFixed(2),
@@ -701,10 +704,28 @@ async function importarAjustes(t: Tabelas, simular: boolean): Promise<Resultado>
   return r;
 }
 
+// ---------- lojas: a coluna "Loja" do backup vira a empresa (pelo nome fantasia ou razão social)
+
+let lojasPorNome = new Map<string, string>();
+const chaveLoja = chaveNome;
+/** Documento já importado antes do cadastro das lojas: passa para a loja certa (com o financeiro dele). */
+async function moverParaLoja(modelo: "ordemServico" | "venda" | "orcamento", id: string, empresaId: string | undefined, origem: "OS" | "VENDA" | null) {
+  if (!empresaId) return;
+  await (prisma[modelo] as unknown as { updateMany: (a: object) => Promise<unknown> }).updateMany({ where: { id, OR: [{ empresaId: null }, { empresaId: { not: empresaId } }] }, data: { empresaId } });
+  if (origem) await prisma.lancamento.updateMany({ where: { origemTipo: origem, origemId: id, OR: [{ empresaId: null }, { empresaId: { not: empresaId } }] }, data: { empresaId } });
+}
+/** Empresa da loja do Gestão Click; undefined se não houver empresa com esse nome (fica a loja atual, ou nenhuma). */
+const lojaDe = (nome: string | undefined) => (nome ? lojasPorNome.get(chaveLoja(nome)) : undefined);
+
 // ---------- orquestração
 
 export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: boolean; etapas?: Etapas } = {}) {
   const simular = opts.simular ?? true;
+  lojasPorNome = new Map();
+  for (const emp of await prisma.empresa.findMany()) {
+    lojasPorNome.set(chaveLoja(emp.razaoSocial), emp.id);
+    if (emp.nomeFantasia) lojasPorNome.set(chaveLoja(emp.nomeFantasia), emp.id);
+  }
   const e: Etapas = opts.etapas ?? { cadastros: true, estoque: true, os: true, orcamentos: true, vendas: true, compras: true, receber: true, pagar: true };
   const res: Resultado[] = [];
   if (e.cadastros) {

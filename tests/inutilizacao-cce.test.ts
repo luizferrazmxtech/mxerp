@@ -70,10 +70,10 @@ describe("XML da inutilização e da CC-e", () => {
 
 describe("inutilização no sistema", () => {
   it("lista números rejeitados/pulados, inutiliza e marca as notas", async () => {
-    await prisma.sequencia.create({ data: { chave: "NF-55-1-H", valor: 6 } });
+    await prisma.sequencia.create({ data: { chave: "NF-12345678000195-55-1-H", valor: 6 } });
     await nota(1, "AUTORIZADA"); await nota(2, "REJEITADA"); await nota(3, "REJEITADA");
     await nota(5, "ENVIADA"); await nota(6, "AUTORIZADA"); // 4 foi reservado e não virou nota
-    expect((await inut.numerosPendentes("NFE", 1, "HOMOLOGACAO")).map((f) => [f.inicio, f.fim, f.notas.length])).toEqual([[2, 4, 2]]);
+    expect((await inut.numerosPendentes({ id: (await prisma.empresa.findFirstOrThrow()).id, cnpj: "12345678000195" }, "NFE", 1, "HOMOLOGACAO")).map((f) => [f.inicio, f.fim, f.notas.length])).toEqual([[2, 4, 2]]);
 
     const ok: Transporte = async () => `<E><retInutNFe><infInut><cStat>102</cStat><xMotivo>Homologado</xMotivo><nProt>99</nProt></infInut></retInutNFe></E>`;
     await expect(inut.inutilizarNumeracao({ modelo: "NFE", serie: 1, inicio: 4, fim: 5, justificativa: "Numero nao utilizado" }, { cert, transporte: ok })).rejects.toThrow(/enviada/);
@@ -81,12 +81,12 @@ describe("inutilização no sistema", () => {
     const r = await inut.inutilizarNumeracao({ modelo: "NFE", serie: 1, inicio: 2, fim: 4, justificativa: "Numero nao utilizado" }, { cert, transporte: ok });
     expect(r).toMatchObject({ status: "HOMOLOGADA", protocolo: "99" });
     expect(await prisma.notaFiscal.count({ where: { status: "INUTILIZADA" } })).toBe(2);
-    expect(await inut.numerosPendentes("NFE", 1, "HOMOLOGACAO")).toEqual([]);
+    expect(await inut.numerosPendentes({ id: (await prisma.empresa.findFirstOrThrow()).id, cnpj: "12345678000195" }, "NFE", 1, "HOMOLOGACAO")).toEqual([]);
     await expect(inut.inutilizarNumeracao({ modelo: "NFE", serie: 1, inicio: 3, fim: 3, justificativa: "Numero nao utilizado" }, { cert, transporte: ok })).rejects.toThrow(/já foram inutilizados/);
   });
 
   it("rejeição da SEFAZ fica registrada sem mexer nas notas", async () => {
-    await prisma.sequencia.create({ data: { chave: "NF-65-1-H", valor: 2 } });
+    await prisma.sequencia.create({ data: { chave: "NF-12345678000195-65-1-H", valor: 2 } });
     await nota(1, "REJEITADA", "NFCE"); await nota(2, "AUTORIZADA", "NFCE");
     const recusa: Transporte = async () => `<E><retInutNFe><infInut><cStat>241</cStat><xMotivo>Rejeicao: Um numero da faixa ja foi utilizado</xMotivo></infInut></retInutNFe></E>`;
     const r = await inut.inutilizarNumeracao({ modelo: "NFCE", serie: 1, inicio: 1, fim: 1, justificativa: "Numero nao utilizado" }, { cert, transporte: recusa });

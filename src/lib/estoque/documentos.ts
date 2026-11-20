@@ -2,6 +2,7 @@ import { Prisma, type PapelUsuario } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { entrada, saida, transferir } from "@/lib/estoque/estoque";
 import { proximoNumero } from "@/lib/sequencia";
+import { lojaAtualId } from "@/lib/empresa/loja";
 import { parseDia } from "@/lib/datas";
 import { lerNumero } from "@/lib/itens/tipos";
 import { atualizarCustoPorEntrada } from "./custo";
@@ -17,8 +18,13 @@ export class DocEstoqueError extends Error {}
 const n = (s: string | number) => (typeof s === "number" ? s : lerNumero(s) ?? 0);
 const arred = (v: number, c = 4) => Math.round(v * 10 ** c) / 10 ** c;
 
+/** Primeiro local da loja atual (depósito da loja ou sem loja). */
 async function localPadrao(tx: Tx) {
-  const l = await tx.local.findFirst({ orderBy: { codigo: "asc" }, select: { id: true } });
+  const loja = await lojaAtualId();
+  const l = await tx.local.findFirst({
+    where: loja ? { deposito: { OR: [{ empresaId: loja }, { empresaId: null }] } } : {},
+    orderBy: [{ deposito: { empresaId: { sort: "asc", nulls: "last" } } }, { codigo: "asc" }], select: { id: true },
+  });
   if (!l) throw new DocEstoqueError("Cadastre um local de estoque antes");
   return l.id;
 }

@@ -88,7 +88,7 @@ async function lancarPagar(tx: Tx, compraId: string) {
       data: {
         tipo: "PAGAR", descricao: parcelas.length > 1 ? `Compra de nº ${c.numero} (${p.numero}/${parcelas.length})` : `Compra de nº ${c.numero}`,
         pessoaId: c.fornecedorId, categoriaId: cat.id, formaPagamentoId: p.formaPagamentoId ?? c.formaPagamentoId, valor: p.valor,
-        vencimento: p.vencimento, competencia: c.data, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "COMPRA", origemId: c.id, centroCustoId: centro,
+        vencimento: p.vencimento, competencia: c.data, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "COMPRA", origemId: c.id, centroCustoId: centro, empresaId: c.empresaId,
       },
     });
 }

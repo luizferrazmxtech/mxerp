@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import forge from "node-forge";
+import { decifrar } from "@/lib/seguranca/segredos";
 
 export type Certificado = {
   pfx: Buffer;
@@ -51,4 +52,37 @@ export function certificadoDoAmbiente(): Certificado {
   if (!path || senha === undefined) throw new Error("Configure CERTIFICADO_A1_PATH e CERTIFICADO_A1_SENHA no servidor");
   cache = lerCertificado(fs.readFileSync(path), senha);
   return cache;
+}
+
+/** Há um .pfx no servidor (CERTIFICADO_A1_PATH apontando para um arquivo que existe)? */
+export function temCertificadoServidor() {
+  const p = process.env.CERTIFICADO_A1_PATH;
+  return !!p && fs.existsSync(p);
+}
+
+const cacheEmpresa = new Map<string, { chave: string; cert: Certificado }>();
+
+/** Confere se o certificado é do CNPJ (mesma raiz de 8 dígitos: o da matriz assina pelas filiais). */
+export function conferirCnpjCertificado(cert: Pick<Certificado, "cnpj">, cnpj: string) {
+  if (cert.cnpj && cert.cnpj.slice(0, 8) !== cnpj.replace(/\D/g, "").slice(0, 8))
+    throw new Error(`O certificado é do CNPJ ${cert.cnpj}, não da empresa ${cnpj}. Envie o certificado A1 desta empresa.`);
+}
+
+/**
+ * Certificado A1 da empresa emitente: o enviado em Configurações › Empresas (guardado cifrado no banco)
+ * ou, se ela não tiver, o do servidor (CERTIFICADO_A1_PATH), desde que seja do mesmo CNPJ.
+ */
+export function certificadoDaEmpresa(e: { id: string; cnpj: string; certificadoPfx: string | null; certificadoSenha: string | null; updatedAt: Date }): Certificado {
+  if (e.certificadoPfx && e.certificadoSenha) {
+    const chave = `${e.updatedAt.getTime()}:${e.certificadoPfx.length}`;
+    const c = cacheEmpresa.get(e.id);
+    if (c && c.chave === chave) return c.cert;
+    const cert = lerCertificado(Buffer.from(decifrar(e.certificadoPfx), "base64"), decifrar(e.certificadoSenha));
+    cacheEmpresa.set(e.id, { chave, cert });
+    return cert;
+  }
+  if (!temCertificadoServidor()) throw new Error("Envie o certificado A1 desta empresa em Configurações › Empresas (lojas)");
+  const cert = certificadoDoAmbiente();
+  conferirCnpjCertificado(cert, e.cnpj);
+  return cert;
 }

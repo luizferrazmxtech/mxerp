@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
 import type { Certificado } from "./certificado";
-import { certificadoDoAmbiente } from "./certificado";
+import { certificadoDaEmpresa } from "./certificado";
 import { assinarXml } from "./assinatura";
 import { NS_NFE, codigoUf } from "./nfe";
 import { achar, envelopeSoap, recortar, textoSefaz, transporteHttps, type Transporte } from "./sefaz";
@@ -102,19 +102,24 @@ export class ClienteDfe {
 
 export type EstadoDfe = { ultNSU: string; maxNSU?: string; proximaConsulta?: string; ultimaConsulta?: string; ultimoRetorno?: string };
 
-export async function estadoDfe(): Promise<EstadoDfe> {
-  const c = await prisma.configuracao.findUnique({ where: { chave: "dfe" } });
+/** Estado da distribuição (último NSU) de cada CNPJ. O antigo "dfe" (de antes do multiempresa) vale para a primeira empresa. */
+export async function estadoDfe(empresaId?: string): Promise<EstadoDfe> {
+  const primeira = await prisma.empresa.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } });
+  const id = empresaId ?? primeira?.id;
+  let c = id ? await prisma.configuracao.findUnique({ where: { chave: `dfe-${id}` } }) : null;
+  if (!c && (!id || id === primeira?.id)) c = await prisma.configuracao.findUnique({ where: { chave: "dfe" } });
   return { ultNSU: "0", ...((c?.valor as EstadoDfe | null) ?? {}) };
 }
-async function salvarEstado(e: EstadoDfe) {
-  await prisma.configuracao.upsert({ where: { chave: "dfe" }, create: { chave: "dfe", valor: e }, update: { valor: e } });
+async function salvarEstado(empresaId: string, e: EstadoDfe) {
+  const chave = `dfe-${empresaId}`;
+  await prisma.configuracao.upsert({ where: { chave }, create: { chave, valor: e }, update: { valor: e } });
 }
 
 const num = (v: unknown) => Number(String(v ?? "0")) || 0;
 const situacaoDe = (cSit: unknown) => (String(cSit) === "2" ? "DENEGADA" : String(cSit) === "3" ? "CANCELADA" : "AUTORIZADA");
 
 /** Grava um documento da distribuição (resumo, nota completa ou evento) na tabela de notas recebidas. */
-export async function guardarDocumento(d: DocDfe) {
+export async function guardarDocumento(d: DocDfe, empresaId?: string | null) {
   const obj = parser.parse(d.xml);
   if (d.schema.startsWith("resNFe")) {
     const r = achar(obj, "resNFe")!;
@@ -124,7 +129,7 @@ export async function guardarDocumento(d: DocDfe) {
       emissao: new Date(String(r.dhEmi)), valor: new Prisma.Decimal(num(r.vNF).toFixed(2)), tipoNf: num(r.tpNF), situacao: situacaoDe(r.cSitNFe),
       protocolo: r.nProt ? String(r.nProt) : null,
     };
-    await prisma.notaRecebida.upsert({ where: { chave }, create: { chave, ...dados }, update: { situacao: dados.situacao } });
+    await prisma.notaRecebida.upsert({ where: { chave }, create: { chave, ...dados, ...(empresaId ? { empresaId } : {}) }, update: { situacao: dados.situacao } });
     return chave;
   }
   if (d.schema.startsWith("procNFe")) {
@@ -139,7 +144,7 @@ export async function guardarDocumento(d: DocDfe) {
       emissao: new Date(String(ide.dhEmi)), valor: new Prisma.Decimal(num(tot.vNF).toFixed(2)), tipoNf: num(ide.tpNF),
       protocolo: prot?.nProt ? String(prot.nProt) : null, xml: d.xml,
     };
-    await prisma.notaRecebida.upsert({ where: { chave }, create: { chave, ...dados }, update: { xml: d.xml, protocolo: dados.protocolo } });
+    await prisma.notaRecebida.upsert({ where: { chave }, create: { chave, ...dados, ...(empresaId ? { empresaId } : {}) }, update: { xml: d.xml, protocolo: dados.protocolo } });
     return chave;
   }
   if (d.schema.startsWith("resEvento") || d.schema.startsWith("procEventoNFe")) {
@@ -157,14 +162,14 @@ type Deps = { cert?: Certificado; transporte?: Transporte; agora?: Date };
  * Busca na SEFAZ os documentos novos desde o último NSU (até 20 lotes por vez). A SEFAZ bloqueia quem consulta
  * de novo antes de 1 hora quando não há nada novo (cStat 137/656): o próximo horário fica guardado e respeitado.
  */
-export async function sincronizarDfe(deps: Deps & { forcar?: boolean } = {}) {
-  const e = await empresa();
+export async function sincronizarDfe(deps: Deps & { forcar?: boolean; empresaId?: string | null } = {}) {
+  const e = await empresa(deps.empresaId);
   const amb: Ambiente = e.ambienteFiscal === "PRODUCAO" ? 1 : 2;
   const agora = deps.agora ?? new Date();
-  const est = await estadoDfe();
+  const est = await estadoDfe(e.id);
   if (!deps.forcar && est.proximaConsulta && new Date(est.proximaConsulta) > agora)
     return { novos: 0, aguardar: est.proximaConsulta, mensagem: `A SEFAZ só aceita nova consulta depois de ${new Date(est.proximaConsulta).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}` };
-  const cli = new ClienteDfe(deps.cert ?? certificadoDoAmbiente(), e.uf!, amb, deps.transporte);
+  const cli = new ClienteDfe(deps.cert ?? certificadoDaEmpresa(e), e.uf!, amb, deps.transporte);
   let ult = est.ultNSU, novos = 0, ultimo = "";
   for (let i = 0; i < 20; i++) {
     const r = await cli.distribuir({ cnpj: e.cnpj, ultNSU: ult });
@@ -172,13 +177,13 @@ export async function sincronizarDfe(deps: Deps & { forcar?: boolean } = {}) {
     if (r.cStat === "656" || r.cStat === "137") {
       // 137 nenhum documento novo, 656 consumo indevido: esperar 1 hora
       if (r.ultNSU) ult = r.ultNSU;
-      await salvarEstado({ ultNSU: ult, maxNSU: r.maxNSU || est.maxNSU, ultimaConsulta: agora.toISOString(), proximaConsulta: new Date(agora.getTime() + 3600_000).toISOString(), ultimoRetorno: ultimo });
+      await salvarEstado(e.id, { ultNSU: ult, maxNSU: r.maxNSU || est.maxNSU, ultimaConsulta: agora.toISOString(), proximaConsulta: new Date(agora.getTime() + 3600_000).toISOString(), ultimoRetorno: ultimo });
       return { novos, mensagem: novos ? `${novos} documento(s) novo(s)` : r.cStat === "656" ? `SEFAZ pediu para aguardar 1 hora (${r.xMotivo})` : "Nenhuma nota nova na SEFAZ" };
     }
     if (r.cStat !== "138") throw new FiscalError(`SEFAZ respondeu ${ultimo}`);
-    for (const d of r.docs) if (await guardarDocumento(d)) novos++;
+    for (const d of r.docs) if (await guardarDocumento(d, e.id)) novos++;
     ult = r.ultNSU;
-    await salvarEstado({ ultNSU: ult, maxNSU: r.maxNSU, ultimaConsulta: agora.toISOString(), ultimoRetorno: ultimo });
+    await salvarEstado(e.id, { ultNSU: ult, maxNSU: r.maxNSU, ultimaConsulta: agora.toISOString(), ultimoRetorno: ultimo });
     if (!r.maxNSU || nsu15(r.ultNSU) >= nsu15(r.maxNSU)) break;
   }
   return { novos, mensagem: `${novos} documento(s) novo(s)` };
@@ -188,11 +193,11 @@ export async function sincronizarDfe(deps: Deps & { forcar?: boolean } = {}) {
 export async function baixarXmlCompleto(id: string, deps: Deps = {}) {
   const n = await prisma.notaRecebida.findUniqueOrThrow({ where: { id } });
   if (n.xml) return n;
-  const e = await empresa();
+  const e = await empresa(n.empresaId);
   const amb: Ambiente = e.ambienteFiscal === "PRODUCAO" ? 1 : 2;
-  const r = await new ClienteDfe(deps.cert ?? certificadoDoAmbiente(), e.uf!, amb, deps.transporte).distribuir({ cnpj: e.cnpj, chave: n.chave });
+  const r = await new ClienteDfe(deps.cert ?? certificadoDaEmpresa(e), e.uf!, amb, deps.transporte).distribuir({ cnpj: e.cnpj, chave: n.chave });
   if (r.cStat !== "138") throw new FiscalError(`O XML completo ainda não está disponível (${r.cStat} - ${r.xMotivo}). Manifeste a ciência e tente de novo em alguns minutos.`);
-  for (const d of r.docs) await guardarDocumento(d);
+  for (const d of r.docs) await guardarDocumento(d, e.id);
   const atual = await prisma.notaRecebida.findUniqueOrThrow({ where: { id } });
   if (!atual.xml) throw new FiscalError("A SEFAZ devolveu só o resumo da nota. Manifeste a ciência da operação e tente de novo em alguns minutos.");
   return atual;
@@ -203,10 +208,10 @@ export async function manifestar(id: string, tipo: TipoManifestacao, justificati
   const n = await prisma.notaRecebida.findUniqueOrThrow({ where: { id } });
   if (n.manifestacao && n.manifestacao !== "CIENCIA") throw new FiscalError(`Esta nota já tem manifestação conclusiva (${MANIFESTACOES[n.manifestacao as TipoManifestacao]?.rotulo ?? n.manifestacao})`);
   if (n.manifestacao === "CIENCIA" && tipo === "CIENCIA") return n;
-  const e = await empresa();
+  const e = await empresa(n.empresaId);
   const amb: Ambiente = e.ambienteFiscal === "PRODUCAO" ? 1 : 2;
   const idLote = await prisma.$transaction((tx) => proximoNumero(tx, "LOTE-EVENTO"));
-  const r = await new ClienteDfe(deps.cert ?? certificadoDoAmbiente(), e.uf!, amb, deps.transporte).manifestar({ chave: n.chave, tipo, cnpj: e.cnpj, justificativa, idLote, data: deps.agora });
+  const r = await new ClienteDfe(deps.cert ?? certificadoDaEmpresa(e), e.uf!, amb, deps.transporte).manifestar({ chave: n.chave, tipo, cnpj: e.cnpj, justificativa, idLote, data: deps.agora });
   if (!r.ok) throw new FiscalError(`SEFAZ recusou a manifestação: ${r.cStat} - ${r.xMotivo}`);
   const atual = await prisma.notaRecebida.update({
     where: { id },
@@ -216,4 +221,24 @@ export async function manifestar(id: string, tipo: TipoManifestacao, justificati
     try { return await baixarXmlCompleto(id, deps); } catch { return atual; }
   }
   return atual;
+}
+
+/** Agendador: busca as notas recebidas de cada empresa que tem certificado (a SEFAZ responde por CNPJ). */
+export async function sincronizarDfeTodas() {
+  const empresas = await prisma.empresa.findMany({ where: { ativa: true }, orderBy: { createdAt: "asc" } });
+  const out: Record<string, string> = {};
+  for (const e of empresas) {
+    try {
+      certificadoDaEmpresa(e);
+    } catch (err) {
+      out[e.cnpj] = `ignorada: ${(err as Error).message}`;
+      continue;
+    }
+    try {
+      out[e.cnpj] = (await sincronizarDfe({ empresaId: e.id })).mensagem;
+    } catch (err) {
+      out[e.cnpj] = `erro: ${(err as Error).message}`;
+    }
+  }
+  return out;
 }

@@ -13,31 +13,43 @@ datasource db {
 // ───────────────────────── Empresa e usuários ─────────────────────────
 
 model Empresa {
-  id                 String           @id @default(cuid())
-  razaoSocial        String
-  nomeFantasia       String?
-  cnpj               String           @unique
-  inscricaoEstadual  String?
-  inscricaoMunicipal String?
-  regimeTributario   RegimeTributario @default(SIMPLES_NACIONAL)
-  logradouro         String?
-  numero             String?
-  bairro             String?
-  cidade             String?
-  codigoMunicipio    String? // IBGE
-  uf                 String?          @db.Char(2)
-  cep                String?
-  telefone           String?
-  email              String?
-  ambienteFiscal     AmbienteFiscal   @default(HOMOLOGACAO)
-  cnae               String?
-  serieNfe           Int              @default(1)
-  serieNfce          Int              @default(1)
-  cscId              String? // identificador do CSC da NFC-e (ex.: 000001)
-  cscToken           String? // CSC gerado no portal da SEFAZ
-  ibsCbsAtivo        Boolean          @default(false) // emitir grupo IBS/CBS (reforma tributária)
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
+  id                  String           @id @default(cuid())
+  razaoSocial         String
+  nomeFantasia        String?
+  cnpj                String           @unique
+  inscricaoEstadual   String?
+  inscricaoMunicipal  String?
+  regimeTributario    RegimeTributario @default(SIMPLES_NACIONAL)
+  logradouro          String?
+  numero              String?
+  bairro              String?
+  cidade              String?
+  codigoMunicipio     String? // IBGE
+  uf                  String?          @db.Char(2)
+  cep                 String?
+  telefone            String?
+  email               String?
+  ambienteFiscal      AmbienteFiscal   @default(HOMOLOGACAO)
+  cnae                String?
+  serieNfe            Int              @default(1)
+  serieNfce           Int              @default(1)
+  cscId               String? // identificador do CSC da NFC-e (ex.: 000001)
+  cscToken            String? // CSC gerado no portal da SEFAZ
+  ibsCbsAtivo         Boolean          @default(false) // emitir grupo IBS/CBS (reforma tributária)
+  ativa               Boolean          @default(true)
+  // certificado A1 desta empresa (cada CNPJ tem o seu): .pfx e senha cifrados com a CHAVE_SEGREDOS do servidor
+  certificadoPfx      String?
+  certificadoSenha    String?
+  certificadoValidade DateTime?
+  certificadoTitular  String?
+  // NFS-e (padrão nacional)
+  ambienteNfse        AmbienteFiscal   @default(HOMOLOGACAO)
+  serieDps            Int              @default(1)
+  regimeEspecialNfse  Int              @default(0) // regEspTrib da DPS: 0 nenhum, 1 ato cooperado, 2 estimativa, 3 ME municipal, 4 notário, 5 autônomo, 6 sociedade de profissionais
+  infCplNfe           String? // informações complementares padrão da NF-e/NFC-e
+  infCplNfse          String? // texto padrão acrescentado na descrição da NFS-e
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 }
 
 enum RegimeTributario {
@@ -579,10 +591,13 @@ model Servico {
 // ───────────────────────── Estoque ─────────────────────────
 
 model Deposito {
-  id     String  @id @default(cuid())
-  nome   String  @unique
-  ativo  Boolean @default(true)
-  locais Local[]
+  id        String  @id @default(cuid())
+  empresaId String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
+  nome      String  @unique
+  ativo     Boolean @default(true)
+  locais    Local[]
+
+  @@index([empresaId])
 }
 
 /// Endereço físico: depósito > corredor > prateleira > nível.
@@ -725,6 +740,7 @@ model OsEquipamento {
 
 model OrdemServico {
   id                String        @id @default(cuid())
+  empresaId         String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero            Int           @unique
   clienteId         String
   cliente           Pessoa        @relation(fields: [clienteId], references: [id])
@@ -778,6 +794,7 @@ model OrdemServico {
 
   @@index([situacao])
   @@index([clienteId])
+  @@index([empresaId])
 }
 
 model OsItemProduto {
@@ -921,6 +938,7 @@ enum SituacaoVenda {
  */
 model CaixaPdv {
   id              String           @id @default(cuid())
+  empresaId       String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   usuarioId       String
   usuario         Usuario          @relation(fields: [usuarioId], references: [id])
   abertoEm        DateTime         @default(now())
@@ -932,6 +950,7 @@ model CaixaPdv {
   movimentos      MovimentoCaixa[]
 
   @@index([usuarioId, fechadoEm])
+  @@index([empresaId])
 }
 
 enum TipoMovimentoCaixa {
@@ -958,6 +977,7 @@ model MovimentoCaixa {
 
 model Venda {
   id          String        @id @default(cuid())
+  empresaId   String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero      Int           @unique
   tipo        TipoVenda     @default(PEDIDO)
   clienteId   String?
@@ -1005,6 +1025,8 @@ model Venda {
   parcelas   VendaParcela[]
   historico  VendaHistorico[]
   devolucoes Devolucao[]
+
+  @@index([empresaId])
 }
 
 model VendaParcela {
@@ -1037,6 +1059,7 @@ enum TipoDevolucao {
 /// Trocas e devoluções: os produtos voltam ao estoque; a troca gera vale-compras e a devolução, conta a pagar ao cliente.
 model Devolucao {
   id          String          @id @default(cuid())
+  empresaId   String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero      Int             @unique
   tipo        TipoDevolucao
   vendaId     String
@@ -1048,6 +1071,8 @@ model Devolucao {
   createdAt   DateTime        @default(now())
   itens       DevolucaoItem[]
   vale        ValeCompra?
+
+  @@index([empresaId])
 }
 
 model DevolucaoItem {
@@ -1117,6 +1142,7 @@ model VendaPagamento {
 
 model Compra {
   id           String       @id @default(cuid())
+  empresaId    String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero       Int          @unique
   tipo         String       @default("PRODUTO") // PRODUTO | SERVICO (compras de serviços)
   fornecedorId String
@@ -1162,6 +1188,7 @@ model Compra {
   historico CompraHistorico[]
 
   @@index([data])
+  @@index([empresaId])
 }
 
 model CompraItem {
@@ -1239,6 +1266,7 @@ model SituacaoCompraConfig {
 
 model AjusteEstoque {
   id            String              @id @default(cuid())
+  empresaId     String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero        Int                 @unique
   tipo          TipoMovimento
   frete         Decimal             @default(0) @db.Decimal(14, 2)
@@ -1250,6 +1278,8 @@ model AjusteEstoque {
   idLegado      String?             @unique
   createdAt     DateTime            @default(now())
   itens         AjusteEstoqueItem[]
+
+  @@index([empresaId])
 }
 
 model AjusteEstoqueItem {
@@ -1268,6 +1298,7 @@ model AjusteEstoqueItem {
 /// Transferência entre depósitos (as "lojas" do Gestão Click).
 model TransferenciaEstoque {
   id                String                     @id @default(cuid())
+  empresaId         String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero            Int                        @unique
   origemDepositoId  String
   destinoDepositoId String
@@ -1277,6 +1308,8 @@ model TransferenciaEstoque {
   criadoPorNome     String?
   createdAt         DateTime                   @default(now())
   itens             TransferenciaEstoqueItem[]
+
+  @@index([empresaId])
 }
 
 model TransferenciaEstoqueItem {
@@ -1292,6 +1325,7 @@ model TransferenciaEstoqueItem {
 
 model Inventario {
   id                  String           @id @default(cuid())
+  empresaId           String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero              Int              @unique
   descricao           String
   responsavelId       String?
@@ -1307,6 +1341,8 @@ model Inventario {
   concluidoEm         DateTime?
   createdAt           DateTime         @default(now())
   itens               InventarioItem[]
+
+  @@index([empresaId])
 }
 
 model InventarioItem {
@@ -1324,6 +1360,7 @@ model InventarioItem {
 
 model Cotacao {
   id                String              @id @default(cuid())
+  empresaId         String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero            Int                 @unique
   data              DateTime            @db.Date
   prazo             DateTime?           @db.Date // prazo para os fornecedores responderem
@@ -1336,6 +1373,8 @@ model Cotacao {
   createdAt         DateTime            @default(now())
   fornecedores      CotacaoFornecedor[]
   itens             CotacaoItem[]
+
+  @@index([empresaId])
 }
 
 model CotacaoFornecedor {
@@ -1519,6 +1558,7 @@ model CategoriaFinanceira {
 
 model Lancamento {
   id               String              @id @default(cuid())
+  empresaId        String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   tipo             TipoLancamento
   descricao        String
   pessoaId         String?
@@ -1560,6 +1600,7 @@ model Lancamento {
   @@index([origemTipo, origemId])
   @@index([transferenciaId])
   @@index([pagoEm])
+  @@index([empresaId])
 }
 
 /// Centro de custo (departamento, filial, projeto) para separar resultados no financeiro e na DRE.
@@ -1603,6 +1644,7 @@ enum StatusNota {
 
 model NotaFiscal {
   id         String           @id @default(cuid())
+  empresaId  String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   modelo     ModeloNota
   serie      Int
   numero     Int
@@ -1622,6 +1664,7 @@ model NotaFiscal {
 
   @@unique([modelo, serie, numero, ambiente])
   @@index([origemTipo, origemId])
+  @@index([empresaId])
 }
 
 /// Registro de auditoria: quem criou, alterou ou excluiu o quê (gravado automaticamente em src/lib/db.ts).
@@ -1645,6 +1688,7 @@ model RegistroAuditoria {
 /// NF-e emitida por terceiros contra o CNPJ da empresa (notas de compra), baixada da SEFAZ pela distribuição DF-e.
 model NotaRecebida {
   id                 String    @id @default(cuid())
+  empresaId          String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   chave              String    @unique
   nsu                String?
   emitenteDocumento  String
@@ -1665,11 +1709,13 @@ model NotaRecebida {
   updatedAt          DateTime  @updatedAt
 
   @@index([emissao])
+  @@index([empresaId])
 }
 
 /// Faixa de numeração de NF-e/NFC-e inutilizada na SEFAZ (números rejeitados ou pulados).
 model InutilizacaoNumeracao {
   id            String         @id @default(cuid())
+  empresaId     String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   modelo        ModeloNota
   serie         Int
   ambiente      AmbienteFiscal
@@ -1684,6 +1730,7 @@ model InutilizacaoNumeracao {
   createdAt     DateTime       @default(now())
 
   @@index([modelo, serie, ambiente])
+  @@index([empresaId])
 }
 
 model NotaEvento {
@@ -1804,6 +1851,7 @@ model Orcamento {
 
   @@index([data])
   @@index([clienteId])
+  @@index([empresaId])
 }
 
 model OrcamentoItem {
@@ -1909,6 +1957,7 @@ enum Periodicidade {
  */
 model Contrato {
   id                 String              @id @default(cuid())
+  empresaId          String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero             Int                 @unique
   clienteId          String
   cliente            Pessoa              @relation(fields: [clienteId], references: [id])
@@ -1946,6 +1995,7 @@ model Contrato {
   historico          ContratoHistorico[]
 
   @@index([situacao, proximoVencimento])
+  @@index([empresaId])
 }
 
 model ContratoServico {
@@ -2049,6 +2099,7 @@ enum PrioridadeChamado {
 /// Atendimento / chamado de suporte (helpdesk): pedido do cliente com responsável, prazo e histórico.
 model Chamado {
   id                 String             @id @default(cuid())
+  empresaId          String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero             Int                @unique
   clienteId          String?
   cliente            Pessoa?            @relation(fields: [clienteId], references: [id])
@@ -2077,6 +2128,7 @@ model Chamado {
   @@index([status])
   @@index([clienteId])
   @@index([responsavelId, status])
+  @@index([empresaId])
 }
 
 /// Linha do histórico do chamado: comentário, mudança de status, troca de responsável.

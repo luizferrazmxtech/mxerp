@@ -3,6 +3,7 @@
  * financeiro e vendas ficam com quem tem acesso a essas telas.
  */
 import { prisma } from "@/lib/db";
+import { sqlDaLoja } from "@/lib/empresa/loja";
 import { diaSP, mesesRecentes, rotuloMesCurto, somarDias } from "@/lib/datas";
 import { saldosContas } from "@/lib/financeiro/lancamentos";
 
@@ -27,12 +28,13 @@ async function financeiro(meses: Mes[], hoje: Date) {
   const iniMes = new Date(`${mesAtual}-01T00:00:00Z`);
   const fimMes = new Date(Date.UTC(iniMes.getUTCFullYear(), iniMes.getUTCMonth() + 1, 1));
 
+  const fl = await sqlDaLoja(`"empresaId"`);
   const [fluxo, dia, mes, contas] = await Promise.all([
     prisma.$queryRaw<{ m: string; rec: number; pag: number }[]>`
       SELECT to_char("pagoEm", 'YYYY-MM') m,
              COALESCE(SUM(COALESCE("valorPago", valor)) FILTER (WHERE tipo = 'RECEBER'), 0)::float rec,
              COALESCE(SUM(COALESCE("valorPago", valor)) FILTER (WHERE tipo = 'PAGAR'), 0)::float pag
-        FROM "Lancamento" WHERE "pagoEm" >= ${ini} GROUP BY 1`,
+        FROM "Lancamento" WHERE "pagoEm" >= ${ini} ${fl} GROUP BY 1`,
     prisma.$queryRaw<{ tipo: string; hoje: number; nHoje: number; vencido: number; nVencido: number; semana: number }[]>`
       SELECT tipo::text,
              COALESCE(SUM(valor) FILTER (WHERE vencimento = ${hoje}), 0)::float hoje,
@@ -40,12 +42,12 @@ async function financeiro(meses: Mes[], hoje: Date) {
              COALESCE(SUM(valor) FILTER (WHERE vencimento < ${hoje}), 0)::float vencido,
              COUNT(*) FILTER (WHERE vencimento < ${hoje})::int "nVencido",
              COALESCE(SUM(valor) FILTER (WHERE vencimento > ${hoje} AND vencimento <= ${somarDias(hoje, 7)}), 0)::float semana
-        FROM "Lancamento" WHERE "pagoEm" IS NULL GROUP BY 1`,
+        FROM "Lancamento" WHERE "pagoEm" IS NULL ${fl} GROUP BY 1`,
     prisma.$queryRaw<{ tipo: string; feito: number; previsto: number }[]>`
       SELECT tipo::text,
              COALESCE(SUM(COALESCE("valorPago", valor)) FILTER (WHERE "pagoEm" >= ${iniMes} AND "pagoEm" < ${fimMes}), 0)::float feito,
              COALESCE(SUM(valor) FILTER (WHERE vencimento >= ${iniMes} AND vencimento < ${fimMes}), 0)::float previsto
-        FROM "Lancamento" GROUP BY 1`,
+        FROM "Lancamento" WHERE true ${fl} GROUP BY 1`,
     prisma.$transaction((tx) => saldosContas(tx)),
   ]);
   const f = porChave(fluxo);
@@ -67,13 +69,14 @@ async function financeiro(meses: Mes[], hoje: Date) {
 
 async function vendas(meses: Mes[]) {
   const ini = new Date(`${meses[0].chave}-01T00:00:00-03:00`);
+  const fl = await sqlDaLoja(`"empresaId"`);
   const [v, o] = await Promise.all([
     prisma.$queryRaw<{ m: string; total: number; n: number }[]>`
       SELECT to_char(data AT TIME ZONE 'UTC' AT TIME ZONE ${FUSO}, 'YYYY-MM') m, SUM(total)::float total, COUNT(*)::int n
-        FROM "Venda" WHERE situacao = 'CONCLUIDA' AND data >= ${ini} GROUP BY 1`,
+        FROM "Venda" WHERE situacao = 'CONCLUIDA' AND data >= ${ini} ${fl} GROUP BY 1`,
     prisma.$queryRaw<{ m: string; total: number; n: number }[]>`
       SELECT to_char(COALESCE(saida, entrada) AT TIME ZONE 'UTC' AT TIME ZONE ${FUSO}, 'YYYY-MM') m, SUM(total)::float total, COUNT(*)::int n
-        FROM "OrdemServico" WHERE situacao IN ('CONCLUIDA', 'FATURADA') AND COALESCE(saida, entrada) >= ${ini} GROUP BY 1`,
+        FROM "OrdemServico" WHERE situacao IN ('CONCLUIDA', 'FATURADA') AND COALESCE(saida, entrada) >= ${ini} ${fl} GROUP BY 1`,
   ]);
   const pv = porChave(v), po = porChave(o);
   return meses.map((m) => {
@@ -84,19 +87,20 @@ async function vendas(meses: Mes[]) {
 
 async function ordens(meses: Mes[], agora: Date) {
   const ini = new Date(`${meses[0].chave}-01T00:00:00-03:00`);
+  const fl = await sqlDaLoja(`"empresaId"`), flo = await sqlDaLoja(`o."empresaId"`);
   const [porMes, situacoes, abertas, falta] = await Promise.all([
     prisma.$queryRaw<{ m: string; entradas: number; concluidas: number }[]>`
       SELECT m, SUM(e)::int entradas, SUM(c)::int concluidas FROM (
         SELECT to_char(entrada AT TIME ZONE 'UTC' AT TIME ZONE ${FUSO}, 'YYYY-MM') m, 1 e, 0 c
-          FROM "OrdemServico" WHERE entrada >= ${ini}
+          FROM "OrdemServico" WHERE entrada >= ${ini} ${fl}
         UNION ALL
         SELECT to_char(COALESCE(saida, entrada) AT TIME ZONE 'UTC' AT TIME ZONE ${FUSO}, 'YYYY-MM'), 0, 1
-          FROM "OrdemServico" WHERE situacao IN ('CONCLUIDA', 'FATURADA') AND COALESCE(saida, entrada) >= ${ini}
+          FROM "OrdemServico" WHERE situacao IN ('CONCLUIDA', 'FATURADA') AND COALESCE(saida, entrada) >= ${ini} ${fl}
       ) x GROUP BY m`,
     prisma.$queryRaw<{ id: string | null; nome: string; cor: string; n: number; total: number }[]>`
       SELECT s.id, COALESCE(s.nome, o.situacao::text) nome, COALESCE(s.cor, 'cinza') cor, COUNT(*)::int n, SUM(o.total)::float total
         FROM "OrdemServico" o LEFT JOIN "SituacaoOsConfig" s ON s.id = o."situacaoId"
-       WHERE o.situacao::text NOT IN (${ENCERRADAS[0]}, ${ENCERRADAS[1]}, ${ENCERRADAS[2]})
+       WHERE o.situacao::text NOT IN (${ENCERRADAS[0]}, ${ENCERRADAS[1]}, ${ENCERRADAS[2]}) ${flo}
        GROUP BY 1, 2, 3, s.ordem ORDER BY s.ordem NULLS LAST, 2`,
     prisma.ordemServico.findMany({ where: { situacao: { in: ABERTAS as never } }, select: { previsao: true, total: true } }),
     prisma.reserva.findMany({ where: { origemTipo: "OS", status: "ATIVA", localId: null }, select: { origemId: true }, distinct: ["origemId"] }),

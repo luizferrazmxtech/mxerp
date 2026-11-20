@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { todasAsLojas } from "@/lib/empresa/loja";
 import { ORIGENS } from "@/lib/itens/tipos";
 import { clonarProdutoAcao, excluirProdutoAcao } from "@/lib/itens/acoes";
 import { brl, data, dataSP, horaSP, num2, qtd } from "@/lib/ui/format";
@@ -43,7 +44,7 @@ export default async function VerProduto({ params, searchParams }: { params: Pro
     prisma.saldo.findMany({ where: { produtoId: id }, include: { local: { include: { deposito: true } } } }),
     prisma.reserva.aggregate({ where: { produtoId: id, status: "ATIVA", localId: { not: null } }, _sum: { quantidade: true } }),
     prisma.empresa.findMany({ select: { id: true, nomeFantasia: true, razaoSocial: true } }),
-    prisma.deposito.findMany({ where: { ativo: true }, orderBy: { nome: "asc" } }),
+    todasAsLojas(() => prisma.deposito.findMany({ where: { ativo: true }, orderBy: { nome: "asc" } })),
   ]);
   const custoFinal = Number(p.custo) + Number(p.despesasAcessorias) + Number(p.outrasDespesas);
   const base = `/produtos/${id}`;

@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { todasAsLojas } from "@/lib/empresa/loja";
 import { somarDias } from "@/lib/datas";
 
 /**
@@ -39,10 +40,11 @@ export async function fluxoCaixa(f: FiltroFluxo) {
     ...(f.centroCustoId ? { centroCustoId: f.centroCustoId } : {}),
   });
   const include = { pessoa: { select: { nome: true } }, categoria: { select: { nome: true } }, centroCusto: { select: { nome: true } }, contaBancaria: { select: { nome: true } } } as const;
-  const [realizados, previstos] = await Promise.all([
+  // fluxo de caixa é das contas bancárias, que são de todas as lojas: mostra o consolidado (a DRE é por loja)
+  const [realizados, previstos] = await todasAsLojas(() => Promise.all([
     prisma.lancamento.findMany({ where: where(true), include, orderBy: [{ pagoEm: "asc" }, { createdAt: "asc" }] }),
     prisma.lancamento.findMany({ where: where(false), include, orderBy: [{ vencimento: "asc" }, { createdAt: "asc" }] }),
-  ]);
+  ]));
   // contas vencidas antes do período e ainda em aberto (aviso à parte; não entram no previsto do período)
   const [atrasado] = await prisma.$queryRaw<{ receber: number; pagar: number }[]>`
     SELECT COALESCE(SUM(valor) FILTER (WHERE tipo = 'RECEBER'), 0)::float receber, COALESCE(SUM(valor) FILTER (WHERE tipo = 'PAGAR'), 0)::float pagar

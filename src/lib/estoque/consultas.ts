@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { lojaAtualId } from "@/lib/empresa/loja";
 
 export type LinhaEstoque = {
   id: string;
@@ -17,12 +18,14 @@ export type LinhaEstoque = {
 /** Lista de produtos com físico / reservado / disponível e onde estão. */
 export async function buscarEstoque(termo = "", limite = 100): Promise<LinhaEstoque[]> {
   const like = `%${termo.trim()}%`;
+  const loja = await lojaAtualId(); // saldo só dos depósitos da loja atual (e dos sem loja)
   const rows = await prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
     WITH s AS (
       SELECT sa."produtoId", SUM(sa.quantidade) fisico,
              string_agg(l.codigo || ' (' || trim(to_char(sa.quantidade, 'FM999999990.####'), '.') || ')', ', ' ORDER BY l.codigo)
                FILTER (WHERE sa.quantidade <> 0) locais
-        FROM "Saldo" sa JOIN "Local" l ON l.id = sa."localId"
+        FROM "Saldo" sa JOIN "Local" l ON l.id = sa."localId" JOIN "Deposito" d ON d.id = l."depositoId"
+       WHERE ${loja}::text IS NULL OR d."empresaId" IS NULL OR d."empresaId" = ${loja}
        GROUP BY sa."produtoId"
     ), r AS (
       SELECT "produtoId",

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { todasAsLojas } from "@/lib/empresa/loja";
 import { num2 } from "@/lib/ui/format";
 import { periodoInstantes } from "@/lib/estoque/periodo";
 import { Pagina } from "@/components/ui/Pagina";
@@ -23,7 +24,7 @@ export default async function Transferencias({ searchParams }: { searchParams: P
     prisma.transferenciaEstoque.findMany({ where, orderBy: { numero: "desc" }, skip, take, include: { _count: { select: { itens: true } } } }),
     prisma.transferenciaEstoque.count({ where }),
     prisma.transferenciaEstoque.count(),
-    prisma.deposito.findMany({ select: { id: true, nome: true } }),
+    todasAsLojas(() => prisma.deposito.findMany({ select: { id: true, nome: true } })),
   ]);
   const nome = new Map(depositos.map((d) => [d.id, d.nome]));
   return (

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { brl, dataSP, horaSP, qtd } from "@/lib/ui/format";
 
 const docFmt = (d: string | null | undefined) =>
@@ -6,7 +7,7 @@ const docFmt = (d: string | null | undefined) =>
 
 /** OS impressa / link de cobrança da OS (A4, com a marca MXTECH). */
 export default async function DocumentoOs({ id, token, cobranca }: { id?: string; token?: string; cobranca?: boolean }) {
-  const [os, emp] = await Promise.all([
+  const [os] = await Promise.all([
     prisma.ordemServico.findFirst({
       where: id ? { id } : { token },
       include: {
@@ -17,8 +18,8 @@ export default async function DocumentoOs({ id, token, cobranca }: { id?: string
         servicos: { include: { servico: true }, orderBy: [{ ordem: "asc" }, { createdAt: "asc" }] },
       },
     }),
-    prisma.empresa.findFirst(),
   ]);
+  const emp = os ? await empresaDoDocumento(os.empresaId) : null;
   if (!os || (cobranca && os.situacaoCfg?.exibirCobranca === false)) return <p className="p-8 text-center">Ordem de serviço não encontrada.</p>;
   const [lanc, tecs] = await Promise.all([
     prisma.lancamento.findMany({ where: { origemTipo: "OS", origemId: os.id }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }], include: { formaPagamento: true } }),

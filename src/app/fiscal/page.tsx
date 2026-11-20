@@ -2,9 +2,10 @@ import { Pagina } from "@/components/ui/Pagina";
 import { exigirArea } from "@/lib/auth/atual";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { temCertificadoServidor } from "@/lib/fiscal/certificado";
+import { lojaAtual, nomeLoja } from "@/lib/empresa/atual";
 import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
-import ConfigEmpresa from "./ConfigEmpresa";
 import { numerosPendentes } from "@/lib/fiscal/inutilizacao";
 import { consultarStatus } from "./actions";
 
@@ -18,13 +19,13 @@ const COR: Record<string, string> = {
 export default async function Fiscal() {
   await exigirArea("/fiscal");
   const [e, notas] = await Promise.all([
-    prisma.empresa.findFirst(),
+    lojaAtual(),
     prisma.notaFiscal.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
   ]);
-  const certOk = !!process.env.CERTIFICADO_A1_PATH;
+  const certOk = !!e?.certificadoValidade || temCertificadoServidor();
   // números rejeitados/pulados que ainda precisam ser inutilizados na SEFAZ
   const pendentes = e
-    ? (await Promise.all([numerosPendentes("NFE", e.serieNfe, e.ambienteFiscal), numerosPendentes("NFCE", e.serieNfce, e.ambienteFiscal)]))
+    ? (await Promise.all([numerosPendentes(e, "NFE", e.serieNfe, e.ambienteFiscal), numerosPendentes(e, "NFCE", e.serieNfce, e.ambienteFiscal)]))
         .flat().reduce((s, f) => s + f.fim - f.inicio + 1, 0)
     : 0;
   return (
@@ -35,14 +36,18 @@ export default async function Fiscal() {
       </div>
       <div className="grid gap-3 md:grid-cols-3">
         <div className="cartao p-4 text-sm">
-          <div className="text-xs text-slate-500">Certificado A1</div>
-          {certOk ? <p className="text-emerald-700">Configurado no servidor</p> : (
-            <p className="text-red-700">Não configurado. Defina CERTIFICADO_A1_PATH e CERTIFICADO_A1_SENHA no servidor.</p>
-          )}
-          <div className="mt-2 text-xs text-slate-500">Ambiente</div>
-          <p className={e?.ambienteFiscal === "PRODUCAO" ? "font-semibold text-red-700" : "text-amber-700"}>
-            {e?.ambienteFiscal === "PRODUCAO" ? "PRODUÇÃO (valor fiscal)" : "Homologação (testes)"}
+          <div className="text-xs text-slate-500">Loja emitente</div>
+          <p className="font-semibold uppercase">{e ? nomeLoja(e) : "nenhuma empresa cadastrada"}</p>
+          <div className="mt-2 text-xs text-slate-500">Certificado A1</div>
+          {e?.certificadoValidade ? <p className="text-emerald-700">Válido até {e.certificadoValidade.toLocaleDateString("pt-BR")}</p>
+            : certOk ? <p className="text-slate-700">O do servidor</p> : <p className="text-red-700">Não enviado</p>}
+          <div className="mt-2 text-xs text-slate-500">Ambiente NF-e/NFC-e · NFS-e</div>
+          <p>
+            <span className={e?.ambienteFiscal === "PRODUCAO" ? "font-semibold text-red-700" : "text-amber-700"}>{e?.ambienteFiscal === "PRODUCAO" ? "PRODUÇÃO" : "Homologação"}</span>
+            {" · "}
+            <span className={e?.ambienteNfse === "PRODUCAO" ? "font-semibold text-red-700" : "text-amber-700"}>{e?.ambienteNfse === "PRODUCAO" ? "PRODUÇÃO" : "Homologação"}</span>
           </p>
+          <Link href={e ? `/empresas/${e.id}` : "/empresas/nova"} className="mt-2 inline-block text-[13px] text-marca hover:underline">Configurações fiscais desta loja</Link>
         </div>
         <div className="cartao p-4"><BotaoAcao acao={consultarStatus} campos={{ modelo: "55" }} rotulo="Status SEFAZ NF-e" secundario /></div>
         <div className="cartao p-4"><BotaoAcao acao={consultarStatus} campos={{ modelo: "65" }} rotulo="Status SEFAZ NFC-e" secundario /></div>
@@ -67,7 +72,6 @@ export default async function Fiscal() {
         </table>
       </div>
 
-      <ConfigEmpresa e={e} />
     </div>
     </Pagina>
   );

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { dataHora } from "@/lib/ui/format";
 import { CONDICAO_USO_CCE } from "@/lib/fiscal/sefaz";
 import BotaoImprimir from "@/app/os/[id]/separacao/BotaoImprimir";
@@ -11,7 +12,7 @@ export default async function Cce({ params }: { params: Promise<{ id: string; ev
   const { id, eventoId } = await params;
   const ev = await prisma.notaEvento.findFirst({ where: { id: eventoId, notaId: id, tipo: "110110" }, include: { nota: true } });
   if (!ev) notFound();
-  const e = await prisma.empresa.findFirst();
+  const e = await empresaDoDocumento(ev.nota.empresaId);
   return (
     <div className="mx-auto max-w-2xl space-y-3 bg-white p-6 text-sm">
       <div className="no-print flex justify-end"><BotaoImprimir /></div>

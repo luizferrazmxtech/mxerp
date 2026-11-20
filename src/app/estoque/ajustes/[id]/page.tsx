@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { excluirAnotacaoAcao } from "@/lib/orcamentos/acoes";
 import { anotarAjusteAcao } from "@/lib/compras/acoes";
 import { brl, dataSP, horaSP, num2, qtd } from "@/lib/ui/format";
@@ -17,7 +18,7 @@ export default async function VerAjuste({ params, searchParams }: { params: Prom
   const a = await prisma.ajusteEstoque.findUnique({ where: { id }, include: { itens: { orderBy: { ordem: "asc" }, include: { produto: { select: { id: true, codigo: true, nome: true, unidade: true } } } } } });
   if (!a) notFound();
   const [empresa, anotacoes, inventario, locais] = await Promise.all([
-    prisma.empresa.findFirst({ select: { nomeFantasia: true, razaoSocial: true } }),
+    empresaDoDocumento(a.empresaId),
     prisma.anotacao.findMany({ where: { entidade: "AJUSTE", entidadeId: id }, orderBy: { createdAt: "desc" } }),
     a.inventarioId ? prisma.inventario.findUnique({ where: { id: a.inventarioId }, select: { id: true, numero: true, descricao: true } }) : null,
     prisma.local.findMany({ where: { id: { in: a.itens.map((i) => i.localId).filter((x): x is string => !!x) } }, select: { id: true, codigo: true } }),

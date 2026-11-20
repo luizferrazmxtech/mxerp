@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { comparativo } from "@/lib/compras/cotacoes";
 import { anotarCotacaoAcao, cancelarCotacaoAcao, excluirCotacaoAcao } from "@/lib/compras/acoes";
 import { excluirAnotacaoAcao } from "@/lib/orcamentos/acoes";
@@ -29,7 +30,7 @@ export default async function VerCotacao({ params, searchParams }: { params: Pro
   if (!(await prisma.cotacao.findUnique({ where: { id }, select: { id: true } }))) notFound();
   const { cotacao: c, melhor, totais } = await comparativo(id);
   const [empresa, modelo, anexos, anotacoes, compra] = await Promise.all([
-    prisma.empresa.findFirst({ select: { nomeFantasia: true, razaoSocial: true } }),
+    empresaDoDocumento(c.empresaId),
     prisma.modeloMensagem.findFirst({ where: { tipo: "COTACAO" }, orderBy: { padrao: "desc" } }),
     prisma.anexo.findMany({ where: { entidade: "COTACAO", entidadeId: id }, select: { id: true, nome: true, createdAt: true } }),
     prisma.anotacao.findMany({ where: { entidade: "COTACAO", entidadeId: id }, orderBy: { createdAt: "desc" } }),
