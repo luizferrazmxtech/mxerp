@@ -173,7 +173,7 @@ async function emitir(args: {
   const nota = await prisma.$transaction(async (tx) => {
     const numero = await proximoNumero(tx, chave);
     return tx.notaFiscal.create({
-      data: { empresaId: e.id, modelo: modeloEnum, serie, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: args.origemTipo, origemId: args.origemId, valorTotal: 0 },
+      data: { empresaId: e.id, cnae: e.cnae, modelo: modeloEnum, serie, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: args.origemTipo, origemId: args.origemId, valorTotal: 0 },
     });
   });
 
@@ -233,14 +233,16 @@ export async function consultarNota(notaId: string, deps: Dependencias = {}) {
   const n = await prisma.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });
   if (n.modelo === "NFSE") throw new FiscalError("A consulta é só para NF-e e NFC-e");
   if (!n.chave || !n.xml) throw new FiscalError("A nota não chegou a ser assinada: não há o que consultar");
-  if (n.status === "AUTORIZADA" || n.status === "CANCELADA") return n;
+  if (n.status === "CANCELADA") return n;
   const e = await empresa(n.empresaId);
   const amb: 1 | 2 = n.ambiente === "PRODUCAO" ? 1 : 2;
   const r = await new ClienteSefaz(deps.cert ?? certificadoDaEmpresa(e), e.uf!, amb, deps.transporte).consultar(n.chave, n.modelo === "NFCE" ? 65 : 55);
   const motivo = `${r.cStat} - ${r.xMotivo}`;
+  if (r.cancelada) return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "CANCELADA", motivo } });
+  // já autorizada aqui: só confirma (o XML de distribuição já está guardado)
+  if (n.status === "AUTORIZADA") return prisma.notaFiscal.update({ where: { id: n.id }, data: { motivo: `${motivo} (consultada em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })})` } });
   if (r.autorizada && r.protXml)
     return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "AUTORIZADA", xml: montarProc(n.xml, r.protXml), protocolo: r.protocolo, motivo, emitidaEm: n.emitidaEm ?? new Date() } });
-  if (r.cancelada) return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "CANCELADA", motivo } });
   const temProt = !!r.protXml; // protocolo de rejeição da própria nota
   if (r.naoConsta || temProt)
     return prisma.notaFiscal.update({ where: { id: n.id }, data: { status: "REJEITADA", motivo } });
@@ -339,7 +341,7 @@ export async function emitirNfseVenda(vendaId: string, deps: DependenciasNfse = 
 }
 
 type Tomador = { documento: string | null; nome: string; email: string | null; telefone: string | null; codigoMunicipio: string | null; cep: string | null; logradouro: string | null; numero: string | null; complemento: string | null; bairro: string | null };
-type ServicoNota = { quantidade: Prisma.Decimal; subtotal: Prisma.Decimal; servico: { nome: string; codigoTributacaoNacional: string | null; codigoNbs: string | null; aliquotaIss: Prisma.Decimal | null } };
+type ServicoNota = { quantidade: Prisma.Decimal; subtotal: Prisma.Decimal; servico: { nome: string; cnae?: string | null; codigoTributacaoNacional: string | null; codigoNbs: string | null; aliquotaIss: Prisma.Decimal | null } };
 
 async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; empresaId?: string | null; rotulo: string; referencia: string; cliente: Tomador; servicos: ServicoNota[]; extras: string[]; competencia?: Date; desconto?: number }, deps: DependenciasNfse) {
   const e = await empresa(a.empresaId);
@@ -365,7 +367,7 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
   const nota = await prisma.$transaction(async (tx) => {
     const numero = await proximoNumero(tx, chave);
     return tx.notaFiscal.create({
-      data: { empresaId: e.id, modelo: "NFSE", serie: e.serieDps, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: a.origemTipo, origemId: a.origemId, valorTotal: valor },
+      data: { empresaId: e.id, cnae: a.servicos[0]?.servico.cnae?.replace(/\D/g, "") || e.cnae, modelo: "NFSE", serie: e.serieDps, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: a.origemTipo, origemId: a.origemId, valorTotal: valor },
     });
   });
   try {

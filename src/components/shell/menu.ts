@@ -153,7 +153,11 @@ export const MENU: ItemMenu[] = [
   },
   {
     rotulo: "Fiscal", icone: "fiscal", filhos: [
-      { rotulo: "Notas fiscais", href: "/fiscal", icone: "notas" },
+      { rotulo: "NF-e (produtos)", href: "/fiscal?modelo=NFE", icone: "notas" },
+      { rotulo: "NFC-e (consumidor)", href: "/fiscal?modelo=NFCE", icone: "balcao" },
+      { rotulo: "NFS-e (serviços)", href: "/fiscal?modelo=NFSE", icone: "servicos" },
+      { rotulo: "Todas as notas", href: "/fiscal", icone: "lista" },
+      { rotulo: "Imposto aproximado", href: "/fiscal/impostos", icone: "percentual" },
       { rotulo: "Inutilizar numeração", href: "/fiscal/inutilizacao", icone: "excluir" },
       { rotulo: "Configurações fiscais", href: "/empresas", icone: "configuracoes" },
     ],

@@ -5,7 +5,6 @@ import { XMLParser } from "fast-xml-parser";
 import { prisma } from "@/lib/db";
 import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
-import BotaoImprimir from "@/app/os/[id]/separacao/BotaoImprimir";
 import { cancelar, cancelarServico, cartaCorrecaoAcao, consultarNotaAcao } from "../actions";
 import { URL_DANFSE } from "@/lib/fiscal/nfse";
 
@@ -24,15 +23,24 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
   const qrImg = qr ? await QRCode.toDataURL(String(qr), { margin: 0, width: 180 }) : null;
   const chaveFmt = n.chave?.replace(/(\d{4})/g, "$1 ").trim();
   const cancelavel = n.status === "AUTORIZADA" && n.modelo !== "NFSE";
+  const origem = n.origemTipo === "VENDA" && n.origemId
+    ? await prisma.venda.findUnique({ where: { id: n.origemId }, select: { id: true, numero: true } }).then((v) => v && { rotulo: `venda #${v.numero}`, href: `/vendas/${v.id}` })
+    : n.origemTipo === "OS" && n.origemId
+      ? await prisma.ordemServico.findUnique({ where: { id: n.origemId }, select: { id: true, numero: true } }).then((o) => o && { rotulo: `OS #${o.numero}`, href: `/os/${o.id}` })
+      : null;
 
   return (
     <div className="space-y-4">
       <div className="no-print flex flex-wrap items-center justify-between gap-2">
-        <Link href="/fiscal" className="text-sm text-slate-500 hover:underline">← Notas fiscais</Link>
+        <div className="flex items-center gap-3">
+          <Link href={`/fiscal?modelo=${n.modelo}`} className="text-sm text-slate-500 hover:underline">← Notas fiscais</Link>
+          {origem && <Link href={origem.href} className="text-sm text-marca hover:underline">Gerada pela {origem.rotulo}</Link>}
+        </div>
         <div className="flex gap-2">
           {n.xml && <a href={`/api/notas/${n.id}/xml`} className="btn-sec">Baixar XML</a>}
           {n.modelo === "NFSE" && n.chave && <a href={`${URL_DANFSE[n.ambiente === "PRODUCAO" ? 1 : 2]}/${n.chave}`} target="_blank" rel="noreferrer" className="btn-sec">DANFSe (PDF oficial)</a>}
-          {n.status === "AUTORIZADA" && <BotaoImprimir />}
+          {n.modelo !== "NFSE" && n.xml && <Link href={`/fiscal/${n.id}/imprimir${n.modelo === "NFE" ? "?formato=a4" : ""}`} className="btn">{n.modelo === "NFE" ? "Imprimir DANFE (A4)" : "Imprimir DANFCE"}</Link>}
+          {n.modelo === "NFE" && n.xml && <Link href={`/fiscal/${n.id}/imprimir?formato=simplificado`} className="btn-sec">DANFE simplificado</Link>}
         </div>
       </div>
 
@@ -88,7 +96,7 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
       )}
 
       {n.modelo === "NFSE" && n.status === "AUTORIZADA" && (
-        <div className="no-print cartao mx-auto max-w-md p-4">
+        <div id="cancelar" className="no-print cartao mx-auto max-w-md scroll-mt-20 p-4">
           <h2 className="mb-2 font-semibold">Cancelar NFS-e</h2>
           <BotaoAcao acao={cancelarServico} campos={{ notaId: n.id }} rotulo="Cancelar NFS-e" secundario>
             <select name="cMotivo" className="campo" defaultValue="1">
@@ -101,16 +109,18 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
         </div>
       )}
 
-      {n.status === "ENVIADA" && n.modelo !== "NFSE" && (
-        <div className="no-print cartao mx-auto max-w-md p-4">
-          <h2 className="mb-2 font-semibold">Aguardando a SEFAZ</h2>
-          <p className="mb-2 text-xs text-slate-500">A nota foi enviada e a SEFAZ não devolveu o resultado. Consulte antes de emitir outra, para não duplicar a venda.</p>
-          <BotaoAcao acao={consultarNotaAcao} campos={{ notaId: n.id }} rotulo="Consultar na SEFAZ" />
+      {n.chave && n.modelo !== "NFSE" && (
+        <div id="consultar" className="no-print cartao mx-auto max-w-md scroll-mt-20 p-4">
+          <h2 className="mb-2 font-semibold">{n.status === "ENVIADA" ? "Aguardando a SEFAZ" : "Situação na SEFAZ"}</h2>
+          <p className="mb-2 text-xs text-slate-500">{n.status === "ENVIADA"
+            ? "A nota foi enviada e a SEFAZ não devolveu o resultado. Consulte antes de emitir outra, para não duplicar a venda."
+            : "Confere na SEFAZ se a nota continua autorizada (ou se foi cancelada) e atualiza aqui."}</p>
+          <BotaoAcao acao={consultarNotaAcao} campos={{ notaId: n.id }} rotulo="Consultar na SEFAZ" secundario={n.status !== "ENVIADA"} />
         </div>
       )}
 
       {n.modelo === "NFE" && n.status === "AUTORIZADA" && (
-        <div className="no-print cartao mx-auto max-w-md p-4">
+        <div id="cce" className="no-print cartao mx-auto max-w-md scroll-mt-20 p-4">
           <h2 className="mb-2 font-semibold">Carta de correção</h2>
           <p className="mb-2 text-xs text-slate-500">
             Corrige dados que não mudam imposto, valor, quantidade, remetente/destinatário nem a data. Cada nova carta substitui a anterior:
@@ -141,7 +151,7 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
       )}
 
       {cancelavel && (
-        <div className="no-print cartao mx-auto max-w-md p-4">
+        <div id="cancelar" className="no-print cartao mx-auto max-w-md scroll-mt-20 p-4">
           <h2 className="mb-2 font-semibold">Cancelar nota</h2>
           <p className="mb-2 text-xs text-slate-500">Prazo: NFC-e até 30 minutos, NF-e até 24 horas após a autorização.</p>
           <BotaoAcao acao={cancelar} campos={{ notaId: n.id }} rotulo="Cancelar na SEFAZ" secundario>

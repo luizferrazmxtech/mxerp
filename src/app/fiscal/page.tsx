@@ -1,78 +1,144 @@
-import { Pagina } from "@/components/ui/Pagina";
-import { exigirArea } from "@/lib/auth/atual";
 import Link from "next/link";
+import type { ModeloNota, Prisma } from "@prisma/client";
+import { Pagina, Pilula, RodapeLista } from "@/components/ui/Pagina";
+import { exigirArea } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
 import { temCertificadoServidor } from "@/lib/fiscal/certificado";
 import { lojaAtual, nomeLoja } from "@/lib/empresa/atual";
 import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
 import { numerosPendentes } from "@/lib/fiscal/inutilizacao";
+import { estimativaDoMes, mesAnterior, mesAtual } from "@/lib/fiscal/impostos";
+import { URL_DANFSE } from "@/lib/fiscal/nfse";
 import { consultarStatus } from "./actions";
+import AcoesNota from "./AcoesNota";
 
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Notas fiscais" };
 
-const COR: Record<string, string> = {
-  AUTORIZADA: "bg-emerald-200 text-emerald-900", REJEITADA: "bg-red-200 text-red-900", CANCELADA: "bg-slate-300 text-slate-800",
-  DENEGADA: "bg-red-300 text-red-900", INUTILIZADA: "bg-slate-200 text-slate-600", ASSINADA: "bg-amber-200 text-amber-900", ENVIADA: "bg-amber-200 text-amber-900", RASCUNHO: "bg-slate-200",
+const SITUACAO: Record<string, [string, string]> = {
+  AUTORIZADA: ["Autorizada", "bg-emerald-50 text-emerald-700"], REJEITADA: ["Rejeitada", "bg-red-50 text-red-700"],
+  CANCELADA: ["Cancelada", "bg-slate-50 text-slate-600"], DENEGADA: ["Denegada", "bg-red-50 text-red-700"],
+  INUTILIZADA: ["Inutilizada", "bg-slate-50 text-slate-500"], ASSINADA: ["Não enviada", "bg-amber-50 text-amber-800"],
+  ENVIADA: ["Aguardando SEFAZ", "bg-amber-50 text-amber-800"], RASCUNHO: ["Rascunho", "bg-slate-50 text-slate-500"],
 };
+const MODELOS: Record<string, { titulo: string; curto: string }> = {
+  NFE: { titulo: "NF-e (produtos)", curto: "NF-e" }, NFCE: { titulo: "NFC-e (consumidor)", curto: "NFC-e" }, NFSE: { titulo: "NFS-e (serviços)", curto: "NFS-e" },
+};
+const nomeMes = (c: string) => { const t = new Date(`${c}-15T12:00:00Z`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" }); return t[0].toUpperCase() + t.slice(1); };
+const proximo = (c: string) => { const [a, m] = c.split("-").map(Number); return m === 12 ? `${a + 1}-01` : `${a}-${String(m + 1).padStart(2, "0")}`; };
 
-export default async function Fiscal() {
+/** Notas fiscais da loja atual, por tipo (NF-e, NFC-e, NFS-e) e mês, com origem, totais e imposto aproximado. */
+export default async function Fiscal({ searchParams }: { searchParams: Promise<{ modelo?: string; mes?: string }> }) {
   await exigirArea("/fiscal");
-  const [e, notas] = await Promise.all([
-    lojaAtual(),
-    prisma.notaFiscal.findMany({ orderBy: { createdAt: "desc" }, take: 100 }),
+  const sp = await searchParams;
+  const modelo = sp.modelo && MODELOS[sp.modelo] ? (sp.modelo as ModeloNota) : null;
+  const comp = /^\d{4}-\d{2}$/.test(sp.mes ?? "") ? sp.mes! : mesAtual();
+  const [a, m] = comp.split("-").map(Number);
+  const de = new Date(Date.UTC(a, m - 1, 1, 3)), ate = new Date(Date.UTC(m === 12 ? a + 1 : a, m === 12 ? 0 : m, 1, 3));
+  const e = await lojaAtual();
+  const where: Prisma.NotaFiscalWhereInput = {
+    ...(modelo ? { modelo } : {}),
+    OR: [{ emitidaEm: { gte: de, lt: ate } }, { emitidaEm: null, createdAt: { gte: de, lt: ate } }],
+  };
+  const [notas, est] = await Promise.all([
+    prisma.notaFiscal.findMany({ where, orderBy: [{ createdAt: "desc" }], take: 500 }),
+    e ? estimativaDoMes(e.id, comp) : null,
   ]);
+
+  // de onde veio cada nota (venda ou OS) e o cliente
+  const ids = (t: string) => notas.filter((n) => n.origemTipo === t && n.origemId).map((n) => n.origemId!);
+  const [vendas, oss] = await Promise.all([
+    prisma.venda.findMany({ where: { id: { in: ids("VENDA") } }, select: { id: true, numero: true, cliente: { select: { id: true, nome: true, fantasia: true } } } }),
+    prisma.ordemServico.findMany({ where: { id: { in: ids("OS") } }, select: { id: true, numero: true, cliente: { select: { id: true, nome: true, fantasia: true } } } }),
+  ]);
+  type Origem = { rotulo: string; href: string; cliente: { id: string; nome: string; fantasia: string | null } | null };
+  const origem = new Map<string, Origem>();
+  for (const v of vendas) origem.set(v.id, { rotulo: `venda #${v.numero}`, href: `/vendas/${v.id}`, cliente: v.cliente });
+  for (const o of oss) origem.set(o.id, { rotulo: `OS #${o.numero}`, href: `/os/${o.id}`, cliente: o.cliente });
+
   const certOk = !!e?.certificadoValidade || temCertificadoServidor();
-  // números rejeitados/pulados que ainda precisam ser inutilizados na SEFAZ
   const pendentes = e
     ? (await Promise.all([numerosPendentes(e, "NFE", e.serieNfe, e.ambienteFiscal), numerosPendentes(e, "NFCE", e.serieNfce, e.ambienteFiscal)]))
         .flat().reduce((s, f) => s + f.fim - f.inicio + 1, 0)
     : 0;
+  const autorizadas = notas.filter((n) => n.status === "AUTORIZADA");
+  const soma = (ls: typeof notas) => ls.reduce((s, n) => s + Number(n.valorTotal), 0);
+  const link = (p: Record<string, string | undefined>) => {
+    const base: Record<string, string | undefined> = { modelo: modelo ?? undefined, mes: comp, ...p };
+    const q = new URLSearchParams(Object.entries(base).filter((x): x is [string, string] => !!x[1]));
+    return `/fiscal?${q}`;
+  };
+  const titulo = modelo ? MODELOS[modelo].titulo : "Notas fiscais";
+
   return (
-    <Pagina titulo="Notas fiscais" icone="notas" trilha={[{ rotulo: "Notas fiscais", href: "/fiscal" }, { rotulo: "Listar" }]}>
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link href="/fiscal/inutilizacao" className="btn-sec">Inutilizar numeração{pendentes > 0 && <span className="ml-1 rounded bg-red-600 px-1.5 text-[11px] text-white">{pendentes}</span>}</Link>
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="cartao p-4 text-sm">
-          <div className="text-xs text-slate-500">Loja emitente</div>
-          <p className="font-semibold uppercase">{e ? nomeLoja(e) : "nenhuma empresa cadastrada"}</p>
-          <div className="mt-2 text-xs text-slate-500">Certificado A1</div>
-          {e?.certificadoValidade ? <p className="text-emerald-700">Válido até {e.certificadoValidade.toLocaleDateString("pt-BR")}</p>
-            : certOk ? <p className="text-slate-700">O do servidor</p> : <p className="text-red-700">Não enviado</p>}
-          <div className="mt-2 text-xs text-slate-500">Ambiente NF-e/NFC-e · NFS-e</div>
-          <p>
-            <span className={e?.ambienteFiscal === "PRODUCAO" ? "font-semibold text-red-700" : "text-amber-700"}>{e?.ambienteFiscal === "PRODUCAO" ? "PRODUÇÃO" : "Homologação"}</span>
-            {" · "}
-            <span className={e?.ambienteNfse === "PRODUCAO" ? "font-semibold text-red-700" : "text-amber-700"}>{e?.ambienteNfse === "PRODUCAO" ? "PRODUÇÃO" : "Homologação"}</span>
-          </p>
-          <Link href={e ? `/empresas/${e.id}` : "/empresas/nova"} className="mt-2 inline-block text-[13px] text-marca hover:underline">Configurações fiscais desta loja</Link>
+    <Pagina titulo={titulo} icone="notas" trilha={[{ rotulo: "Fiscal", href: "/fiscal" }, { rotulo: modelo ? MODELOS[modelo].curto : "Todas" }]}>
+      {/* abas por tipo e mês */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {[["", "Todas"], ["NFE", "NF-e"], ["NFCE", "NFC-e"], ["NFSE", "NFS-e"]].map(([k, r]) => (
+          <Link key={k} href={link({ modelo: k || "" })} className={(modelo ?? "") === k ? "btn" : "btn-sec"}>{r}</Link>
+        ))}
+        <div className="ml-auto flex items-center gap-1">
+          <Link href={link({ mes: mesAnterior(comp) })} className="btn-sec">‹</Link>
+          <span className="min-w-36 text-center text-[14px] font-semibold">{nomeMes(comp)}</span>
+          <Link href={link({ mes: proximo(comp) })} className="btn-sec">›</Link>
         </div>
-        <div className="cartao p-4"><BotaoAcao acao={consultarStatus} campos={{ modelo: "55" }} rotulo="Status SEFAZ NF-e" secundario /></div>
-        <div className="cartao p-4"><BotaoAcao acao={consultarStatus} campos={{ modelo: "65" }} rotulo="Status SEFAZ NFC-e" secundario /></div>
       </div>
 
-      <div className="cartao overflow-x-auto">
+      {/* totais do mês */}
+      <div className="mb-3 grid gap-3 md:grid-cols-4">
+        <div className="cartao p-3"><div className="text-[12px] text-slate-500">Autorizadas no mês</div><div className="text-[20px] font-semibold">{autorizadas.length}</div><div className="text-[11px] text-slate-500">{brl(soma(autorizadas))}</div></div>
+        <div className="cartao p-3"><div className="text-[12px] text-slate-500">Canceladas / rejeitadas</div><div className="text-[20px] font-semibold">{notas.filter((n) => n.status === "CANCELADA").length} / {notas.filter((n) => ["REJEITADA", "DENEGADA"].includes(n.status)).length}</div><div className="text-[11px] text-slate-500">{notas.filter((n) => n.status === "ENVIADA").length} aguardando a SEFAZ</div></div>
+        <Link href={`/fiscal/impostos?mes=${comp}`} className="cartao block p-3 hover:border-marca">
+          <div className="text-[12px] text-slate-500">Imposto aproximado (Simples) · todas as notas</div>
+          <div className="text-[20px] font-semibold text-marca">{est ? brl(est.imposto) : "—"}</div>
+          <div className="text-[11px] text-slate-500">{est?.semAliquota.length ? "informe as alíquotas do mês ›" : est?.total ? `sobre ${brl(est.total)} em produção ›` : "alíquotas por CNAE ›"}</div>
+        </Link>
+        <div className="cartao p-3 text-[13px]">
+          <div className="text-[12px] text-slate-500">Loja emitente</div>
+          <div className="font-semibold uppercase">{e ? nomeLoja(e) : "nenhuma empresa"}</div>
+          <div>NF-e/NFC-e: <b className={e?.ambienteFiscal === "PRODUCAO" ? "text-red-700" : "text-amber-700"}>{e?.ambienteFiscal === "PRODUCAO" ? "PRODUÇÃO" : "homologação"}</b> · NFS-e: <b className={e?.ambienteNfse === "PRODUCAO" ? "text-red-700" : "text-amber-700"}>{e?.ambienteNfse === "PRODUCAO" ? "PRODUÇÃO" : "homologação"}</b></div>
+          <div className={certOk ? "text-emerald-700" : "text-red-700"}>{e?.certificadoValidade ? `Certificado até ${e.certificadoValidade.toLocaleDateString("pt-BR")}` : certOk ? "Certificado do servidor" : "Sem certificado"}</div>
+          <Link href={e ? `/empresas/${e.id}` : "/empresas/nova"} className="text-marca hover:underline">Configurações fiscais ›</Link>
+        </div>
+      </div>
+
+      <div className="mb-2 flex flex-wrap items-start gap-2">
+        <Link href="/fiscal/inutilizacao" className="btn-sec">Inutilizar numeração{pendentes > 0 && <span className="ml-1 rounded bg-red-600 px-1.5 text-[11px] text-white">{pendentes}</span>}</Link>
+        <BotaoAcao acao={consultarStatus} campos={{ modelo: "55" }} rotulo="Status SEFAZ NF-e" secundario />
+        <BotaoAcao acao={consultarStatus} campos={{ modelo: "65" }} rotulo="Status SEFAZ NFC-e" secundario />
+      </div>
+
+      <div className="cartao overflow-x-auto md:overflow-visible">
         <table className="tabela">
-          <thead><tr><th>Modelo</th><th>Série/Nº</th><th>Situação</th><th>Emissão</th><th className="text-right">Valor</th><th>Retorno SEFAZ</th></tr></thead>
+          <thead><tr><th>Nº</th>{!modelo && <th>Tipo</th>}<th>Origem</th><th>Cliente</th><th>Data</th><th className="text-right">Valor</th><th>Situação</th><th className="w-12 text-right">Ações</th></tr></thead>
           <tbody>
-            {notas.map((n) => (
-              <tr key={n.id}>
-                <td>{n.modelo === "NFE" ? "NF-e" : n.modelo === "NFCE" ? "NFC-e" : "NFS-e"}{n.ambiente === "HOMOLOGACAO" && <span className="ml-1 text-xs text-amber-700">homolog.</span>}</td>
-                <td><Link href={`/fiscal/${n.id}`} className="text-marca hover:underline">{n.serie}/{n.numero}</Link></td>
-                <td><span className={`rounded px-2 py-0.5 text-xs ${COR[n.status]}`}>{n.status.toLowerCase()}</span></td>
-                <td>{dataHora(n.emitidaEm ?? n.createdAt)}</td>
-                <td className="text-right">{brl(n.valorTotal)}</td>
-                <td className="max-w-md truncate text-xs text-slate-600" title={n.motivo ?? ""}>{n.motivo}</td>
-              </tr>
-            ))}
-            {!notas.length && <tr><td colSpan={6} className="py-8 text-center text-slate-500">Nenhuma nota emitida. Emita pela venda ou pela OS.</td></tr>}
+            {notas.map((n) => {
+              const o = n.origemId ? origem.get(n.origemId) : undefined;
+              const [rot, cor] = SITUACAO[n.status] ?? [n.status, "bg-slate-50 text-slate-600"];
+              return (
+                <tr key={n.id}>
+                  <td><Link href={`/fiscal/${n.id}`} className="font-semibold text-marca hover:underline">{n.numero}</Link><span className="text-[11px] text-slate-500"> série {n.serie}</span>
+                    {n.ambiente === "HOMOLOGACAO" && <div className="text-[10px] text-amber-700">homologação</div>}</td>
+                  {!modelo && <td className="text-[12px]">{MODELOS[n.modelo]?.curto ?? n.modelo}</td>}
+                  <td>{o ? <Link href={o.href} className="text-marca hover:underline">{o.rotulo}</Link> : <span className="text-slate-400">—</span>}</td>
+                  <td className="max-w-64">{o?.cliente ? <Link href={`/clientes/${o.cliente.id}`} className="hover:underline">{o.cliente.nome}</Link> : <span className="text-slate-400">consumidor</span>}
+                    {o?.cliente?.fantasia && <div className="text-[11px] text-slate-500">{o.cliente.fantasia}</div>}</td>
+                  <td>{dataHora(n.emitidaEm ?? n.createdAt)}</td>
+                  <td className="text-right">{brl(n.valorTotal)}</td>
+                  <td><Pilula rotulo={rot} cor={cor} />{n.status !== "AUTORIZADA" && n.motivo && <div className="max-w-56 truncate text-[11px] text-slate-500" title={n.motivo}>{n.motivo}</div>}</td>
+                  <td className="text-right">
+                    <AcoesNota n={{ id: n.id, modelo: n.modelo, status: n.status, temXml: !!n.xml, temChave: !!n.chave }} origem={o ? { rotulo: o.rotulo, href: o.href } : null}
+                      danfse={n.modelo === "NFSE" && n.chave ? `${URL_DANFSE[n.ambiente === "PRODUCAO" ? 1 : 2]}/${n.chave}` : null} />
+                  </td>
+                </tr>
+              );
+            })}
+            {!notas.length && <tr><td colSpan={8} className="py-8 text-center text-slate-500">Nenhuma nota neste mês. Emita pela venda ou pela OS.</td></tr>}
           </tbody>
         </table>
+        <RodapeLista total={notas.length} mostrando={notas.length} />
       </div>
-
-    </div>
     </Pagina>
   );
 }

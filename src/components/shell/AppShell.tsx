@@ -31,6 +31,7 @@ function ativo(href: string, caminho: string, busca: string) {
   if (p === "/estoque") return caminho === p || caminho.startsWith("/estoque/produto");
   if (p === "/estoque/ajustes") return /^\/estoque\/(ajustes|zerar|inventarios)/.test(caminho);
   if (p === "/compras") return caminho === p || (caminho.startsWith(p + "/") && !/^\/compras\/(servicos|cotacoes|situacoes|mensagens)/.test(caminho));
+  if (p === "/fiscal") return (caminho === p && !busca.includes("modelo=")) || /^\/fiscal\/[^/]+$/.test(caminho) && !/^\/fiscal\/(impostos|inutilizacao)$/.test(caminho);
   if (p === "/financeiro") return caminho === p || (caminho.startsWith(p + "/") && !/\/(conciliacao|dre)/.test(caminho));
   return caminho === p || caminho.startsWith(p + "/");
 }
@@ -73,6 +74,8 @@ export default function AppShell({ menu, usuario, empresa, lojas = [], trocarLoj
   }
 
   const modulo = MODULOS.find((m) => caminho === m.prefixo || caminho.startsWith(m.prefixo + "/"));
+  // páginas de impressão (DANFE, OS, pedidos…): sem cabeçalho nem menu, para a impressão sair só com o documento
+  if (/\/imprimir(\/|$)/.test(caminho)) return <div className="min-h-screen bg-white">{children}</div>;
 
   return (
     <div className="min-h-screen">
@@ -203,7 +206,7 @@ export default function AppShell({ menu, usuario, empresa, lojas = [], trocarLoj
           {children}
         </main>
       </div>
-      {!pdv && menuAberto && <div className="fixed inset-0 top-[50px] z-20 bg-black/30 md:hidden" onClick={alternarMenu} />}
+      {!pdv && menuAberto && <div className="no-print fixed inset-0 top-[50px] z-20 bg-black/30 md:hidden" onClick={alternarMenu} />}
     </div>
   );
 }
