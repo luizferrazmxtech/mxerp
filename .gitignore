@@ -44,3 +44,4 @@ next-env.d.ts
 # dados locais da instalação
 /certificados/
 /backups/
+!ca-icp-brasil/*.pem
