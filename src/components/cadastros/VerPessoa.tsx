@@ -16,6 +16,7 @@ import { BotaoAreaCliente, FormAnexo, FormAnotacao } from "./FormsVer";
 import { cadaPalavra, contem } from "@/lib/busca/palavras";
 import { boletoAbrivel } from "@/lib/financeiro/lista";
 import { ATIVOS } from "@/lib/financeiro/boletos";
+import Resumo from "@/components/ui/Resumo";
 
 type Sp = { aba?: string; t?: string; per?: string; qt?: string };
 
@@ -162,11 +163,12 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
   const todos = await prisma.lancamento.findMany({ where: { pessoaId: id, tipo: tipoLanc }, select: { valor: true, valorPago: true, pagoEm: true, vencimento: true } });
   const soma = (l: typeof todos) => l.reduce((s, x) => s + Number(x.pagoEm ? x.valorPago ?? x.valor : x.valor), 0);
   const cards = [
-    { r: "Vencidos", v: soma(todos.filter((x) => !x.pagoEm && x.vencimento < hoje)), s: "Valores que já venceram", cor: "bg-red-100 text-red-600", txt: "text-red-600", i: "alerta" },
-    { r: "A vencer", v: soma(todos.filter((x) => !x.pagoEm && x.vencimento >= hoje)), s: "Valores a vencer", cor: "bg-amber-100 text-amber-600", txt: "text-amber-600", i: "relogio" },
-    { r: papel === "cliente" ? "Pagos" : "Pagos", v: soma(todos.filter((x) => x.pagoEm)), s: "Valores já quitados", cor: "bg-emerald-100 text-emerald-600", txt: "text-emerald-600", i: "ok" },
-    { r: "Em aberto", v: soma(todos.filter((x) => !x.pagoEm)), s: "Valores ainda pendentes", cor: "bg-sky-100 text-sky-600", txt: "text-sky-700", i: "lista" },
+    { r: "Vencidos", v: soma(todos.filter((x) => !x.pagoEm && x.vencimento < hoje)), s: "Valores que já venceram", k: "vermelho" as const, i: "atrasado" },
+    { r: "A vencer", v: soma(todos.filter((x) => !x.pagoEm && x.vencimento >= hoje)), s: "Valores a vencer", k: "amarelo" as const, i: "hoje" },
+    { r: "Pagos", v: soma(todos.filter((x) => x.pagoEm)), s: "Valores já quitados", k: "verde" as const, i: "confirmado" },
+    { r: "Em aberto", v: soma(todos.filter((x) => !x.pagoEm)), s: "Valores ainda pendentes", k: "azul" as const, i: "lista" },
   ];
+  const totalCards = soma(todos);
 
   type Card = { id: string; icone: string; titulo: string; href?: string; origem?: { rotulo: string; href: string }; boleto?: string | null; pilula: { r: string; c: string }; extra?: string; data: Date; valor: number };
   let lista: Card[] = [];
@@ -182,7 +184,7 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
     lista = ls.map((l) => ({
       id: l.id,
       icone: l.origemTipo === "OS" ? "os" : l.origemTipo === "VENDA" ? "notas" : "dinheiro",
-      titulo: (l.origemId && nums.get(l.origemId)) || l.descricao,
+      titulo: `${(l.origemId && nums.get(l.origemId)) || l.descricao}${l.totalParcelas > 1 ? ` · parcela ${l.parcela}/${l.totalParcelas}` : ""}`,
       // abre o recebimento/pagamento em si; a venda ou OS de origem fica num link à parte
       href: `/financeiro/lancamentos/${l.id}`,
       origem: l.origemId && (l.origemTipo === "OS" || l.origemTipo === "VENDA")
@@ -224,16 +226,8 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
           {PERIODOS.map((x) => <LinkSuspenso key={x.v} href={urlCom(base, params, { per: x.v || undefined })}>{x.r}</LinkSuspenso>)}
         </Suspenso>
       </div>
-      <div className="mb-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {cards.map((c) => (
-          <div key={c.r} className="cartao flex flex-col items-center px-3 py-4 text-center">
-            <span className={`mb-1 flex h-8 w-8 items-center justify-center rounded-full ${c.cor}`}><Icone nome={c.i} size={15} /></span>
-            <div className="text-[13px]">{c.r}</div>
-            <div className={`text-[20px] font-semibold ${c.txt}`}>{c.v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-            <div className="text-[11px] text-slate-500">{c.s}</div>
-          </div>
-        ))}
-      </div>
+      {/* mesmos cartões de resumo das listas (ícone, valor, anel com o percentual do total) */}
+      <Resumo cartoes={cards.map((c) => ({ rotulo: c.r, valor: brl(c.v), legenda: c.s, icone: c.i, cor: c.k, pct: totalCards > 0 ? (c.v / totalCards) * 100 : 0 }))} />
       <div className="space-y-2">
         {lista.map((c) => (
           <div key={c.id} className="cartao flex items-center gap-3 px-4 py-3">
