@@ -1,4 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { palavras, semAcento, wherePalavras } from "@/lib/busca/palavras";
 import { formatarDoc } from "./filtros";
 import type { EtiquetaBusca, PessoaBusca } from "./tipos";
 
@@ -23,24 +25,24 @@ export async function buscarPessoas(papel: PapelBusca, q: string, take = 15): Pr
   q = q.trim();
   if (q.length < 2) return [];
   const dig = q.replace(/\D/g, "");
+  // cada palavra em qualquer ordem, sem acento, no nome/fantasia; ou os dígitos no CPF/CNPJ e telefones
+  const papelCol = Prisma.raw(`"${papel}"`);
+  const digitos = dig.length >= 3 ? Prisma.sql`OR coalesce(p.documento,'') LIKE ${`%${dig}%`} OR regexp_replace(coalesce(p.telefone,''), '\\D', '', 'g') LIKE ${`%${dig}%`} OR regexp_replace(coalesce(p.celular,''), '\\D', '', 'g') LIKE ${`%${dig}%`}` : Prisma.empty;
+  const achados = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT p.id FROM "Pessoa" p
+     WHERE p.${papelCol} AND p.ativo AND (${wherePalavras(q, [Prisma.sql`p.nome`, Prisma.sql`p.fantasia`])} ${digitos})
+     ORDER BY (${semAcento(Prisma.sql`p.nome`)} LIKE ${`${palavras(q)[0] ?? ""}%`}) DESC, p.nome
+     LIMIT ${take}`);
+  const ordem = new Map(achados.map((a, i) => [a.id, i]));
   const lista = await prisma.pessoa.findMany({
-    where: {
-      [papel]: true,
-      ativo: true,
-      OR: [
-        { nome: { contains: q, mode: "insensitive" } },
-        { fantasia: { contains: q, mode: "insensitive" } },
-        ...(dig.length >= 3 ? [{ documento: { contains: dig } }, { telefone: { contains: dig } }, { celular: { contains: dig } }] : []),
-      ],
-    },
+    where: { id: { in: achados.map((a) => a.id) } },
     select: {
       id: true, nome: true, fantasia: true, documento: true, cidade: true, uf: true, email: true, celular: true, telefone: true,
       tipoPessoa: true, inscricaoEstadual: true, contribuinteIcms: true, limiteCredito: true,
       codigoCliente: true, codigoFornecedor: true, codigoTransportadora: true,
     },
-    orderBy: { nome: "asc" },
-    take,
   });
+  lista.sort((a, b) => ordem.get(a.id)! - ordem.get(b.id)!);
   if (!lista.length) return [];
 
   // financeiro só para clientes: contas a receber em aberto (vencidas e a vencer) e se já teve alguma

@@ -5,12 +5,14 @@ import { useActionState, useEffect, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import LinhaItemBusca, { fundoEstoque } from "@/components/itens/LinhaItemBusca";
+import type { SituacaoEstoque } from "@/lib/itens/estoqueSituacao";
 import { lerCodigoAcao, registrarContagemAcao, resumoInventarioAcao, salvarAjusteForm, zerarEstoqueAcao, salvarInventarioForm, salvarTransferenciaForm, type Resultado } from "@/lib/compras/acoes";
 import type { DadosInventario, ItemAjuste } from "@/lib/estoque/documentos";
 import { lerNumero } from "@/lib/itens/tipos";
 import { ResumoConversao, SeletorUnidade } from "@/components/itens/CelulaConversao";
 
-type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; custo: number; fisico: number | null; unidadeCompra?: string | null; fatorConversao?: number };
+type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; custo: number; fisico: number | null; disponivel?: number | null; situacao?: SituacaoEstoque; minimo?: number; unidadeCompra?: string | null; fatorConversao?: number };
 const n2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const n = (s: string) => lerNumero(s) ?? 0;
@@ -21,8 +23,8 @@ function Erro({ r }: { r: Resultado }) {
 
 function LinhaProduto({ item, onEscolher }: { item: { produtoId: string; nome?: string; codigo?: string }; onEscolher: (p: ProdutoBusca) => void }) {
   return item.produtoId ? <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{item.codigo}</span> {item.nome}</div> : (
-    <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus
-      linha={(p) => <span><span className="font-mono text-[11px] text-slate-500">{p.codigo}</span> {p.nome} <span className="text-[11px] text-slate-500">· estoque {p.fisico ?? "—"} · custo {brl(p.custo)}</span></span>}
+    <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus larguraMin={560} classeLinha={(p) => fundoEstoque(p.situacao)}
+      linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} unidade={p.unidade} valor={p.custo} rotuloValor="Custo" disponivel={p.disponivel ?? p.fisico} situacao={p.situacao} minimo={p.minimo} />}
       onEscolher={(p) => p && onEscolher(p)} />
   );
 }

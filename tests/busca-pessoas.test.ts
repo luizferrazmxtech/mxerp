@@ -46,3 +46,30 @@ describe("busca de pessoas com etiquetas", () => {
     expect(await buscarPessoas("fornecedor", "eco")).toEqual([]);
   });
 });
+
+describe("busca por palavras em qualquer ordem", () => {
+  it("cliente: todas as palavras, sem acento", async () => {
+    await prisma.pessoa.create({ data: { nome: "José da Conceição Silva", tipoPessoa: "FISICA" } });
+    await prisma.pessoa.create({ data: { nome: "José Pereira", tipoPessoa: "FISICA" } });
+    expect((await buscarPessoas("cliente", "silva jose")).map((p) => p.nome)).toEqual(["José da Conceição Silva"]);
+    expect((await buscarPessoas("cliente", "CONCEICAO")).map((p) => p.nome)).toEqual(["José da Conceição Silva"]);
+  });
+
+  it("produto: 'conector rj45 1000' acha o nome com as palavras separadas", async () => {
+    const { buscarEstoque } = await import("@/lib/estoque/consultas");
+    await prisma.$executeRawUnsafe(`DELETE FROM "Produto" WHERE codigo LIKE 'TBUSCA%'`);
+    await prisma.produto.createMany({ data: [
+      { codigo: "TBUSCA1", nome: "INF - CONECTOR RJ45 CAT5E CONEX 1000 INTELBRAS", estoqueMinimo: 5 },
+      { codigo: "TBUSCA2", nome: "INF - CONECTOR RJ45 CAT5E CONEX 3000 INTELBRAS" },
+      { codigo: "TBUSCA3", nome: "Cabo de ação elétrica", gtin: "7890000000017" },
+    ] });
+    const nomes = async (q: string) => (await buscarEstoque(q, 50)).map((p) => p.nome).filter((n) => n.startsWith("INF") || n.startsWith("Cabo"));
+    expect(await nomes("conector rj45 1000")).toEqual(["INF - CONECTOR RJ45 CAT5E CONEX 1000 INTELBRAS"]);
+    expect(await nomes("1000 conector")).toEqual(["INF - CONECTOR RJ45 CAT5E CONEX 1000 INTELBRAS"]);
+    expect(await nomes("acao ELETRICA")).toEqual(["Cabo de ação elétrica"]);
+    expect(await nomes("7890000000017")).toEqual(["Cabo de ação elétrica"]);
+    const l = (await buscarEstoque("tbusca1", 5))[0];
+    expect(l.situacao).toBe("FALTA");
+    await prisma.$executeRawUnsafe(`DELETE FROM "Produto" WHERE codigo LIKE 'TBUSCA%'`);
+  });
+});

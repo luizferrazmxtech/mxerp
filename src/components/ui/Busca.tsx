@@ -9,7 +9,7 @@ import { createPortal } from "react-dom";
  * A lista abre num portal em `position: fixed` sobre a página: dentro de tabelas com rolagem
  * (itens da venda, orçamento, OS) ela ficava cortada/atrás do quadro.
  */
-export default function Busca<T extends { id: string }>({ url, valor, rotulo, linha, onEscolher, placeholder = "Digite para buscar", autoFocus, limparAoEscolher, className = "", exato }: {
+export default function Busca<T extends { id: string }>({ url, valor, rotulo, linha, onEscolher, placeholder = "Digite para buscar", autoFocus, limparAoEscolher, className = "", exato, classeLinha, larguraMin = 288 }: {
   url: (q: string) => string;
   valor: T | null;
   rotulo: (t: T) => string;
@@ -21,6 +21,10 @@ export default function Busca<T extends { id: string }>({ url, valor, rotulo, li
   className?: string;
   /** se devolver um item, ele entra direto (leitor de código de barras) */
   exato?: (q: string, lista: T[]) => T | undefined;
+  /** fundo da linha (ex.: produto em falta em vermelho claro) */
+  classeLinha?: (t: T) => string;
+  /** largura mínima da lista, em px */
+  larguraMin?: number;
 }) {
   const [q, setQ] = useState("");
   const [lista, setLista] = useState<T[]>([]);
@@ -53,7 +57,7 @@ export default function Busca<T extends { id: string }>({ url, valor, rotulo, li
     const calc = () => {
       const r = input.current?.getBoundingClientRect();
       if (!r) return;
-      const width = Math.max(r.width, 288);
+      const width = Math.min(Math.max(r.width, larguraMin), window.innerWidth - 16);
       const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
       const abaixo = window.innerHeight - r.bottom - 8;
       const acima = r.top - 8;
@@ -64,7 +68,7 @@ export default function Busca<T extends { id: string }>({ url, valor, rotulo, li
     window.addEventListener("scroll", calc, true);
     window.addEventListener("resize", calc);
     return () => { window.removeEventListener("scroll", calc, true); window.removeEventListener("resize", calc); };
-  }, [mostrar, lista.length]);
+  }, [mostrar, lista.length, larguraMin]);
 
   useEffect(() => {
     const fora = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node) && !caixa.current?.contains(e.target as Node)) setAberto(false); };
@@ -104,7 +108,7 @@ export default function Busca<T extends { id: string }>({ url, valor, rotulo, li
               {lista.map((t, i) => (
                 <li key={t.id}>
                   <button type="button" onMouseEnter={() => setFoco(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => escolher(t)}
-                    className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-[13px] last:border-b-0 ${i === foco ? "bg-slate-100" : ""}`}>
+                    className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-[13px] last:border-b-0 ${i === foco ? "bg-slate-100" : classeLinha?.(t) ?? ""}`}>
                     {linha(t)}
                   </button>
                 </li>

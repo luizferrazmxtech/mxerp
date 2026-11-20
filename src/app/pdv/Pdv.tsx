@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { LinhaEstoque } from "@/lib/estoque/consultas";
+import LinhaItemBusca, { fundoEstoque } from "@/components/itens/LinhaItemBusca";
 import Pagamentos, { type Forma, type LinhaPag } from "@/components/Pagamentos";
 import Icone from "@/components/Icone";
 import { fecharBalcao, type ResultadoSimples } from "./actions";
@@ -108,10 +109,8 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
               <ul className="absolute z-30 mt-1 max-h-96 w-full overflow-auto rounded-md border bg-white shadow-lg">
                 {opcoes.map((o, i) => (
                   <li key={o.id}>
-                    <button type="button" onMouseEnter={() => setFoco(i)} onClick={() => incluir(o)} className={`flex w-full justify-between gap-3 px-3 py-2 text-left text-[13px] ${i === foco ? "bg-slate-100" : ""}`}>
-                      <span><span className="font-mono text-[11px] text-slate-500">{o.codigo}</span> {o.nome}
-                        <span className="block text-[11px] text-slate-500">{o.locais ?? "sem local"}</span></span>
-                      <span className="shrink-0 text-right">{brl(o.precoVenda)}<span className={`block text-[11px] font-semibold ${o.disponivel > 0 ? "text-emerald-700" : "text-red-600"}`}>{o.disponivel} disp.</span></span>
+                    <button type="button" onMouseEnter={() => setFoco(i)} onClick={() => incluir(o)} className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-[13px] ${i === foco ? "bg-slate-100" : fundoEstoque(o.situacao)}`}>
+                      <LinhaItemBusca codigo={o.codigo} nome={o.nome} unidade={o.unidade} valor={o.precoVenda} disponivel={o.disponivel} situacao={o.situacao} minimo={o.minimo} extra={o.locais ?? "sem local"} />
                     </button>
                   </li>
                 ))}

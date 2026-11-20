@@ -5,6 +5,8 @@ import { useActionState, useEffect, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import LinhaItemBusca, { fundoEstoque } from "@/components/itens/LinhaItemBusca";
+import type { SituacaoEstoque } from "@/lib/itens/estoqueSituacao";
 import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
 import GerenciarColunas from "@/components/ui/GerenciarColunas";
 import type { PessoaBusca } from "@/lib/cadastros/tipos";
@@ -22,7 +24,7 @@ type Opcoes = {
   tecnicos?: { id: string; nome: string }[];
 };
 
-type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; valores: { tipoValorId: string; valor: number }[] };
+type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; situacao?: SituacaoEstoque; minimo?: number; valores: { tipoValorId: string; valor: number }[] };
 type ServicoBusca = { id: string; codigo: string; nome: string; preco: number };
 
 const n2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -83,8 +85,8 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                     <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}
                       {l.disponivel != null && <span className={`block text-[11px] ${l.disponivel < (lerNumero(l.quantidade) ?? 0) ? "text-red-600" : "text-slate-500"}`}>Disponível: {l.disponivel.toLocaleString("pt-BR")} {l.unidade}</span>}</div>
                   ) : (
-                    <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus
-                      linha={(p) => <span><span className="font-mono text-[11px] text-slate-500">{p.codigo}</span> {p.nome} <span className="text-[11px] text-slate-500">· {brl(p.preco)}{p.disponivel != null ? ` · disp. ${p.disponivel}` : ""}</span></span>}
+                    <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus larguraMin={560} classeLinha={(p) => fundoEstoque(p.situacao)}
+                      linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} unidade={p.unidade} valor={p.valores.find((v) => v.tipoValorId === padrao)?.valor ?? p.preco} disponivel={p.disponivel} situacao={p.situacao} minimo={p.minimo} />}
                       onEscolher={(p) => p && setProd(i, { produtoId: p.id, nome: p.nome, codigo: p.codigo, unidade: p.unidade, valores: p.valores, disponivel: p.disponivel, tipoValorId: padrao,
                         valorUnit: n2(p.valores.find((v) => v.tipoValorId === padrao)?.valor ?? p.preco) })} />
                   )}
@@ -124,8 +126,8 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
               <tr key={i}>
                 <td>
                   {l.servicoId ? <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}</div> : (
-                    <Busca<ServicoBusca> url={(q) => `/api/itens/busca?tipo=servico&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus
-                      linha={(p) => <span><span className="font-mono text-[11px] text-slate-500">{p.codigo}</span> {p.nome} <span className="text-[11px] text-slate-500">· {brl(p.preco)}</span></span>}
+                    <Busca<ServicoBusca> url={(q) => `/api/itens/busca?tipo=servico&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus larguraMin={480}
+                      linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} valor={p.preco} />}
                       onEscolher={(p) => p && setServ(i, { servicoId: p.id, nome: p.nome, codigo: p.codigo, valorUnit: n2(p.preco) })} />
                   )}
                 </td>

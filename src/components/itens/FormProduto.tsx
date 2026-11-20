@@ -5,6 +5,7 @@ import { useActionState, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import LinhaItemBusca, { fundoEstoque } from "./LinhaItemBusca";
 import { gerarCodigoAcao, salvarProdutoForm, type Resultado } from "@/lib/itens/acoes";
 import { ORIGENS, PRODUTOS_ESPECIFICOS, lerNumero, lucroDe, valorSugerido, type DadosProduto } from "@/lib/itens/tipos";
 import type { LinhaEstoque } from "@/lib/estoque/consultas";
@@ -98,7 +99,7 @@ export default function FormProduto({ inicial, op }: { inicial: InicialProduto; 
                     </div>
                   ))}
                   <Busca<LinhaEstoque> url={(q) => `/api/produtos?q=${encodeURIComponent(q)}`} valor={null} limparAoEscolher placeholder="Buscar componente"
-                    rotulo={(p) => p.nome} linha={(p) => <span><span className="font-mono text-[11px] text-slate-500">{p.codigo}</span> {p.nome}</span>}
+                    rotulo={(p) => p.nome} larguraMin={480} classeLinha={(p) => fundoEstoque(p.situacao)} linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} unidade={p.unidade} disponivel={p.disponivel} situacao={p.situacao} minimo={p.minimo} />}
                     onEscolher={(p) => p && set("componentes", [...d.componentes, { componenteId: p.id, nome: p.nome, quantidade: "1" }])} />
                 </div>
               )}
