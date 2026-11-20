@@ -45,3 +45,10 @@ next-env.d.ts
 /certificados/
 /backups/
 !ca-icp-brasil/*.pem
+
+# VPS: senhas, clientes, cópias e arquivos gerados ficam só no servidor
+/vps/.env
+/vps/clientes/
+/vps/backups/
+/vps/gerado/
+/vps/rclone/

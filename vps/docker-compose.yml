@@ -1,0 +1,107 @@
+# MXERP na VPS: um PostgreSQL com um banco por cliente, HTTPS automático (Caddy), backup de todos os bancos
+# e o agendador (Inter, contratos, DF-e) de cada cliente.
+# Os sistemas de cada cliente ficam em docker-compose.clientes.yml, gerado pelo ./vps/mxerp.sh a partir de vps/clientes/*/.
+# Não rode "docker compose" direto aqui: use ./vps/mxerp.sh (ele junta os dois arquivos).
+name: mxerp
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_SENHA_ADMIN:?rode ./vps/mxerp.sh instalar}
+      TZ: America/Sao_Paulo
+    volumes:
+      - dados:/var/lib/postgresql/data
+    # só a rede interna do docker enxerga o banco (nenhuma porta aberta na internet)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 20
+
+  # recebe o acesso da internet (80/443), pede o certificado HTTPS sozinho e entrega para o sistema de cada cliente
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      EMAIL_HTTPS: ${EMAIL_HTTPS:-}
+    volumes:
+      - ./gerado/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_dados:/data
+      - caddy_config:/config
+
+  # cópia de cada banco nos horários do cliente (padrão 3h, 12h30 e 19h30) em vps/backups/<banco>/; guarda DIAS_BACKUP dias
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${DB_SENHA_ADMIN}
+      DIAS_BACKUP: ${DIAS_BACKUP:-30}
+      HORARIOS_PADRAO: ${BACKUP_HORARIOS:-0300,1230,1930}
+      TZ: America/Sao_Paulo
+    volumes:
+      - ./backups:/backups
+      - ./scripts:/scripts:ro
+      - ./clientes:/clientes:ro
+    entrypoint: ["sh", "/scripts/agenda-backup.sh"]
+
+  # de hora em hora (8h às 20h): para cada cliente, busca extrato/boletos do Inter, processa contratos e DF-e
+  agendador:
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    environment:
+      TZ: "<-03>3"  # a imagem do curl não tem a tabela de fusos: horário de Brasília fixo
+    volumes:
+      - ./clientes:/clientes:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        sleep 180  # espera os sistemas subirem
+        while true; do
+          h=$$(date +%H)
+          if [ "$$h" -ge 8 ] && [ "$$h" -le 20 ]; then
+            for env in /clientes/*/cliente.env; do
+              [ -f "$$env" ] || continue
+              slug=$$(basename $$(dirname "$$env"))
+              grep -q '^SUSPENSO=1' "$$env" && continue
+              segredo=$$(grep '^CRON_SECRET=' "$$env" | cut -d= -f2-)
+              for rota in inter/sincronizar contratos/processar dfe/sincronizar; do
+                echo "$$slug $$rota: $$(curl -s -m 600 -X POST -H "Authorization: Bearer $$segredo" http://app-$$slug:3000/api/$$rota)"
+              done
+            done
+          fi
+          sleep 3600
+        done
+
+  # cópia dos backups para fora da VPS (Backblaze B2, S3, Google Drive...). Só roda com: ./vps/mxerp.sh copia-externa ligar
+  copia-externa:
+    image: rclone/rclone:1.68
+    restart: unless-stopped
+    profiles: ["externo"]
+    environment:
+      DESTINO: ${DESTINO_BACKUP:-}
+      TZ: America/Sao_Paulo
+    volumes:
+      - ./backups:/backups:ro
+      - ./rclone:/config/rclone
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "copia-externa: destino $$DESTINO"
+        while true; do
+          [ -n "$$DESTINO" ] && rclone copy /backups "$$DESTINO" --max-age 2d && echo "copia-externa: ok $$(date)"
+          sleep 3600
+        done
+
+volumes:
+  dados:
+  caddy_dados:
+  caddy_config:
