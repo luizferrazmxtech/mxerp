@@ -1,3 +1,4 @@
+import { codigoIbge } from "./municipio";
 import type { Prisma, TipoPessoa, ContribuinteIcms } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
@@ -101,6 +102,11 @@ export async function salvarPessoa(papel: PapelPessoa, d: DadosPessoa, opts: { i
   const limite = d.limiteCredito.trim() ? lerNumero(d.limiteCredito) : null;
   if (limite !== null && !(limite >= 0)) throw new Error("Limite de crédito inválido");
   const pj = d.tipoPessoa === "JURIDICA";
+  // código IBGE (usado na NF-e) sai da cidade/UF: a pessoa nunca precisa digitá-lo
+  const ibge = (e?: { cidade?: string | null; uf?: string | null; codigoMunicipio?: string | null }) =>
+    e && !dig(e.codigoMunicipio) && t(e.cidade) && t(e.uf) ? codigoIbge(e.cidade!.trim(), e.uf!.trim()) : Promise.resolve(dig(e?.codigoMunicipio));
+  const ibges = await Promise.all(enderecos.map((e) => ibge(e)));
+  const ibgePrincipal = principal ? ibges[enderecos.indexOf(principal)] : null;
   const dados = {
     tipoPessoa: d.tipoPessoa,
     ativo: d.ativo,
@@ -120,14 +126,14 @@ export async function salvarPessoa(papel: PapelPessoa, d: DadosPessoa, opts: { i
     pais: t(d.pais) ?? "Brasil",
     observacoes: t(d.observacoes),
     cep: dig(principal?.cep), logradouro: t(principal?.logradouro), numero: t(principal?.numero), complemento: t(principal?.complemento),
-    bairro: t(principal?.bairro), cidade: t(principal?.cidade), codigoMunicipio: dig(principal?.codigoMunicipio), uf: t(principal?.uf)?.toUpperCase().slice(0, 2) ?? null,
+    bairro: t(principal?.bairro), cidade: t(principal?.cidade), codigoMunicipio: ibgePrincipal ?? null, uf: t(principal?.uf)?.toUpperCase().slice(0, 2) ?? null,
     ...(papel === "cliente" ? {
       vendedorId: t(d.vendedorId), limiteCredito: limite, excederLimite: d.excederLimite,
       camposExtras: (d.camposExtras ?? {}) as Prisma.InputJsonValue,
     } : {}),
   };
   const filhos = {
-    enderecos: { create: enderecos.map((e, i) => ({ ordem: i, tipo: t(e.tipo), cep: dig(e.cep), logradouro: t(e.logradouro), numero: t(e.numero), complemento: t(e.complemento), bairro: t(e.bairro), cidade: t(e.cidade), codigoMunicipio: dig(e.codigoMunicipio), uf: t(e.uf)?.toUpperCase().slice(0, 2) ?? null })) },
+    enderecos: { create: enderecos.map((e, i) => ({ ordem: i, tipo: t(e.tipo), cep: dig(e.cep), logradouro: t(e.logradouro), numero: t(e.numero), complemento: t(e.complemento), bairro: t(e.bairro), cidade: t(e.cidade), codigoMunicipio: ibges[i] ?? null, uf: t(e.uf)?.toUpperCase().slice(0, 2) ?? null })) },
     contatos: { create: d.contatos.filter((c) => t(c.nome) || t(c.contato)).map((c, i) => ({ ordem: i, tipo: t(c.tipo), nome: t(c.nome), contato: t(c.contato), cargo: t(c.cargo), observacao: t(c.observacao) })) },
   };
   const cfg = PAPEIS[papel];

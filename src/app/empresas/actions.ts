@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { AmbienteFiscal, RegimeTributario } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { codigoIbge } from "@/lib/cadastros/municipio";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { lojasDoUsuario } from "@/lib/empresa/atual";
 import { COOKIE_LOJA, limparCacheLojas } from "@/lib/empresa/loja";
@@ -71,7 +72,9 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
       ...(s(form.get("cscToken")) ? { cscToken: s(form.get("cscToken")) } : {}),
       infCplNfe: s(form.get("infCplNfe")) || null, infCplNfse: s(form.get("infCplNfse")) || null,
     };
-    if (dados.codigoMunicipio && dados.codigoMunicipio.length !== 7) throw new Error("O código IBGE do município tem 7 dígitos (São Carlos/SP = 3548906)");
+    // código IBGE sai da cidade/UF (o campo não aparece na tela)
+    if (dados.cidade && dados.uf) dados.codigoMunicipio = (await codigoIbge(dados.cidade, dados.uf)) ?? dados.codigoMunicipio;
+    if (dados.codigoMunicipio && dados.codigoMunicipio.length !== 7) throw new Error("Não encontrei a cidade na lista do IBGE: confira o nome da cidade e a UF");
 
     // certificado A1: confere senha, validade e CNPJ antes de guardar (cifrado)
     const arq = form.get("certificado");

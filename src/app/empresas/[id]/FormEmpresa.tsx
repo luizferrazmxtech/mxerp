@@ -130,7 +130,7 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
           {t("complemento", "Complemento", e?.complemento)}
           {t("bairro", "Bairro", e?.bairro)}
           {t("cidade", "Cidade", e?.cidade)}
-          {t("codigoMunicipio", "Código IBGE do município", e?.codigoMunicipio, "", { placeholder: "3548906" })}
+          <input type="hidden" name="codigoMunicipio" defaultValue={e?.codigoMunicipio ?? ""} />
           {t("uf", "UF", e?.uf, "", { maxLength: 2 })}
           {t("cep", "CEP", e?.cep)}
           {!!(consulta?.fontes?.length || consulta?.avisos?.length) && (
