@@ -18,7 +18,9 @@ export default function AcoesNota({ n, origem, danfse }: {
     <Suspenso botao={<Icone nome="opcoes" size={16} />} classe="btn-icone" direita titulo="Ações">
       <Link href={`/fiscal/${n.id}`} className={item}><Icone nome="ver" size={14} /> Visualizar</Link>
       {!nfse && n.temXml && <>
-        <Link href={`/fiscal/${n.id}/imprimir${n.modelo === "NFE" ? "?formato=a4" : ""}`} className={item}><Icone nome="imprimir" size={14} /> {n.modelo === "NFE" ? "Imprimir DANFE (A4)" : "Imprimir DANFCE"}</Link>
+        {n.modelo === "NFE"
+          ? <a href={`/fiscal/${n.id}/danfe`} target="_blank" rel="noreferrer" className={item}><Icone nome="imprimir" size={14} /> DANFE A4 (PDF)</a>
+          : <Link href={`/fiscal/${n.id}/imprimir`} className={item}><Icone nome="imprimir" size={14} /> Imprimir DANFCE</Link>}
         {n.modelo === "NFE" && <Link href={`/fiscal/${n.id}/imprimir?formato=simplificado`} className={item}><Icone nome="imprimir" size={14} /> DANFE simplificado</Link>}
       </>}
       {nfse && danfse && <a href={danfse} target="_blank" rel="noreferrer" className={item}><Icone nome="imprimir" size={14} /> DANFSe (PDF oficial)</a>}

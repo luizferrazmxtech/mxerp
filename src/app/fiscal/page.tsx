@@ -126,7 +126,9 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
                     {o?.cliente?.fantasia && <div className="text-[11px] text-slate-500">{o.cliente.fantasia}</div>}</td>
                   <td>{dataHora(n.emitidaEm ?? n.createdAt)}</td>
                   <td className="text-right">{brl(n.valorTotal)}</td>
-                  <td><Pilula rotulo={rot} cor={cor} />{n.status !== "AUTORIZADA" && n.motivo && <div className="max-w-56 truncate text-[11px] text-slate-500" title={n.motivo}>{n.motivo}</div>}</td>
+                  <td><Pilula rotulo={rot} cor={cor} />
+                    {n.consultadaEm && <div className="text-[11px] text-slate-500">consultada {dataHora(n.consultadaEm)}</div>}
+                    {n.status !== "AUTORIZADA" && n.motivo && <div className="max-w-56 truncate text-[11px] text-slate-500" title={n.motivo}>{n.motivo}</div>}</td>
                   <td className="text-right">
                     <AcoesNota n={{ id: n.id, modelo: n.modelo, status: n.status, temXml: !!n.xml, temChave: !!n.chave }} origem={o ? { rotulo: o.rotulo, href: o.href } : null}
                       danfse={n.modelo === "NFSE" && n.chave ? `${URL_DANFSE[n.ambiente === "PRODUCAO" ? 1 : 2]}/${n.chave}` : null} />
