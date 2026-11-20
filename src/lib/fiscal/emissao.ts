@@ -2,7 +2,7 @@ import type { Prisma, Empresa, ModeloNota, OrigemDocumento, Pessoa, RegimeTribut
 import { prisma } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
 import { assinarXml } from "./assinatura";
-import { certificadoDaEmpresa, type Certificado } from "./certificado";
+import { certificadoDaEmpresa, conferirTls, NaoEnviadoError, type Certificado } from "./certificado";
 import { codigoIbge, completarEndereco } from "@/lib/cadastros/municipio";
 import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { codigoNumerico } from "./chave";
@@ -166,10 +166,12 @@ async function emitir(args: {
   const modeloEnum: ModeloNota = nfce ? "NFCE" : "NFE";
   const agora = args.deps.agora ?? new Date();
 
+  conferirTls(cert); // certificado que não abre a conexão: avisa antes de gastar um número
   let enviou = false;
+  const chave = chaveSeq(e.cnpj, args.modelo, serie, amb);
   // reserva o número numa transação própria (número consumido mesmo se rejeitar → inutilizar depois)
   const nota = await prisma.$transaction(async (tx) => {
-    const numero = await proximoNumero(tx, chaveSeq(e.cnpj, args.modelo, serie, amb));
+    const numero = await proximoNumero(tx, chave);
     return tx.notaFiscal.create({
       data: { empresaId: e.id, modelo: modeloEnum, serie, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: args.origemTipo, origemId: args.origemId, valorTotal: 0 },
     });
@@ -206,9 +208,24 @@ async function emitir(args: {
   } catch (err) {
     // erro depois de mandar (tempo esgotado, conexão caiu): a SEFAZ pode ter autorizado; fica "enviada" até a consulta
     const m = (err as Error).message.slice(0, 400);
-    await prisma.notaFiscal.update({ where: { id: nota.id }, data: enviou ? { status: "ENVIADA", motivo: `Sem resposta da SEFAZ: ${m}. Consulte a nota antes de emitir de novo.` } : { status: "REJEITADA", motivo: m } });
+    // nada chegou à SEFAZ (erro ao montar, assinar ou conectar): o número volta para ser usado de novo
+    if (!enviou || err instanceof NaoEnviadoError) await liberarNumero(nota.id, chave, nota.numero, m);
+    else await prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "ENVIADA", motivo: `Sem resposta da SEFAZ: ${m}. Consulte a nota antes de emitir de novo.` } });
     throw err;
   }
+}
+
+/**
+ * A nota não chegou a ser enviada: apaga o rascunho e, se o número ainda é o último da série, devolve o número
+ * ao contador (a próxima nota usa o mesmo). Se outra nota já pegou o seguinte, fica registrada como rejeitada
+ * (e o número aparece em Inutilizar numeração).
+ */
+async function liberarNumero(notaId: string, chave: string, numero: number, motivo: string) {
+  await prisma.$transaction(async (tx) => {
+    const volta = await tx.sequencia.updateMany({ where: { chave, valor: numero }, data: { valor: numero - 1 } });
+    if (volta.count) await tx.notaFiscal.delete({ where: { id: notaId } });
+    else await tx.notaFiscal.update({ where: { id: notaId }, data: { status: "REJEITADA", motivo: `Não enviada: ${motivo}` } });
+  });
 }
 
 /** Consulta na SEFAZ uma nota que ficou sem resposta e grava o resultado (autorizada ou rejeitada). */
@@ -342,8 +359,11 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
   if (!(valor > 0)) throw new FiscalError("O valor dos serviços (com o desconto) precisa ser maior que zero");
   const c = a.cliente;
   const serie = String(e.serieDps);
+  conferirTls(cert);
+  const chave = chaveDps(e.cnpj, e.serieDps, amb);
+  let enviou = false;
   const nota = await prisma.$transaction(async (tx) => {
-    const numero = await proximoNumero(tx, chaveDps(e.cnpj, e.serieDps, amb));
+    const numero = await proximoNumero(tx, chave);
     return tx.notaFiscal.create({
       data: { empresaId: e.id, modelo: "NFSE", serie: e.serieDps, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: a.origemTipo, origemId: a.origemId, valorTotal: valor },
     });
@@ -365,6 +385,7 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
     });
     const assinada = assinarDps(xml, cert);
     await prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "ASSINADA", xml: assinada } });
+    enviou = true;
     const r = await new ClienteNfse(cert, amb, deps.transporte).emitir(assinada);
     if (r.ok) {
       return prisma.notaFiscal.update({
@@ -374,7 +395,9 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
     }
     return prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "REJEITADA", motivo: r.mensagem.slice(0, 1000) } });
   } catch (err) {
-    await prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "REJEITADA", motivo: (err as Error).message.slice(0, 500) } });
+    const m = (err as Error).message.slice(0, 500);
+    if (!enviou || err instanceof NaoEnviadoError) await liberarNumero(nota.id, chave, nota.numero, m);
+    else await prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "REJEITADA", motivo: m } });
     throw err;
   }
 }

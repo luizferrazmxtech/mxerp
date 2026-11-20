@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import tls from "node:tls";
 import forge from "node-forge";
 import { decifrar } from "@/lib/seguranca/segredos";
 
@@ -7,11 +8,33 @@ export type Certificado = {
   senha: string;
   chavePrivadaPem: string;
   certificadoPem: string;
+  /** titular + cadeia, em PEM: usado na conexão TLS (não depende do formato do .pfx) */
+  cadeiaPem: string;
   /** certificado em base64 sem cabeçalho, para o <X509Certificate> */
   certificadoB64: string;
   cnpj: string | null;
   validoAte: Date;
 };
+
+/**
+ * Opções TLS do certificado para a SEFAZ e a NFS-e Nacional. Usa a chave e os certificados já abertos (PEM)
+ * em vez do .pfx: o OpenSSL 3 do Node recusa .pfx antigos (RC2/3DES) com "Unsupported PKCS12 PFX data".
+ */
+export function opcoesTls(cert: Pick<Certificado, "chavePrivadaPem" | "cadeiaPem">) {
+  return { key: cert.chavePrivadaPem, cert: cert.cadeiaPem };
+}
+
+/** Confere se o certificado serve para abrir a conexão segura (antes de gastar um número de nota). */
+export function conferirTls(cert: Pick<Certificado, "chavePrivadaPem" | "cadeiaPem">) {
+  try {
+    tls.createSecureContext(opcoesTls(cert));
+  } catch (e) {
+    throw new Error(`O certificado não pode ser usado na conexão com a SEFAZ: ${(e as Error).message}`);
+  }
+}
+
+/** Erro antes de qualquer dado chegar à SEFAZ (certificado, rede, endereço): a nota com certeza não foi enviada. */
+export class NaoEnviadoError extends Error {}
 
 /** Lê um certificado A1 (.pfx/.p12). */
 export function lerCertificado(pfx: Buffer, senha: string): Certificado {
@@ -32,6 +55,7 @@ export function lerCertificado(pfx: Buffer, senha: string): Certificado {
     senha,
     chavePrivadaPem: forge.pki.privateKeyToPem(keyBag.key),
     certificadoPem,
+    cadeiaPem: [titular, ...certs.filter((c) => c !== titular)].map((c) => forge.pki.certificateToPem(c)).join(""),
     certificadoB64: certificadoPem.replace(/-----(BEGIN|END) CERTIFICATE-----|\s/g, ""),
     cnpj: cnpjAttr ? String(cnpjAttr.value).slice(-14) : null,
     validoAte: titular.validity.notAfter,

@@ -1,7 +1,7 @@
 import https from "node:https";
 import fs from "node:fs";
 import { gzipSync, gunzipSync } from "node:zlib";
-import type { Certificado } from "./certificado";
+import { NaoEnviadoError, opcoesTls, type Certificado } from "./certificado";
 import { assinarXml } from "./assinatura";
 import { dataHoraTz, dec, g, so, t } from "./xml";
 
@@ -152,18 +152,25 @@ export type TransporteRest = (metodo: "POST" | "GET", url: string, corpo: string
 
 export const transporteRest: TransporteRest = (metodo, url, corpo, cert) =>
   new Promise((resolve, reject) => {
+    let conectou = false;
+    const falhou = (e: Error) => reject(conectou ? e : new NaoEnviadoError(`Não foi possível conectar à NFS-e Nacional: ${e.message}`));
+    try {
     const ca = process.env.SEFAZ_CA_FILE ? fs.readFileSync(process.env.SEFAZ_CA_FILE) : undefined;
     const req = https.request(url, {
-      method: metodo, pfx: cert.pfx, passphrase: cert.senha, ca, timeout: 30000,
+      method: metodo, ...opcoesTls(cert), ca, timeout: 30000,
       headers: { "Content-Type": "application/json", Accept: "application/json", ...(corpo ? { "Content-Length": Buffer.byteLength(corpo) } : {}) },
     }, (res) => {
       const partes: Buffer[] = [];
       res.on("data", (c) => partes.push(c));
       res.on("end", () => resolve({ status: res.statusCode ?? 0, corpo: Buffer.concat(partes).toString("utf8") }));
     });
+    req.on("socket", (s) => s.once("secureConnect", () => { conectou = true; }));
     req.on("timeout", () => req.destroy(new Error("Tempo esgotado na comunicação com a NFS-e Nacional")));
-    req.on("error", reject);
+    req.on("error", falhou);
     req.end(corpo ?? undefined);
+    } catch (e) {
+      falhou(e as Error);
+    }
   });
 
 type Erro = { Codigo?: string; codigo?: string; Descricao?: string; descricao?: string; Complemento?: string; complemento?: string };
