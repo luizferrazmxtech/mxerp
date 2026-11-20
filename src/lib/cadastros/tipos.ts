@@ -47,3 +47,11 @@ export type DadosCnpj = {
   fontes: string[];
   avisos: string[];
 };
+
+/** Etiqueta (badge com borda) mostrada na lista dos campos "Digite para buscar" de pessoa. */
+export type EtiquetaBusca = { rotulo: string; cor: string; mono?: boolean };
+/** Resultado de /api/pessoas e /api/clientes: o documento já vem formatado. */
+export type PessoaBusca = {
+  id: string; nome: string; fantasia?: string | null; documento?: string | null; cidade?: string | null; email?: string | null;
+  celular?: string | null; telefone?: string | null; codigo?: string; etiquetas?: EtiquetaBusca[];
+};

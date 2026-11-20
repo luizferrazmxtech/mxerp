@@ -105,7 +105,7 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
                 if (e.key === "Escape") { setQ(""); setOpcoes([]); }
               }} />
             {opcoes.length > 0 && (
-              <ul className="absolute z-10 mt-1 max-h-96 w-full overflow-auto rounded-md border bg-white shadow-lg">
+              <ul className="absolute z-30 mt-1 max-h-96 w-full overflow-auto rounded-md border bg-white shadow-lg">
                 {opcoes.map((o, i) => (
                   <li key={o.id}>
                     <button type="button" onMouseEnter={() => setFoco(i)} onClick={() => incluir(o)} className={`flex w-full justify-between gap-3 px-3 py-2 text-left text-[13px] ${i === foco ? "bg-slate-100" : ""}`}>

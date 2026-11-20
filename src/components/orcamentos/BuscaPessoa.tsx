@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import Busca from "@/components/ui/Busca";
+import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
+import type { PessoaBusca } from "@/lib/cadastros/tipos";
 
-type R = { id: string; nome: string; fantasia?: string | null; documento?: string | null; codigo?: string };
+type R = PessoaBusca;
 
 /** Campo "Digite para buscar" de cliente, transportadora, produto ou serviço, com input escondido para formulários. */
 export default function BuscaPessoa({ nome, papel, inicial, onEscolher, placeholder }: {
@@ -16,7 +18,9 @@ export default function BuscaPessoa({ nome, papel, inicial, onEscolher, placehol
       {nome && <input type="hidden" name={nome} value={v?.id ?? ""} />}
       <Busca<R> url={url} valor={v} rotulo={(p) => p.nome} placeholder={placeholder}
         onEscolher={(p) => { setV(p); onEscolher?.(p); }}
-        linha={(p) => <span>{p.codigo && <span className="font-mono text-[11px] text-slate-500">{p.codigo} </span>}{p.nome}{p.fantasia && <i className="text-slate-500"> ({p.fantasia})</i>}{p.documento && <span className="block text-[11px] text-slate-500">{p.documento}</span>}</span>} />
+        linha={(p) => (papel === "produto" || papel === "servico"
+          ? <span>{p.codigo && <span className="font-mono text-[11px] text-slate-500">{p.codigo} </span>}{p.nome}</span>
+          : <LinhaPessoaBusca p={p} />)} />
     </>
   );
 }

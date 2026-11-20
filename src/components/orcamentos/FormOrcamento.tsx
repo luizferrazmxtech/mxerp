@@ -5,7 +5,9 @@ import { useActionState, useEffect, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
 import GerenciarColunas from "@/components/ui/GerenciarColunas";
+import type { PessoaBusca } from "@/lib/cadastros/tipos";
 import { LinhaToggle } from "@/components/itens/AbasVerticais";
 import { salvarOrcamentoForm, type Resultado } from "@/lib/orcamentos/acoes";
 import { salvarPedidoForm } from "@/lib/vendas/acoes";
@@ -158,9 +160,9 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
           )}
           <div className={ve("numero") ? "lg:col-span-1" : "lg:col-span-2"}>
             <span className="rotulo obrig">Cliente</span>
-            <Busca<{ id: string; nome: string; fantasia?: string | null; documento?: string | null }> url={(q) => `/api/pessoas?papel=cliente&q=${encodeURIComponent(q)}`}
+            <Busca<PessoaBusca> url={(q) => `/api/pessoas?papel=cliente&q=${encodeURIComponent(q)}`}
               valor={d.clienteId ? { id: d.clienteId, nome: d.clienteNome } : null} rotulo={(p) => p.nome}
-              linha={(p) => <span>{p.nome}{p.fantasia && <i className="text-slate-500"> ({p.fantasia})</i>}<span className="block text-[11px] text-slate-500">{p.documento}</span></span>}
+              linha={(p) => <LinhaPessoaBusca p={p} />}
               onEscolher={(p) => setD((x) => ({ ...x, clienteId: p?.id ?? "", clienteNome: p?.nome ?? "", enderecoEntregaId: "" }))} />
             <Link href="/clientes/adicionar" target="_blank" className="text-[11px] text-marca hover:underline">+ Adicionar novo</Link>
           </div>
@@ -231,8 +233,8 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
       <Bloco icone="frete" titulo={os ? <>Informe a <b>entrega</b> {doc}</> : <>Informe o <b>transporte</b> {doc}</>}>
         {!os && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2"><span className="rotulo">Transportadora</span>
-            <Busca<{ id: string; nome: string }> url={(q) => `/api/pessoas?papel=transportadora&q=${encodeURIComponent(q)}`}
-              valor={d.transportadoraId ? { id: d.transportadoraId, nome: d.transportadoraNome } : null} rotulo={(p) => p.nome} linha={(p) => p.nome}
+            <Busca<PessoaBusca> url={(q) => `/api/pessoas?papel=transportadora&q=${encodeURIComponent(q)}`}
+              valor={d.transportadoraId ? { id: d.transportadoraId, nome: d.transportadoraNome } : null} rotulo={(p) => p.nome} linha={(p) => <LinhaPessoaBusca p={p} />}
               onEscolher={(p) => setD((x) => ({ ...x, transportadoraId: p?.id ?? "", transportadoraNome: p?.nome ?? "" }))} /></div>
           <Campo rotulo="Valor do frete (R$)"><input className="campo text-right" value={d.frete} onChange={(e) => set("frete", e.target.value)} /></Campo>
         </div>}

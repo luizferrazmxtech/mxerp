@@ -5,6 +5,8 @@ import { useActionState, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
+import type { PessoaBusca } from "@/lib/cadastros/tipos";
 import { ResumoConversao, SeletorUnidade } from "@/components/itens/CelulaConversao";
 import { fatorPeloNome, mesmaUnidade } from "@/lib/itens/unidades";
 import { salvarCompraForm, type Resultado } from "@/lib/compras/acoes";
@@ -135,9 +137,9 @@ export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op
           </div>
           <div>
             <span className="rotulo obrig">Fornecedor</span>
-            <Busca<{ id: string; nome: string; fantasia?: string | null; documento?: string | null }> url={(q) => `/api/pessoas?papel=fornecedor&q=${encodeURIComponent(q)}`}
+            <Busca<PessoaBusca> url={(q) => `/api/pessoas?papel=fornecedor&q=${encodeURIComponent(q)}`}
               valor={d.fornecedorId ? { id: d.fornecedorId, nome: d.fornecedorNome } : null} rotulo={(p) => p.nome}
-              linha={(p) => <span>{p.nome}{p.fantasia && <i className="text-slate-500"> ({p.fantasia})</i>}<span className="block text-[11px] text-slate-500">{p.documento}</span></span>}
+              linha={(p) => <LinhaPessoaBusca p={p} />}
               onEscolher={(p) => setD((x) => ({ ...x, fornecedorId: p?.id ?? "", fornecedorNome: p?.nome ?? "" }))} />
             <Link href="/fornecedores/adicionar" target="_blank" className="text-[11px] text-marca hover:underline">+ Adicionar novo</Link>
           </div>
@@ -155,8 +157,8 @@ export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op
       <Bloco icone="frete" titulo={<>Informe o <b>transporte</b> da compra</>}>
         <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2"><span className="rotulo">Transportadora</span>
-            <Busca<{ id: string; nome: string }> url={(q) => `/api/pessoas?papel=transportadora&q=${encodeURIComponent(q)}`}
-              valor={d.transportadoraId ? { id: d.transportadoraId, nome: d.transportadoraNome } : null} rotulo={(p) => p.nome} linha={(p) => p.nome}
+            <Busca<PessoaBusca> url={(q) => `/api/pessoas?papel=transportadora&q=${encodeURIComponent(q)}`}
+              valor={d.transportadoraId ? { id: d.transportadoraId, nome: d.transportadoraNome } : null} rotulo={(p) => p.nome} linha={(p) => <LinhaPessoaBusca p={p} />}
               onEscolher={(p) => setD((x) => ({ ...x, transportadoraId: p?.id ?? "", transportadoraNome: p?.nome ?? "" }))} /></div>
           <Campo rotulo="Valor do frete (R$)"><input className="campo text-right" value={d.frete} onChange={(e) => set("frete", e.target.value)} /></Campo>
           <label className="flex items-center gap-2 pb-2 text-[13px]"><input type="checkbox" checked={d.freteNoTotal} onChange={(e) => set("freteNoTotal", e.target.checked)} /> Somar ao total</label>
