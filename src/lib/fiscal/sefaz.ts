@@ -1,7 +1,7 @@
 import https from "node:https";
 import fs from "node:fs";
 import { XMLParser } from "fast-xml-parser";
-import type { Certificado } from "./certificado";
+import { NaoEnviadoError, opcoesTls, type Certificado } from "./certificado";
 import { assinarXml } from "./assinatura";
 import { NS_NFE, VERSAO, codigoUf } from "./nfe";
 import { dataHoraTz, g, t } from "./xml";
@@ -80,6 +80,10 @@ export type Transporte = (url: string, soapAction: string, corpo: string, cert: 
 
 export const transporteHttps: Transporte = (url, soapAction, corpo, cert) =>
   new Promise((resolve, reject) => {
+    // até a conexão segura ficar pronta nada foi enviado: erro antes disso é NaoEnviadoError
+    let conectou = false;
+    const falhou = (e: Error) => reject(conectou ? e : new NaoEnviadoError(`Não foi possível conectar à SEFAZ: ${e.message}`));
+    try {
     // Cadeia ICP-Brasil: a SEFAZ usa certificados que não estão no repositório padrão do Node.
     // Aponte SEFAZ_CA_FILE para o arquivo .pem com as ACs da ICP-Brasil (iti.gov.br).
     const ca = process.env.SEFAZ_CA_FILE ? fs.readFileSync(process.env.SEFAZ_CA_FILE) : undefined;
@@ -87,8 +91,7 @@ export const transporteHttps: Transporte = (url, soapAction, corpo, cert) =>
       url,
       {
         method: "POST",
-        pfx: cert.pfx,
-        passphrase: cert.senha,
+        ...opcoesTls(cert),
         ca,
         timeout: 30000,
         headers: {
@@ -106,9 +109,13 @@ export const transporteHttps: Transporte = (url, soapAction, corpo, cert) =>
         });
       },
     );
+    req.on("socket", (s) => s.once("secureConnect", () => { conectou = true; }));
     req.on("timeout", () => req.destroy(new Error("Tempo esgotado na comunicação com a SEFAZ")));
-    req.on("error", reject);
+    req.on("error", falhou);
     req.end(corpo);
+    } catch (e) {
+      falhou(e as Error);
+    }
   });
 
 const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, parseTagValue: false });

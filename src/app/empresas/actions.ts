@@ -14,7 +14,7 @@ import { buscarDadosCnpj } from "@/lib/cadastros/consultaCnpj";
 import { cnpjValido } from "@/lib/cadastros/documentos";
 import type { DadosCnpj } from "@/lib/cadastros/tipos";
 import type { Certificado } from "@/lib/fiscal/certificado";
-import { conferirCnpjCertificado, lerCertificado } from "@/lib/fiscal/certificado";
+import { conferirCnpjCertificado, conferirTls, lerCertificado } from "@/lib/fiscal/certificado";
 import { cifrar } from "@/lib/seguranca/segredos";
 import { ClienteSefaz } from "@/lib/fiscal/sefaz";
 import { certificadoDaEmpresa } from "@/lib/fiscal/certificado";
@@ -91,6 +91,7 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
         throw new Error("Não foi possível abrir o certificado: confira o arquivo (.pfx/.p12) e a senha");
       }
       conferirCnpjCertificado(lido, cnpj);
+      conferirTls(lido);
       if (lido.validoAte < new Date()) throw new Error(`Este certificado venceu em ${lido.validoAte.toLocaleDateString("pt-BR")}`);
       const titular = lerTitular(lido.certificadoPem);
       cert = { certificadoPfx: cifrar(pfx.toString("base64")), certificadoSenha: cifrar(senha), certificadoValidade: lido.validoAte, certificadoTitular: titular };

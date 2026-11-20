@@ -65,6 +65,21 @@ describe("emissão a partir da venda", () => {
     expect((await fiscal.emitirNotaVenda(v2.id, 65, { cert, transporte: autoriza })).numero).toBe(2);
   });
 
+  it("falha antes de chegar à SEFAZ devolve o número: a próxima nota usa o mesmo", async () => {
+    const { NaoEnviadoError } = await import("@/lib/fiscal/certificado");
+    const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
+    const semConexao: Transporte = async () => { throw new NaoEnviadoError("Não foi possível conectar à SEFAZ: Unsupported PKCS12 PFX data"); };
+    await expect(fiscal.emitirNotaVenda(v.id, 65, { cert, transporte: semConexao })).rejects.toThrow(/PKCS12/);
+    expect(await prisma.notaFiscal.count({ where: { origemId: v.id } })).toBe(0); // não fica "enviada"
+    expect((await fiscal.emitirNotaVenda(v.id, 65, { cert, transporte: autoriza })).numero).toBe(1);
+  });
+
+  it("certificado .pfx antigo (3DES) abre a conexão pelos PEM", async () => {
+    const { conferirTls, opcoesTls } = await import("@/lib/fiscal/certificado");
+    expect(() => conferirTls(cert)).not.toThrow();
+    expect(opcoesTls(cert).cert).toContain("BEGIN CERTIFICATE");
+  });
+
   it("rejeição fica registrada com o motivo", async () => {
     const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
     const rejeita: Transporte = async () => `<E><retEnviNFe><cStat>104</cStat><protNFe><infProt><cStat>778</cStat><xMotivo>Rejeicao: NCM inexistente</xMotivo></infProt></protNFe></retEnviNFe></E>`;
