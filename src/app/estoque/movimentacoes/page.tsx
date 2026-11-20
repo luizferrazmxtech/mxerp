@@ -6,6 +6,8 @@ import { num2, qtd } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
 import Paginacao, { Ordenar, lerPagina } from "@/components/ui/Paginacao";
 import Icone from "@/components/Icone";
+import BarraCadastro from "@/components/ui/BarraCadastro";
+import { LinkSuspenso } from "@/components/ui/BarraLista";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Movimentações de estoque" };
@@ -23,13 +25,13 @@ export default async function Movimentacoes({ searchParams }: { searchParams: Pr
   const est = await estoquesDe(lista.map((p) => p.id));
   return (
     <Pagina titulo="Movimentações de estoque" icone="transferir" trilha={[{ rotulo: "Movimentações", href: base }, { rotulo: "Listar" }]}>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="text-[13px] text-slate-600">Escolha o produto para ver as entradas e saídas no período.</span>
-        <form action={base} className="ml-auto flex">
-          <input name="q" defaultValue={sp.q} placeholder="Buscar por código, nome ou código de barras" className="campo w-72 rounded-r-none" />
-          <button className="btn rounded-l-none px-2.5" title="Buscar"><Icone nome="buscar" size={15} /></button>
-        </form>
-      </div>
+      <BarraCadastro base={base} params={sp} avancada={false} placeholder="Código, nome ou código de barras"
+        maisAcoes={<>
+          <LinkSuspenso href="/estoque" icone="estoque">Consultar estoque</LinkSuspenso>
+          <LinkSuspenso href="/estoque/ajustes" icone="ajustes">Ajustes de estoque</LinkSuspenso>
+          <LinkSuspenso href="/estoque/transferencias" icone="transferir">Transferências</LinkSuspenso>
+        </>} />
+      <p className="mb-2 text-[13px] text-slate-500">Escolha o produto e clique em ⇄ para ver as entradas e saídas, com a venda, OS ou compra de cada uma.</p>
       <div className="cartao overflow-x-auto">
         <table className="tabela">
           <thead><tr>
@@ -43,7 +45,7 @@ export default async function Movimentacoes({ searchParams }: { searchParams: Pr
               const e = est.get(p.id)!;
               return (
                 <tr key={p.id}>
-                  <td className="font-mono text-[12px]">{p.codigo}</td>
+                  <td>{p.codigo}</td>
                   <td><Link href={`/produtos/${p.id}`} className="hover:underline">{p.nome}</Link></td>
                   <td className="text-right">{num2(p.precoVenda)}</td>
                   <td className={`text-right ${p.controlaEstoque && e.fisico <= 0 ? "text-red-600" : ""}`}>{p.controlaEstoque ? `${qtd(e.fisico)} ${p.unidade}` : "—"}</td>
