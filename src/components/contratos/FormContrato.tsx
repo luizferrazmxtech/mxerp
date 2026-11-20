@@ -5,6 +5,7 @@ import { useActionState, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import LinhaItemBusca from "@/components/itens/LinhaItemBusca";
 import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
 import { salvarContratoForm, type Resultado } from "@/lib/contratos/acoes";
 import { PERIODICIDADES, SITUACOES_CONTRATO, primeiroVencimento, totaisContrato, type DadosContrato } from "@/lib/contratos/tipos";
@@ -87,8 +88,8 @@ export default function FormContrato({ inicial, op, proximoNumero, interAtivo }:
                 <tr key={i}>
                   <td>
                     {l.servicoId ? <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}</div> : (
-                      <Busca<ServicoBusca> url={(q) => `/api/itens/busca?tipo=servico&q=${encodeURIComponent(q)}`} valor={null} rotulo={(s) => s.nome} autoFocus
-                        linha={(s) => <span><span className="font-mono text-[11px] text-slate-500">{s.codigo}</span> {s.nome} <span className="text-[11px] text-slate-500">· {brl(s.preco)}</span></span>}
+                      <Busca<ServicoBusca> url={(q) => `/api/itens/busca?tipo=servico&q=${encodeURIComponent(q)}`} valor={null} rotulo={(s) => s.nome} autoFocus larguraMin={480}
+                        linha={(s) => <LinhaItemBusca codigo={s.codigo} nome={s.nome} valor={s.preco} />}
                         onEscolher={(s) => s && setServ(i, { servicoId: s.id, nome: s.nome, codigo: s.codigo, valorUnit: n2(s.preco) })} />
                     )}
                   </td>

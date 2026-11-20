@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Busca from "@/components/ui/Busca";
+import LinhaItemBusca from "@/components/itens/LinhaItemBusca";
 import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
 import type { PessoaBusca } from "@/lib/cadastros/tipos";
 
@@ -19,7 +20,7 @@ export default function BuscaPessoa({ nome, papel, inicial, onEscolher, placehol
       <Busca<R> url={url} valor={v} rotulo={(p) => p.nome} placeholder={placeholder}
         onEscolher={(p) => { setV(p); onEscolher?.(p); }}
         linha={(p) => (papel === "produto" || papel === "servico"
-          ? <span>{p.codigo && <span className="font-mono text-[11px] text-slate-500">{p.codigo} </span>}{p.nome}</span>
+          ? <LinhaItemBusca codigo={p.codigo} nome={p.nome} />
           : <LinhaPessoaBusca p={p} />)} />
     </>
   );

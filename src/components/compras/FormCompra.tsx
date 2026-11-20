@@ -5,6 +5,8 @@ import { useActionState, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import LinhaItemBusca, { fundoEstoque } from "@/components/itens/LinhaItemBusca";
+import type { SituacaoEstoque } from "@/lib/itens/estoqueSituacao";
 import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
 import type { PessoaBusca } from "@/lib/cadastros/tipos";
 import { ResumoConversao, SeletorUnidade } from "@/components/itens/CelulaConversao";
@@ -15,7 +17,7 @@ import { gerarParcelas, lerNumero, type LinhaServico } from "@/lib/orcamentos/ti
 
 export type InicialCompra = DadosCompra & { id?: string; proximoNumero: number; anexos: { id: string; nome: string }[] };
 type Opcoes = { situacoes: { id: string; nome: string }[]; formas: { id: string; nome: string }[]; campos: { id: string; nome: string }[]; centros: string[] };
-type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; custo: number; fisico: number | null; unidadeCompra: string | null; fatorConversao: number };
+type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; custo: number; fisico: number | null; disponivel?: number | null; situacao?: SituacaoEstoque; minimo?: number; unidadeCompra: string | null; fatorConversao: number };
 type ServicoBusca = { id: string; codigo: string; nome: string; preco: number };
 
 const n2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -59,8 +61,8 @@ export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op
               <tr key={i}>
                 <td>
                   {l.produtoId ? <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}</div> : (
-                    <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus
-                      linha={(p) => <span><span className="font-mono text-[11px] text-slate-500">{p.codigo}</span> {p.nome} <span className="text-[11px] text-slate-500">· custo {brl(p.custo)}{p.fisico != null ? ` · estoque ${p.fisico}` : ""}</span></span>}
+                    <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus larguraMin={560} classeLinha={(p) => fundoEstoque(p.situacao)}
+                      linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} unidade={p.unidade} valor={p.custo} rotuloValor="Custo" disponivel={p.disponivel ?? p.fisico} situacao={p.situacao} minimo={p.minimo} />}
                       onEscolher={(p) => {
                         if (!p) return;
                         const cp = p.unidadeCompra ? { unidade: p.unidadeCompra, fator: p.fatorConversao } : null;
@@ -104,8 +106,8 @@ export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op
               <tr key={i}>
                 <td>
                   {l.servicoId ? <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}</div> : (
-                    <Busca<ServicoBusca> url={(q) => `/api/itens/busca?tipo=servico&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus
-                      linha={(p) => <span><span className="font-mono text-[11px] text-slate-500">{p.codigo}</span> {p.nome}</span>}
+                    <Busca<ServicoBusca> url={(q) => `/api/itens/busca?tipo=servico&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus larguraMin={480}
+                      linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} valor={p.preco} />}
                       onEscolher={(p) => p && setServ(i, { servicoId: p.id, nome: p.nome, codigo: p.codigo, valorUnit: n2(p.preco) })} />
                   )}
                 </td>

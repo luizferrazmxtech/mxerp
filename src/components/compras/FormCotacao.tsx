@@ -5,12 +5,14 @@ import { useActionState, useState, useTransition } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import LinhaItemBusca, { fundoEstoque } from "@/components/itens/LinhaItemBusca";
+import type { SituacaoEstoque } from "@/lib/itens/estoqueSituacao";
 import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
 import { itensDoFornecedorAcao, salvarCotacaoForm, type Resultado } from "@/lib/compras/acoes";
 import type { DadosCotacao, FornecedorCotacaoForm, ItemCotacaoForm } from "@/lib/compras/cotacoes";
 
 type Pessoa = { id: string; nome: string; fantasia?: string | null; email?: string | null; celular?: string | null; telefone?: string | null };
-type ItemBusca = { id: string; codigo: string; nome: string; unidade?: string };
+type ItemBusca = { id: string; codigo: string; nome: string; unidade?: string; disponivel?: number | null; situacao?: SituacaoEstoque; minimo?: number };
 
 /** Adicionar/editar cotação: fornecedores (cada um recebe um link), itens a cotar, observações e anexos. */
 export default function FormCotacao({ inicial, anexos = [] }: { inicial: DadosCotacao & { id?: string }; anexos?: { id: string; nome: string }[] }) {
@@ -76,7 +78,8 @@ export default function FormCotacao({ inicial, anexos = [] }: { inicial: DadosCo
                       <div className="flex gap-1">
                         <select className="campo w-28" value={(l as ItemCotacaoForm & { _t?: string })._t ?? tipo} onChange={(e) => setI(i, { _t: e.target.value } as Partial<ItemCotacaoForm>)}><option value="produto">Produto</option><option value="servico">Serviço</option></select>
                         <Busca<ItemBusca> className="flex-1" url={(q) => `/api/itens/busca?tipo=${(l as ItemCotacaoForm & { _t?: string })._t ?? "produto"}&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus
-                          linha={(p) => <span><span className="font-mono text-[11px] text-slate-500">{p.codigo}</span> {p.nome}</span>}
+                          larguraMin={480} classeLinha={(p) => fundoEstoque(p.situacao)}
+                          linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} unidade={p.unidade} disponivel={p.disponivel} situacao={p.situacao} minimo={p.minimo} />}
                           onEscolher={(p) => { if (!p) return; const serv = (l as ItemCotacaoForm & { _t?: string })._t === "servico"; setI(i, { produtoId: serv ? "" : p.id, servicoId: serv ? p.id : "", nome: p.nome, codigo: p.codigo, unidade: p.unidade ?? "UN" }); }} />
                       </div>
                     )}</td>
