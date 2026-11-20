@@ -7,3 +7,8 @@ certificados
 backups
 coverage
 *.log
+vps/clientes
+vps/backups
+vps/gerado
+vps/rclone
+vps/.env
