@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
 import { assinarXml } from "./assinatura";
 import { certificadoDaEmpresa, type Certificado } from "./certificado";
+import { codigoIbge, completarEndereco } from "@/lib/cadastros/municipio";
 import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { codigoNumerico } from "./chave";
 import { incluirInfNFeSupl, montarNfe, qrCodeNfce, type DadosNota, type Destinatario, type ItemNota, type PagamentoNota } from "./nfe";
@@ -23,11 +24,15 @@ const CRT: Record<RegimeTributario, 1 | 2 | 3 | 4> = {
  * Cada CNPJ tem seus dados, certificado, ambiente, séries e numeração.
  */
 export async function empresa(empresaId?: string | null): Promise<Empresa> {
-  const e = await empresaDoDocumento(empresaId);
+  let e = await empresaDoDocumento(empresaId);
   if (!e) throw new FiscalError("Cadastre os dados da empresa em Configurações › Empresas (lojas)");
+  if (!e.codigoMunicipio && e.cidade && e.uf) {
+    const c = await codigoIbge(e.cidade, e.uf);
+    if (c) e = await prisma.empresa.update({ where: { id: e.id }, data: { codigoMunicipio: c } });
+  }
   const faltando = [
     ["logradouro", e.logradouro], ["bairro", e.bairro], ["cidade", e.cidade],
-    ["código IBGE do município", e.codigoMunicipio], ["UF", e.uf], ["CEP", e.cep],
+    ["UF", e.uf], ["CEP", e.cep],
   ].filter(([, v]) => !v).map(([n]) => n);
   if (faltando.length) throw new FiscalError(`Complete os dados da empresa: ${faltando.join(", ")}`);
   return e;
@@ -44,16 +49,26 @@ function emitenteDe(e: Empresa): DadosNota["emitente"] {
   };
 }
 
-function destinatarioDe(p: Pessoa | null, obrigatorio: boolean): Destinatario | null {
+async function destinatarioDe(p: Pessoa | null, obrigatorio: boolean): Promise<Destinatario | null> {
   if (p?.tipoPessoa === "ESTRANGEIRO") throw new FiscalError("Nota para cliente estrangeiro (exportação) ainda não é emitida pelo sistema");
   if (!p || !p.documento) {
     if (obrigatorio) throw new FiscalError("NF-e exige cliente com CPF/CNPJ");
     return null;
   }
+  // código IBGE (e o que mais faltar) descoberto pela cidade/UF ou pelo CEP e gravado no cadastro;
+  // na NFC-e o endereço é opcional: só entra se estiver completo
+  if (obrigatorio) p = await completarEndereco(p);
   const completo = p.logradouro && p.bairro && p.codigoMunicipio && p.cidade && p.uf && p.cep;
-  if (obrigatorio && !completo) throw new FiscalError(`Complete o endereço do cliente ${p.nome} (com código IBGE do município)`);
+  if (obrigatorio && !completo) {
+    const falta = [
+      ["rua", p.logradouro], ["bairro", p.bairro], ["cidade", p.cidade], ["UF", p.uf], ["CEP", p.cep],
+    ].filter(([, v]) => !v).map(([n]) => n);
+    throw new FiscalError(falta.length
+      ? `Para a NF-e, complete no cadastro do cliente ${p.nome}: ${falta.join(", ")}`
+      : `Não encontrei a cidade "${p.cidade}/${p.uf}" do cliente ${p.nome} na lista do IBGE: confira o nome da cidade no cadastro`);
+  }
   return {
-    documento: p.documento,
+    documento: p.documento!,
     nome: p.nome,
     ie: p.inscricaoEstadual,
     indIEDest: p.contribuinteIcms === "CONTRIBUINTE" ? 1 : p.contribuinteIcms === "ISENTO" ? 2 : 9,
@@ -130,7 +145,7 @@ async function emitir(args: {
   if (pendente) throw new FiscalError(`A nota nº ${pendente.numero} foi enviada e a SEFAZ não respondeu: abra a nota e clique em "Consultar na SEFAZ" antes de emitir outra`);
 
   const cert = args.deps.cert ?? certificadoDaEmpresa(e);
-  const dest = destinatarioDe(args.cliente, !nfce);
+  const dest = await destinatarioDe(args.cliente, !nfce);
   const interestadual = !!dest?.endereco && dest.endereco.uf !== e.uf;
   const itens = itensDe(args.itens, interestadual);
   // desconto geral do documento rateado proporcionalmente; centavos que sobram vão no maior item
