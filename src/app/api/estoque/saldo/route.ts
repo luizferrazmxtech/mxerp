@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { saldoDetalhado } from "@/lib/estoque/tecnico";
+import { saldoDetalhado } from "@/lib/estoque/carro";
 
 /** Saldo de um produto para a dica da quantidade (OS, venda, orçamento): físico, reservado, disponível e onde está. */
 export async function GET(req: Request) {

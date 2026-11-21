@@ -19,9 +19,9 @@ import VoltarConta from "@/components/financeiro/VoltarConta";
 import NotasDoDocumento from "@/components/NotasDoDocumento";
 import { FormAnexo } from "@/components/cadastros/FormsVer";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
-import FormItensTecnico from "@/components/os/FormItensTecnico";
+import FormItensCarro from "@/components/os/FormItensCarro";
 import DicaSaldo from "@/components/estoque/DicaSaldo";
-import { estoquesDosTecnicos, livreNosCarros } from "@/lib/estoque/tecnico";
+import { carrosDasEquipes, livreNosCarros } from "@/lib/estoque/carro";
 import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import BoletoParcela from "@/components/BoletoParcela";
@@ -38,7 +38,7 @@ function Vazio({ icone, titulo, texto }: { icone: string; titulo: string; texto?
   return <div className="cartao flex flex-col items-center px-4 py-10 text-center text-slate-500"><Icone nome={icone} size={28} /><b className="mt-2 text-slate-700">{titulo}</b>{texto && <span className="text-[13px]">{texto}</span>}</div>;
 }
 
-export default async function VerOs({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string; tecnico?: string; q?: string; conta?: string }> }) {
+export default async function VerOs({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string; carro?: string; q?: string; conta?: string }> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const o = await prisma.ordemServico.findUnique({
     where: { id },
@@ -47,7 +47,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
       situacaoCfg: true, transportadora: { select: { nome: true } }, formaPagamento: true, equipe: { select: { nome: true, membros: true } },
       parcelas: { orderBy: { numero: "asc" }, include: { formaPagamento: { select: { nome: true } } } },
       equipamentos: { orderBy: { ordem: "asc" } },
-      produtos: { orderBy: [{ ordem: "asc" }, { createdAt: "asc" }], include: { produto: { select: { id: true, codigo: true, nome: true, unidade: true } }, localOrigem: { select: { deposito: { select: { nome: true, tecnico: { select: { nome: true } } } } } } } },
+      produtos: { orderBy: [{ ordem: "asc" }, { createdAt: "asc" }], include: { produto: { select: { id: true, codigo: true, nome: true, unidade: true } }, localOrigem: { select: { deposito: { select: { nome: true } } } } } },
       servicos: { orderBy: [{ ordem: "asc" }, { createdAt: "asc" }], include: { servico: { select: { id: true, codigo: true, nome: true } } } },
       historico: { orderBy: { createdAt: "desc" } },
     },
@@ -65,10 +65,9 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
     prisma.reserva.findMany({ where: { origemTipo: "OS", origemId: id, status: { in: ["ATIVA", "BAIXADA"] } }, include: { local: { select: { codigo: true } } } }),
     prisma.orcamento.findFirst({ where: { osId: id }, select: { id: true, numero: true } }),
     prisma.usuario.findMany({ where: { id: { in: o.tecnicoIds } }, select: { id: true, nome: true } }),
-    estoquesDosTecnicos(),
+    carrosDasEquipes(),
   ]);
-  const daOs = new Set([...o.tecnicoIds, o.tecnicoId, ...(o.equipe?.membros ?? [])].filter(Boolean));
-  const livreCarro = sp.tecnico ? await livreNosCarros(o.produtos.map((p) => p.produtoId), carros.map((c) => c.localId)) : new Map<string, number>();
+  const livreCarro = sp.carro ? await livreNosCarros(o.produtos.map((p) => p.produtoId), carros.map((c) => c.localId)) : new Map<string, number>();
   const h = await headers();
   const [interAtivo, baseCliente] = await Promise.all([boletosDisponiveis(), baseLinks()]);
   const errosBoleto = lancamentos.filter((l) => !l.pagoEm && l.boletos[0]?.situacao === "ERRO").length;
@@ -124,7 +123,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             {concluida && o.servicos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da OS nº ${o.numero}?`}>Emitir NFS-e</BotaoAcao>}
             {concluida && o.produtos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFE")} icone="notas" confirmar={`Emitir a NF-e das peças da OS nº ${o.numero}?`}>Emitir NF-e</BotaoAcao>}
             <LinkSuspenso href={`${base}/separacao`} icone="locais">Lista de separação</LinkSuspenso>
-            {o.produtos.length > 0 && <LinkSuspenso href={`${base}?tecnico=1`} icone="equipe">Itens com o técnico</LinkSuspenso>}
+            {o.produtos.length > 0 && <LinkSuspenso href={`${base}?carro=1`} icone="frete">Itens no carro</LinkSuspenso>}
             <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&q=${encodeURIComponent(`OS de nº ${o.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
             <BotaoExcluir acao={excluirOsEVoltarAcao.bind(null, id)} pergunta={`Excluir a OS nº ${o.numero}? As peças voltam ao estoque e as contas a receber em aberto são apagadas.`} rotulo="Excluir OS" />
           </Suspenso>
@@ -144,10 +143,10 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
       )}
 
       {sp.situacao && <FormSituacao id={id} numero={o.numero} atual={o.situacaoId ?? ""} situacoes={situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacaoOs(s) }))} voltar={base} acao={alterarSituacaoOsAcao} rotulo="da OS"
-        depois={o.produtos.length && carros.length ? { href: `${base}?tecnico=1`, texto: "Indo para execução? Marque os itens que estão com o técnico" } : undefined} />}
-      {sp.tecnico && <FormItensTecnico osId={id} numero={o.numero} voltar={base}
+        depois={o.produtos.length && carros.length ? { href: `${base}?carro=1`, texto: "Indo para execução? Marque os itens que estão no carro da equipe" } : undefined} />}
+      {sp.carro && <FormItensCarro osId={id} numero={o.numero} voltar={base}
         bloqueio={o.situacaoCfg?.estoque === "LANCAR" ? "A OS já baixou o estoque: reabra para trocar de onde saem as peças." : undefined}
-        carros={carros.map((c) => ({ localId: c.localId, tecnicoNome: c.tecnicoNome, daOs: daOs.has(c.tecnicoId) }))}
+        carros={carros.map((c) => ({ localId: c.localId, nome: c.nome, daOs: c.equipeId === o.equipeId }))}
         itens={o.produtos.map((p) => ({ id: p.id, nome: p.produto.nome, codigo: p.produto.codigo, quantidade: `${qtd(p.quantidade)} ${p.produto.unidade}`, localOrigemId: p.localOrigemId,
           livrePorCarro: Object.fromEntries(carros.map((c) => [c.localId, livreCarro.get(`${p.produtoId}|${c.localId}`) ?? 0])) }))} />}
 
@@ -203,7 +202,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
               {o.produtos.map((l) => (
                 <div key={l.id} className="cartao p-3 text-[13px]">
                   <div className="flex flex-wrap items-center gap-2"><Link href={`/produtos/${l.produto.id}`} className="font-semibold hover:underline">{l.produto.nome}</Link><span className="pilula border-slate-300 bg-slate-50 text-slate-600">Varejo</span><span className="font-mono text-[11px] text-slate-500">{l.produto.codigo}</span>
-                    {l.localOrigem && <span className="pilula border-teal-300 bg-teal-50 text-marca-escura">Com o técnico: {l.localOrigem.deposito.tecnico?.nome ?? l.localOrigem.deposito.nome}</span>}</div>
+                    {l.localOrigem && <span className="pilula border-teal-300 bg-teal-50 text-marca-escura">{l.localOrigem.deposito.nome}</span>}</div>
                   {l.detalhes && <div className="text-[12px] text-slate-500">{l.detalhes}</div>}
                   <Instalado i={l} fotos={fotosDoItem(l.id)} />
                   <div className="mt-1 grid gap-2 text-[12px] sm:grid-cols-5">

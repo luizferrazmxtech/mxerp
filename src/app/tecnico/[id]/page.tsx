@@ -6,7 +6,7 @@ import { pode } from "@/lib/auth/permissoesAcao";
 import { estadoDe } from "@/lib/os/ordens";
 import { estadoEstoque } from "@/lib/os/os";
 import { ehGerencia, podeMexerNaOs } from "@/lib/os/tecnico";
-import { localDoTecnico, saldoDoTecnico } from "@/lib/estoque/tecnico";
+import { carroDoTecnico, saldoDoCarro } from "@/lib/estoque/carro";
 import { cor } from "@/lib/orcamentos/tipos";
 import { rotuloPrioridade } from "@/lib/os/tipos";
 import Icone from "@/components/Icone";
@@ -48,9 +48,10 @@ export default async function OsDoTecnico({ params }: { params: Promise<{ id: st
     prisma.anotacao.findMany({ where: { entidade: "OS", entidadeId: id }, orderBy: { createdAt: "desc" }, take: 20 }),
     prisma.situacaoOsConfig.findMany({ where: { exibir: true }, orderBy: { ordem: "asc" }, select: { id: true, nome: true, cor: true, bloqueados: true } }),
     pode(u.papel, "os.tecnicoItens"), pode(u.papel, "os.tecnicoFotos"), pode(u.papel, "os.situacao"),
-    localDoTecnico(prisma, u.id),
+    carroDoTecnico(prisma, u.id, id),
   ]);
-  const meuEstoque = meuLocal ? Object.fromEntries((await saldoDoTecnico(u.id)).map((x) => [x.produtoId, x.livre])) : null;
+  const carro = meuLocal ? await prisma.local.findUnique({ where: { id: meuLocal }, select: { deposito: { select: { nome: true, equipeId: true } } } }) : null;
+  const meuEstoque = carro?.deposito.equipeId ? { nome: carro.deposito.nome, livre: Object.fromEntries((await saldoDoCarro(carro.deposito.equipeId)).map((x) => [x.produtoId, x.livre])) } : null;
   const idsUsuarios = [...new Set([...o.tecnicoIds, ...(o.equipe?.membros ?? []), ...anotacoes.map((a) => a.usuarioId), ...o.produtos.map((p) => p.instaladoPorId), ...o.servicos.map((p) => p.instaladoPorId)].filter((x): x is string => !!x))];
   const nomes = new Map((await prisma.usuario.findMany({ where: { id: { in: idsUsuarios } }, select: { id: true, nome: true } })).map((x) => [x.id, x.nome]));
   const estado = o.situacaoCfg ? estadoDe(o.situacaoCfg.estoque) : estadoEstoque(o.situacao);

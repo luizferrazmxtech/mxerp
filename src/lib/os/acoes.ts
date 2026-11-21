@@ -10,7 +10,7 @@ import { emitirNfseOs, emitirNotaOs } from "@/lib/fiscal/emissao";
 import { configOs } from "./config";
 import { alterarSituacaoOrdem, clonarOrdem, excluirOrdem, salvarOrdem } from "./ordens";
 import type { DadosOs } from "./tipos";
-import { definirOrigemItens } from "./itensTecnico";
+import { definirOrigemItens } from "./itensCarro";
 
 export type Resultado = { ok: boolean; mensagem: string } | null;
 const ATENDE: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR", "TECNICO", "CAIXA"];
@@ -239,8 +239,8 @@ export async function salvarConfigOsAcao(_: Resultado, form: FormData): Promise<
   return { ok: true, mensagem: "Configurações salvas." };
 }
 
-/** "Itens com o técnico" (visualização da OS): de onde sai cada peça, loja ou carro de um técnico. */
-export async function itensTecnicoOsAcao(_: Resultado, form: FormData): Promise<Resultado> {
+/** "Itens no carro" (visualização da OS): de onde sai cada peça, loja ou carro de uma equipe. */
+export async function itensCarroOsAcao(_: Resultado, form: FormData): Promise<Resultado> {
   const u = await exigirUsuario(ATENDE);
   const osId = String(form.get("osId"));
   try {
