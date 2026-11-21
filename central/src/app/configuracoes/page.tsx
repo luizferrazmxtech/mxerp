@@ -10,12 +10,12 @@ export default async function Configuracoes({ searchParams }: { searchParams: Pr
   const [geral, regua, inter, smtp] = await Promise.all([ler("geral"), ler("regua"), ler("inter"), ler("smtp")]);
   const n = (v: number) => String(v).replace(".", ",");
   return (
-    <Pagina titulo="Configurações">
+    <Pagina titulo="Configurações" icone="configuracoes" trilha={[{ rotulo: "Configurações" }]}>
       {sp.ok && <Aviso>{sp.ok}</Aviso>}
       {sp.erro && <Aviso tipo="erro">{sp.erro}</Aviso>}
 
       <form action={salvarGeral}>
-        <Bloco titulo="Geral e régua de cobrança" acoes={<button className="btn-marca">Salvar</button>}>
+        <Bloco titulo={<>Geral e <b>régua de cobrança</b></>} icone="configuracoes" acoes={<button className="btn">Salvar</button>}>
           <div className="grid gap-3 md:grid-cols-4">
             <Campo rotulo="Endereço público da Central" className="md:col-span-2"><input name="urlPublica" defaultValue={geral.urlPublica} placeholder="https://central.mxtech.inf.br" className="campo" /></Campo>
             <Campo rotulo="Nome nos e-mails"><input name="nomeEmpresa" defaultValue={geral.nomeEmpresa} className="campo" /></Campo>
@@ -33,7 +33,7 @@ export default async function Configuracoes({ searchParams }: { searchParams: Pr
       </form>
 
       <form action={salvarInterTela}>
-        <Bloco titulo="Banco Inter (recebe as mensalidades)" acoes={<button className="btn-marca">Salvar e testar</button>}>
+        <Bloco titulo={<><b>Banco Inter</b> (recebe as mensalidades)</>} icone="banco" acoes={<button className="btn">Salvar e testar</button>}>
           {inter && <Aviso tipo="info">Conectado · conta {inter.contaCorrente || "—"} · {inter.ambiente}{inter.webhookMsg ? ` · ${inter.webhookMsg}` : " · webhook não cadastrado (preencha o endereço público)"}{inter.ultimaSinc ? ` · última consulta ${dataHoraBR(new Date(inter.ultimaSinc))}: ${inter.ultimaSincMsg}` : ""}</Aviso>}
           <div className="grid gap-3 md:grid-cols-4">
             <Campo rotulo="Client ID" className="md:col-span-2"><input name="clientId" defaultValue={inter?.clientId} className="campo" required /></Campo>
@@ -47,7 +47,7 @@ export default async function Configuracoes({ searchParams }: { searchParams: Pr
       </form>
 
       <form action={salvarSmtpTela}>
-        <Bloco titulo="E-mail de envio das mensalidades" acoes={<button className="btn-marca">Salvar</button>}>
+        <Bloco titulo={<><b>E-mail</b> de envio das mensalidades</>} icone="email" acoes={<button className="btn">Salvar</button>}>
           <div className="grid gap-3 md:grid-cols-4">
             <Campo rotulo="Servidor SMTP" className="md:col-span-2"><input name="host" defaultValue={smtp?.host} placeholder="smtp.gmail.com" className="campo" /></Campo>
             <Campo rotulo="Porta"><input name="porta" type="number" defaultValue={smtp?.porta ?? 587} className="campo" /></Campo>

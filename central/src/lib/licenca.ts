@@ -29,7 +29,7 @@ export async function licencaDoCliente(clienteId: string, hoje = diaSP()): Promi
     : c.situacao === "ATIVO" ? `Sistema bloqueado por mensalidade em aberto há ${diasAtraso} dia(s).` : "Sistema suspenso. Fale com a MXTECH.";
   return {
     situacao, diasAtraso, mensagem,
-    maxEmpresas: c.maxEmpresas ?? c.plano.maxEmpresas, maxUsuarios: c.maxUsuarios ?? c.plano.maxUsuarios, plano: c.plano.nome,
+    maxEmpresas: c.maxEmpresas ?? c.plano?.maxEmpresas ?? 99, maxUsuarios: c.maxUsuarios ?? c.plano?.maxUsuarios ?? 999, plano: c.plano?.nome ?? "MXTECH",
     fatura: f ? {
       competencia: f.competencia, vencimento: f.vencimento.toISOString().slice(0, 10), valor: Number(f.valor),
       linhaDigitavel: f.linhaDigitavel, pixCopiaECola: f.pixCopiaECola,

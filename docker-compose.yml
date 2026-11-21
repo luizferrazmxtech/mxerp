@@ -98,8 +98,14 @@ services:
       CRON_SECRET: ${CRON_SECRET:-}
       CHAVE_SEGREDOS: ${CHAVE_SEGREDOS:-}
       TZ: America/Sao_Paulo
+      # o MXERP deste PC aparece na Central como cliente da casa (sem cobrança), com os backups da pasta backups
+      CLIENTE_ZERO_SLUG: mxerp
+      CLIENTE_ZERO_DOMINIO: localhost:${PORTA:-3000}
+      CLIENTE_ZERO_URL: http://app:3000
     ports:
       - "${PORTA_CENTRAL:-3100}:3000"
+    volumes:
+      - ./backups:/backups/mxerp:ro
 
 volumes:
   dados:

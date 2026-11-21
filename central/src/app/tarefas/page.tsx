@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/db";
 import { dataHoraBR } from "@/lib/datas";
 import { TIPOS, type TipoTarefa } from "@/lib/tarefas";
-import { Pagina, Pilula, Aviso } from "@/components/ui";
+import { naVps } from "@/lib/clienteZero";
+import { Pagina, Pilula, Aviso, Lista } from "@/components/ui";
+import Icone from "@/components/Icone";
 import { atualizarTodos } from "../acoes";
 
 export const dynamic = "force-dynamic";
@@ -10,10 +12,11 @@ export default async function Tarefas({ searchParams }: { searchParams: Promise<
   const sp = await searchParams;
   const tarefas = await prisma.tarefa.findMany({ orderBy: { createdAt: "desc" }, take: 100, include: { cliente: { select: { nome: true } } } });
   return (
-    <Pagina titulo="Tarefas da VPS" sub="O que a Central pediu ao servidor e o resultado"
-      acoes={<form action={atualizarTodos}><button className="btn-marca" title="Use depois de testar a versão nova no PC">Atualizar todos para a versão nova</button></form>}>
+    <Pagina titulo="Tarefas da VPS" icone="tarefas" trilha={[{ rotulo: "Tarefas da VPS" }]} sub="O que a Central pediu ao servidor e o resultado"
+      acoes={<form action={atualizarTodos}><button className="btn" title="Use depois de testar a versão nova no PC"><Icone nome="atualizar" size={15} /> Atualizar todos para a versão nova</button></form>}>
       {sp.ok && <Aviso>{sp.ok}</Aviso>}
-      <div className="cartao overflow-x-auto">
+      {!naVps() && <Aviso tipo="info">Esta Central está rodando fora da VPS (no PC, para testes). Os pedidos ficam pendentes: só a VPS executa.</Aviso>}
+      <Lista total={tarefas.length}>
         <table className="tabela"><thead><tr><th>Pedido</th><th>Tarefa</th><th>Cliente</th><th>Situação</th><th>Resultado</th></tr></thead><tbody>
           {tarefas.length === 0 && <tr><td colSpan={5} className="text-slate-500">Nenhuma tarefa.</td></tr>}
           {tarefas.map((t) => (
@@ -26,7 +29,7 @@ export default async function Tarefas({ searchParams }: { searchParams: Promise<
             </tr>
           ))}
         </tbody></table>
-      </div>
+      </Lista>
     </Pagina>
   );
 }

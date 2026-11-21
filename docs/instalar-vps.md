@@ -127,6 +127,8 @@ A Central é um sistema à parte, só da MXTECH, com banco próprio (`central`).
 
 Se a Central sair do ar, o sistema do cliente segue com a última situação conhecida. O plano também limita quantas lojas (CNPJs) e usuários o cliente cadastra.
 
+**O sistema da MXTECH na Central:** aparece sozinho na lista de clientes como *sistema da casa*, sem plano, mensalidade nem bloqueio. Serve para acompanhar se está no ar e os backups dele no mesmo painel (no PC, mostra as cópias da pasta `C:\mxerp\backups`).
+
 **Backups por cliente:** na ficha do cliente, aba *Backups*: horários, *Fazer backup agora*, *Baixar* e *Restaurar* (pede para digitar o nome do cliente e guarda o estado atual antes).
 
 **Versão nova:** depois de testar no PC, *Tarefas da VPS → Atualizar todos para a versão nova* faz o mesmo que `./vps/mxerp.sh atualizar`.

@@ -4,7 +4,7 @@ import { competenciaDe, dataBR, diaSP, moeda, proximaCompetencia, somarDias, ven
 import { emitirBoleto, pdfBoleto, sincronizarBoletos, type ClienteInter, clienteInter } from "./inter";
 import { enviarEmail } from "./email";
 
-export const valorDoCliente = (c: { valorMensal: unknown; plano: { valorMensal: unknown } }) => Number(c.valorMensal ?? c.plano.valorMensal);
+export const valorDoCliente = (c: { valorMensal: unknown; plano: { valorMensal: unknown } | null }) => Number(c.valorMensal ?? c.plano?.valorMensal ?? 0);
 
 /**
  * Competências que já deveriam ter fatura: do início da cobrança até a que vence dentro da antecedência.
@@ -25,7 +25,7 @@ export function competenciasDevidas(inicio: Date, dia: number, hoje: Date, antec
 /** Cria as faturas que faltam dos clientes ativos (não refaz as que existem, nem as canceladas). */
 export async function gerarFaturas(hoje = diaSP()) {
   const regua = await ler("regua");
-  const clientes = await prisma.cliente.findMany({ where: { situacao: "ATIVO" }, include: { plano: true, faturas: { select: { competencia: true } } } });
+  const clientes = await prisma.cliente.findMany({ where: { situacao: "ATIVO", interno: false }, include: { plano: true, faturas: { select: { competencia: true } } } });
   let criadas = 0;
   for (const c of clientes) {
     const existentes = new Set(c.faturas.map((f) => f.competencia));

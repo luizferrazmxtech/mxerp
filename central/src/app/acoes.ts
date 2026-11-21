@@ -68,7 +68,7 @@ export async function criarCliente(f: FormData) {
   const dominio = txt(f, "dominio").toLowerCase();
   const d = dadosCliente(f);
   const erro = !SLUG.test(slug) ? "Nome interno: só letras minúsculas e números, começando com letra (ex.: jtecobio)"
-    : ["mxtech", "central", "postgres"].includes(slug) ? "Esse nome interno é reservado"
+    : ["mxtech", "mxerp", "central", "postgres"].includes(slug) ? "Esse nome interno é reservado"
     : !DOMINIO.test(dominio) ? "Endereço inválido (ex.: jtecobio.mxerp.com.br)" : validar(d);
   if (erro) voltar("/clientes/novo", { erro });
   let id = "";
@@ -83,6 +83,7 @@ export async function criarCliente(f: FormData) {
 export async function salvarCliente(f: FormData) {
   await exigirAdmin();
   const id = txt(f, "id");
+  if ((await prisma.cliente.findUniqueOrThrow({ where: { id } })).interno) voltar(`/clientes/${id}`, { erro: "O sistema da MXTECH não tem cadastro de cobrança" });
   const d = dadosCliente(f);
   const erro = validar(d);
   if (erro) voltar(`/clientes/${id}?aba=dados`, { erro });
@@ -98,6 +99,8 @@ export async function acaoCliente(f: FormData) {
   const id = txt(f, "id"), acao = txt(f, "acao");
   const c = await prisma.cliente.findUniqueOrThrow({ where: { id } });
   const aqui = `/clientes/${id}`;
+  // o sistema da casa não é suspenso, cancelado nem muda de endereço pela Central
+  if (c.interno) voltar(aqui, { erro: "O sistema da MXTECH não tem essas ações na Central" });
   switch (acao) {
     case "suspender":
       await prisma.cliente.update({ where: { id }, data: { situacao: "SUSPENSO" } });

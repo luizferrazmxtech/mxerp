@@ -77,9 +77,13 @@ gerar() {
       start_period: 120s
 EOF
     done
+    # a MXTECH aparece na Central como cliente da casa (sem cobrança), para acompanhar os backups dela
+    if [ -f "$CLIENTES/mxtech/cliente.env" ]; then
+      printf '  central:\n    environment:\n      CLIENTE_ZERO_SLUG: mxtech\n      CLIENTE_ZERO_DOMINIO: "%s"\n' "$(valor mxtech DOMINIOS | cut -d, -f1)"
+    fi
   } > "$GERADO/docker-compose.clientes.yml"
   # compose não aceita "services:" vazio
-  grep -q '^  app-' "$GERADO/docker-compose.clientes.yml" || echo "services: {}" > "$GERADO/docker-compose.clientes.yml"
+  grep -q '^  [a-z]' "$GERADO/docker-compose.clientes.yml" || echo "services: {}" > "$GERADO/docker-compose.clientes.yml"
 }
 
 aplicar() {

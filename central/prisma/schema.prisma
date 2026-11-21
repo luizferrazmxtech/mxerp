@@ -62,8 +62,10 @@ model Cliente {
   uf             String?
   cep            String?
   dominio        String
-  planoId        String
-  plano          Plano           @relation(fields: [planoId], references: [id])
+  // cliente da casa (o próprio MXERP da MXTECH): sem plano, sem cobrança e sem licença; aparece só para acompanhar backups
+  interno        Boolean         @default(false)
+  planoId        String?
+  plano          Plano?          @relation(fields: [planoId], references: [id])
   // valor combinado com o cliente (se vazio, vale o do plano)
   valorMensal    Decimal?        @db.Decimal(12, 2)
   maxEmpresas    Int? // exceção ao plano
