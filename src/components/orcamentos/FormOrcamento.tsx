@@ -16,7 +16,7 @@ import CotarFrete from "@/components/frete/CotarFrete";
 import { salvarOrcamentoForm, type Resultado } from "@/lib/orcamentos/acoes";
 import { salvarPedidoForm } from "@/lib/vendas/acoes";
 import { salvarOsForm } from "@/lib/os/acoes";
-import { CAMPOS_OS, PRIORIDADES, equipamentoVazio, totaisOs, type DadosOs, type EquipamentoForm } from "@/lib/os/tipos";
+import { CAMPOS_OS, DURACOES_AGENDA, PRIORIDADES, equipamentoVazio, totaisOs, type DadosOs, type EquipamentoForm } from "@/lib/os/tipos";
 import { CAMPOS_DADOS, CAMPOS_VENDA, COLUNAS_ITENS, gerarParcelas, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento, type LinhaProduto, type LinhaServico } from "@/lib/orcamentos/tipos";
 
 export type InicialOrcamento = DadosOrcamento & Partial<Omit<DadosOs, keyof DadosOrcamento>> & { id?: string; proximoNumero: number; anexos: { id: string; nome: string }[] };
@@ -210,9 +210,11 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
       </Bloco>
 
       {os && (
-        <Bloco icone="pessoa" titulo={<>Defina os <b>responsáveis</b> pela ordem de serviço</>} subtitulo="A equipe é o carro (sempre os mesmos técnicos): as peças do carro saem do estoque dela. Técnico adicional é só para constar quem foi junto.">
+        <Bloco icone="pessoa" titulo={<>Defina os <b>responsáveis</b> pela ordem de serviço</>} subtitulo="A equipe é o carro (sempre os mesmos técnicos): as peças do carro saem do estoque dela. Técnico adicional é só para constar quem foi junto. O agendamento aparece na Agenda das equipes e no Google Agenda da equipe.">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Campo rotulo="Vendedor"><select className="campo" value={d.vendedorId} onChange={(e) => set("vendedorId", e.target.value)}><option value="">Selecione</option>{op.vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select></Campo>
+            <Campo rotulo="Agendado para"><input type="datetime-local" className="campo" value={d.agendaInicio ?? ""} onChange={(e) => set("agendaInicio", e.target.value)} /></Campo>
+            {d.agendaInicio && <Campo rotulo="Duração"><select className="campo" value={d.agendaDuracao ?? ""} onChange={(e) => set("agendaDuracao", e.target.value)}><option value="">Padrão</option>{DURACOES_AGENDA.map(([v, r]) => <option key={v} value={v}>{r}</option>)}</select></Campo>}
             {!!op.equipes?.length && <Campo rotulo="Equipe (carro)"><select className="campo" value={d.equipeId ?? ""} onChange={(e) => set("equipeId", e.target.value)}><option value="">Nenhuma</option>{op.equipes.map((q) => <option key={q.id} value={q.id}>{q.nome}{op.carros?.some((c) => c.equipeId === q.id) ? " (com carro)" : ""}</option>)}</select></Campo>}
             {(d.tecnicoIds?.length ? d.tecnicoIds : [""]).map((tid, i, arr) => (
               <div key={i}><span className="rotulo">{d.equipeId ? "Técnico adicional" : "Técnico"}{arr.length > 1 ? ` ${i + 1}` : ""}</span>

@@ -40,7 +40,7 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
     transportadoraId: "", transportadoraNome: "", frete: "0,00", mostrarEntrega: false, enderecoEntregaId: "", desconto: "", descontoPct: false, exibirTotal: true,
     gerarCondicoes: true, condicao: "AVISTA", formaPagamentoId: "", vencimento: "", intervaloDias: "30", numParcelas: "2", primeiraParcela: hoje(), parcelas: [],
     observacoes: cfg.observacoes, observacaoInterna: "", camposExtras: {}, proximoNumero: proximo, anexos: [],
-    entrada: agora, saida: "", prioridade: "", tecnicoIds: u?.papel === "TECNICO" ? [u.id] : [""], outros: "0,00",
+    entrada: agora, saida: "", agendaInicio: "", agendaDuracao: "", prioridade: "", tecnicoIds: u?.papel === "TECNICO" ? [u.id] : [""], outros: "0,00",
     equipamentos: [{ equipamento: "", marca: "", modelo: "", serie: "", condicoes: "", defeitos: "", acessorios: "", solucao: "", laudo: "", garantia: cfg.garantia }],
   };
   if (!id && clienteId) {
@@ -76,7 +76,7 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
       parcelas: o.parcelas.map((p) => ({ vencimento: iso(p.vencimento), valor: n2(p.valor), formaPagamentoId: p.formaPagamentoId ?? "", observacao: p.observacao ?? "" })),
       observacoes: o.observacoes ?? "", observacaoInterna: o.observacaoInterna ?? "", camposExtras: (o.camposExtras ?? {}) as Record<string, string>,
       proximoNumero: proximo, anexos,
-      entrada: isoLocalSP(o.entrada), saida: isoLocalSP(o.saida), prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds.length ? o.tecnicoIds : [o.tecnicoId ?? ""], equipeId: o.equipeId ?? "", outros: n2(o.outros),
+      entrada: isoLocalSP(o.entrada), saida: isoLocalSP(o.saida), agendaInicio: isoLocalSP(o.agendaInicio), agendaDuracao: o.agendaDuracaoMin ? String(o.agendaDuracaoMin) : "", prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds.length ? o.tecnicoIds : [o.tecnicoId ?? ""], equipeId: o.equipeId ?? "", outros: n2(o.outros),
       equipamentos: o.equipamentos.map((e) => ({ equipamento: e.equipamento, marca: s(e.marca), modelo: s(e.modelo), serie: s(e.serie), condicoes: s(e.condicoes), defeitos: s(e.defeitos), acessorios: s(e.acessorios), solucao: s(e.solucao), laudo: s(e.laudo), garantia: s(e.garantia) })),
     };
   }

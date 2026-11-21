@@ -826,22 +826,34 @@ model OrdemServico {
   /// o técnico apertou "Finalizar trabalho" (tempo de mão de obra fechado); "Retomar" limpa
   trabalhoFinalizadoEm DateTime?
 
+  // agendamento da visita/serviço (Agenda das equipes e Google Agenda)
+  agendaInicio     DateTime?
+  agendaDuracaoMin Int?
+  googleEventoId   String? // evento criado no Google Agenda
+  googleAgendaId   String? // agenda (calendário) onde o evento está
+  googleSincEm     DateTime?
+  googleErro       String?
+  googlePendente   Boolean   @default(false) // a última tentativa falhou: o agendador tenta de novo
+
   @@index([situacao])
   @@index([clienteId])
   @@index([empresaId])
   @@index([equipeId])
+  @@index([agendaInicio])
 }
 
 /// Equipe de técnicos (Cadastros › Equipes). A OS da equipe aparece para todos os membros na tela do técnico.
 model Equipe {
-  id        String         @id @default(cuid())
-  nome      String         @unique
-  ativo     Boolean        @default(true)
-  membros   String[] // ids de Usuario
-  createdAt DateTime       @default(now())
-  ordens    OrdemServico[]
+  id             String         @id @default(cuid())
+  nome           String         @unique
+  ativo          Boolean        @default(true)
+  membros        String[] // ids de Usuario
+  /// ID da agenda do Google da equipe (compartilhada com a conta de serviço do ERP)
+  googleAgendaId String?
+  createdAt      DateTime       @default(now())
+  ordens         OrdemServico[]
   /// o carro da equipe (estoque à parte)
-  carro     Deposito?
+  carro          Deposito?
 }
 
 model OsItemProduto {

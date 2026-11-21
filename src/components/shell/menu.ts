@@ -78,6 +78,7 @@ export const MENU: ItemMenu[] = [
     rotulo: "Ordens de serviços", icone: "os", filhos: [
       { rotulo: "Gerenciar O.S.", href: "/os", icone: "gerenciar" },
       { rotulo: "Painel", href: "/os/painel", icone: "painel" },
+      { rotulo: "Agenda das equipes", href: "/os/agenda", icone: "calendario" },
       { rotulo: "Tela do técnico", href: "/tecnico", icone: "celular" },
       {
         rotulo: "Opções auxiliares", href: "/os/situacoes", icone: "auxiliares", filhos: [
@@ -179,6 +180,7 @@ export const MENU: ItemMenu[] = [
           { rotulo: "Frete (Melhor Envio)", href: "/frete/configuracoes", icone: "frete" },
           { rotulo: "PagSeguro", href: "/pagseguro/configuracoes", icone: "cartao" },
           { rotulo: "Open Finance", href: "/openfinance", icone: "conciliacao" },
+          { rotulo: "Google Agenda", href: "/google-agenda", icone: "calendario" },
           { rotulo: "Contador", href: "/contador", icone: "email" },
         ],
       },
@@ -200,6 +202,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/pagseguro/configuracoes", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/pagseguro", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
   { prefixo: "/openfinance", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
+  { prefixo: "/google-agenda", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/frete/configuracoes", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/frete", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/pdv", rotulo: "PDV", cor: "#2e9d4f", icone: "balcao" },

@@ -9,6 +9,7 @@ import { proximoNumero } from "@/lib/sequencia";
 import { parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, lerNumero, subtotalProduto, subtotalServico } from "@/lib/orcamentos/tipos";
 import { dataLocalSP, totaisOs, type DadosOs } from "@/lib/os/tipos";
+import { aposExcluirOs, aposMudarOs } from "@/lib/agenda/google";
 import { estadoEstoque } from "@/lib/os/os";
 import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
@@ -159,10 +160,13 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
     parcelas = [{ numero: 1, vencimento: venc, valor: D(tot.total), formaPagamentoId: t(d.formaPagamentoId), observacao: null }];
   }
   const prioridades = ["BAIXA", "MEDIA", "ALTA", "URGENTE", "MUITO_URGENTE"];
+  const agendaInicio = dataLocalSP(d.agendaInicio ?? "");
+  if (t(d.agendaInicio) && !agendaInicio) throw new OsError("Data do agendamento inválida");
   const tecnicoIds = [...new Set(d.tecnicoIds.filter(Boolean))];
 
   const dados = {
     clienteId: d.clienteId, vendedorId: t(d.vendedorId), tecnicoId: tecnicoIds[0] ?? null, tecnicoIds, equipeId: t(d.equipeId),
+    agendaInicio, agendaDuracaoMin: agendaInicio ? Math.trunc(n(d.agendaDuracao ?? "")) || null : null,
     entrada: entradaEm, saida: saidaEm, previsao: saidaEm, prioridade: prioridades.includes(d.prioridade) ? (d.prioridade as PrioridadeOs) : null,
     canal: d.canal, centroCusto: t(d.centroCusto), transportadoraId: t(d.transportadoraId), frete: D(tot.frete), outros: D(tot.outros),
     mostrarEntrega: d.mostrarEntrega, enderecoEntregaId: d.mostrarEntrega ? t(d.enderecoEntregaId) : null,
@@ -176,7 +180,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
   const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null }[]) =>
     `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}`).join("|")}`;
 
-  return prisma.$transaction(async (tx) => {
+  const salva = await prisma.$transaction(async (tx) => {
     const custos = new Map((await tx.produto.findMany({ where: { id: { in: produtos.map((p) => p.produtoId) } }, select: { id: true, custo: true } })).map((p) => [p.id, p.custo]));
     const criarItens = async (osId: string) => {
       const casar = await marcasDosItens(tx, "produto", osId);
@@ -247,11 +251,13 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
     await tx.osHistorico.create({ data: { osId: o.id, descricao: "A ordem de serviço foi cadastrada no sistema", situacao: para.nome, usuarioNome: u.nome, usuarioId: u.id } });
     return tx.ordemServico.findUniqueOrThrow({ where: { id: o.id } });
   }, { timeout: 30000 });
+  await aposMudarOs(salva.id);
+  return salva;
 }
 
 /** Troca a situação (estoque, financeiro e data de saída seguem a nova situação). */
 export async function alterarSituacaoOrdem(id: string, situacaoId: string, u: Usuario, opts: { observacao?: string; forcar?: boolean; permitirNegativo?: boolean } = {}) {
-  return prisma.$transaction(async (tx) => {
+  const r = await prisma.$transaction(async (tx) => {
     const o = await travar(tx, id);
     if (u.papel && o.situacaoCfg?.bloqueados.includes(u.papel)) throw new OsError(`Seu grupo não pode trocar a situação "${o.situacaoCfg.nome}"`);
     const para = await tx.situacaoOsConfig.findUniqueOrThrow({ where: { id: situacaoId } });
@@ -260,11 +266,14 @@ export async function alterarSituacaoOrdem(id: string, situacaoId: string, u: Us
     await tx.osHistorico.create({ data: { osId: id, descricao: opts.observacao?.trim() || `Situação alterada para "${para.nome}"`, situacao: para.nome, usuarioNome: u.nome, usuarioId: u.id } });
     return { para };
   }, { timeout: 30000 });
+  await aposMudarOs(id);
+  return r;
 }
 
 /** Excluir: devolve o estoque, apaga as contas a receber em aberto e a OS. */
 export async function excluirOrdem(id: string, opts: { forcar?: boolean } = {}) {
-  return prisma.$transaction(async (tx) => {
+  const evento = await prisma.ordemServico.findUnique({ where: { id }, select: { googleEventoId: true, googleAgendaId: true } });
+  const numero = await prisma.$transaction(async (tx) => {
     const o = await travar(tx, id);
     const notas = await tx.notaFiscal.count({ where: { origemTipo: "OS", origemId: id, status: { in: ["AUTORIZADA", "ENVIADA"] } } });
     if (notas) throw new OsError("A OS tem nota fiscal autorizada: cancele a nota antes");
@@ -276,6 +285,8 @@ export async function excluirOrdem(id: string, opts: { forcar?: boolean } = {}) 
     await tx.ordemServico.delete({ where: { id } });
     return o.numero;
   }, { timeout: 30000 });
+  if (evento) await aposExcluirOs(evento);
+  return numero;
 }
 
 /** "Gerar cópia": nova OS com os mesmos equipamentos e itens, na situação padrão. */
