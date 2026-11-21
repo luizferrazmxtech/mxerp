@@ -38,7 +38,15 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
   const esc = (id: string) => escolhas[id] ?? inicial[id];
   const mudar = (id: string, m: Partial<Escolha>) => setEscolhas((e) => ({ ...e, [id]: { ...(e[id] ?? inicial[id]), ...m } }));
   const pronta = (id: string) => { const e = esc(id); return (e.acao === "BAIXAR" && !!e.lancamentoId) || (e.acao === "LANCAR" && !!e.categoriaId); };
-  const item = (id: string): ItemLote => { const e = esc(id); return { transacaoId: id, acao: e.acao as "BAIXAR" | "LANCAR", lancamentoId: e.lancamentoId, categoriaId: e.categoriaId, centroCustoId: e.centroCustoId }; };
+  const porId = useMemo(() => new Map(linhas.map((l) => [l.transacaoId, l])), [linhas]);
+  const item = (id: string): ItemLote => {
+    const e = esc(id);
+    const l = porId.get(id);
+    // descrição/competência sugeridas (ex.: "Salário 10/2026 - FULANO") só valem se a categoria continua a sugerida
+    const sugerida = e.acao === "LANCAR" && l && e.categoriaId === l.categoriaId && l.acao === "LANCAR";
+    return { transacaoId: id, acao: e.acao as "BAIXAR" | "LANCAR", lancamentoId: e.lancamentoId, categoriaId: e.categoriaId, centroCustoId: e.centroCustoId,
+      descricao: sugerida ? l.descricaoLancamento : null, competencia: sugerida ? l.competencia : null };
+  };
   const visiveis = linhas.slice(0, limite);
   const marcar = (id: string, v: boolean) => setMarcadas((s) => { const n = new Set(s); if (v) n.add(id); else n.delete(id); return n; });
   const prontasMarcadas = [...marcadas].filter(pronta);
@@ -129,7 +137,9 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
                       ) : e.acao === "LANCAR" && cat ? (
                         <div>
                           <span className="etiqueta mr-1 border-sky-300 bg-sky-50 text-sky-700">Lançar {l.tipo === "PAGAR" ? "despesa" : "receita"}</span>{pilulaConf}
+                          {l.funcionario && <span className="etiqueta mr-1 border-violet-300 bg-violet-50 text-violet-700">Funcionário · {l.tipoPessoal}</span>}
                           <div className="mt-0.5 font-medium">{cat.nome}</div>
+                          {l.descricaoLancamento && e.categoriaId === l.categoriaId && <div className="text-[12px] text-slate-600">{l.descricaoLancamento}{l.competencia ? ` · competência ${l.competencia.slice(5, 7)}/${l.competencia.slice(0, 4)}` : ""}</div>}
                         </div>
                       ) : (
                         <div className="text-[13px] text-slate-500">

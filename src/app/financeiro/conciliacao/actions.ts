@@ -41,7 +41,11 @@ export async function puxarInter(_: Estado, form: FormData): Promise<Estado> {
   } catch (e) { return falha(e); }
 }
 
-export type ItemLote = { transacaoId: string; acao: "BAIXAR" | "LANCAR"; lancamentoId?: string | null; categoriaId?: string | null; centroCustoId?: string | null };
+export type ItemLote = {
+  transacaoId: string; acao: "BAIXAR" | "LANCAR"; lancamentoId?: string | null; categoriaId?: string | null; centroCustoId?: string | null;
+  /** lançamento avulso: descrição e competência (AAAA-MM-DD) sugeridas, ex. "Salário 10/2026 - FULANO" */
+  descricao?: string | null; competencia?: string | null;
+};
 
 /**
  * Confirma várias linhas de uma vez (ou uma só, pelo botão da linha). Cada linha numa transação: uma que falhe
@@ -60,7 +64,8 @@ export async function confirmarLote(itens: ItemLote[]): Promise<Estado> {
         baixadas++;
       } else if (it.acao === "LANCAR") {
         if (!it.categoriaId) throw new Error("escolha a categoria");
-        await prisma.$transaction((tx) => lancarAvulsoTx(tx, it.transacaoId, String(it.categoriaId), undefined, it.centroCustoId || null));
+        await prisma.$transaction((tx) => lancarAvulsoTx(tx, it.transacaoId, String(it.categoriaId), it.descricao ? String(it.descricao).slice(0, 300) : undefined, it.centroCustoId || null,
+          it.competencia && /^\d{4}-\d{2}-\d{2}$/.test(it.competencia) ? new Date(`${it.competencia}T00:00:00Z`) : null));
         lancadas++;
       }
     } catch (e) {
