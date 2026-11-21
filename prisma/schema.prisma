@@ -569,6 +569,7 @@ model Produto {
   historico          HistoricoValor[]
 
   @@index([nome])
+  anunciosMarketplace  AnuncioMarketplace[]
 }
 
 model Servico {
@@ -2262,4 +2263,80 @@ model MensagemWhatsapp {
 
   @@index([entidade, entidadeId])
   @@index([createdAt])
+}
+
+// ---------- marketplaces (Mercado Livre primeiro; Shopee, Amazon e Magalu depois)
+
+/// Conta conectada de um marketplace. id = canal ("MERCADO_LIVRE"). Segredos e tokens cifrados (src/lib/seguranca/segredos.ts).
+model IntegracaoMarketplace {
+  id                   String    @id
+  ativo                Boolean   @default(true)
+  clientId             String
+  clientSecretCifrado  String
+  redirectUri          String
+  accessTokenCifrado   String?
+  refreshTokenCifrado  String?
+  tokenExpiraEm        DateTime?
+  estadoOauth          String? // "state" do link de autorização em andamento
+  contaId              String? // id do vendedor no marketplace
+  contaNome            String? // apelido da conta
+  empresaId            String? // loja (CNPJ) das vendas geradas
+  contaBancariaId      String? // conta do financeiro onde o dinheiro é liberado (padrão "Mercado Pago")
+  situacaoVendaId      String? // situação das vendas geradas (padrão: a que lança estoque e financeiro)
+  formaPagamentoId     String? // forma das contas a receber (padrão "Mercado Pago")
+  canalVenda           String    @default("Mercado Livre")
+  importarDesde        DateTime? // pedidos criados antes disto não viram venda (já lançados à mão)
+  cancelarAuto         Boolean   @default(true) // pedido cancelado no marketplace cancela a venda (se o dinheiro não foi liberado)
+  sincronizarAuto      Boolean   @default(true)
+  webhookToken         String?
+  ultimaSincEm         DateTime?
+  ultimaSincMsg        String?
+  atualizadoEm         DateTime  @updatedAt
+}
+
+/// Pedido vindo de um marketplace: vira venda (estoque + conta a receber) e é baixado quando o dinheiro é liberado.
+model PedidoMarketplace {
+  id                 String    @id @default(cuid())
+  canal              String // MERCADO_LIVRE
+  externoId          String // nº do pedido no marketplace
+  pacoteId           String? // carrinho (pack) do Mercado Livre
+  situacaoExterna    String // status no marketplace (paid, cancelled…)
+  etapa              String // AGUARDANDO_PAGAMENTO | SEM_VINCULO | AGUARDANDO_LIBERACAO | LIBERADO | CANCELADO | IGNORADO | ERRO
+  dataPedido         DateTime
+  compradorNome      String?
+  compradorApelido   String?
+  compradorDocumento String?
+  total              Decimal   @db.Decimal(14, 2) // valor dos itens
+  bruto              Decimal?  @db.Decimal(14, 2) // pago pelo comprador (itens + frete)
+  liquido            Decimal?  @db.Decimal(14, 2) // recebido pelo vendedor
+  tarifa             Decimal?  @db.Decimal(14, 2) // total − líquido (comissão, taxa do Mercado Pago, frete cobrado)
+  pagamentos         Json      @default("[]")
+  liberacaoPrevista  DateTime?
+  liberadoEm         DateTime?
+  vendaId            String?   @unique
+  lancamentoTarifaId String?
+  erro               String?
+  dados              Json      @default("{}")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([canal, externoId])
+  @@index([etapa])
+  @@index([dataPedido])
+}
+
+/// Anúncio (e variação) do marketplace ligado a um produto do MXERP. Preenchido sozinho pelo SKU; o que não casar é ligado na tela.
+model AnuncioMarketplace {
+  id         String   @id @default(cuid())
+  canal      String
+  anuncioId  String
+  variacaoId String   @default("")
+  titulo     String
+  sku        String?
+  produtoId  String?
+  produto    Produto? @relation(fields: [produtoId], references: [id], onDelete: SetNull)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([canal, anuncioId, variacaoId])
 }

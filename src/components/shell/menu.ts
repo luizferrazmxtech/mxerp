@@ -56,6 +56,13 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Balcão", href: "/vendas/balcao", icone: "balcao" },
       { rotulo: "Trocas e devoluções", href: "/vendas/devolucoes", icone: "atualizar" },
       {
+        rotulo: "Marketplaces", href: "/marketplaces", icone: "lojas", filhos: [
+          { rotulo: "Pedidos", href: "/marketplaces", icone: "gerenciar" },
+          { rotulo: "Anúncios", href: "/marketplaces/anuncios", icone: "etiqueta" },
+          { rotulo: "Mercado Livre", href: "/marketplaces/mercado-livre", icone: "configuracoes" },
+        ],
+      },
+      {
         rotulo: "Opções auxiliares", href: "/vendas/situacoes", icone: "auxiliares", filhos: [
           { rotulo: "Situações", href: "/vendas/situacoes", icone: "lista" },
           { rotulo: "Canais de venda", href: "/vendas/canais", icone: "lojas" },
@@ -184,6 +191,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/os", rotulo: "Ordens de serviços", cor: "#e8730c", icone: "os" },
   { prefixo: "/tecnico", rotulo: "Técnico", cor: "#e8730c", icone: "os" },
   { prefixo: "/vendas", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
+  { prefixo: "/marketplaces", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/contratos", rotulo: "Contratos", cor: "#0e7490", icone: "contratos" },
   { prefixo: "/pdv", rotulo: "PDV", cor: "#2e9d4f", icone: "balcao" },
   { prefixo: "/financeiro", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
