@@ -10,9 +10,10 @@ import { itensDoFornecedor, responderCotacao, salvarCotacao, type DadosCotacao }
 import type { DadosCompra } from "./tipos";
 import { cancelarInventario, concluirInventario, criarAjuste, criarInventario, criarTransferencia, lerCodigo, registrarContagem, resumoInventario, zerarEstoque, type DadosAjuste, type DadosInventario, type DadosTransferencia } from "@/lib/estoque/documentos";
 import { PADRAO_ESTOQUE } from "@/lib/estoque/config";
+import { PODE_LANCAR_ESTOQUE } from "./papeis";
 
 export type Resultado = { ok: boolean; mensagem: string } | null;
-const COMPRA: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR"];
+const COMPRA: PapelUsuario[] = [...PODE_LANCAR_ESTOQUE];
 const GER: PapelUsuario[] = ["ADMIN", "GERENTE"];
 const erro = (e: unknown) => ({ ok: false, mensagem: e instanceof Error ? e.message : String(e) });
 const baseCompras = (tipo: string) => (tipo === "SERVICO" ? "/compras/servicos" : "/compras");

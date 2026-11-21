@@ -24,6 +24,8 @@ export async function salvarFreteAcao(_: Resultado, form: FormData): Promise<Res
     });
     revalidatePath("/frete");
     if (form.get("apagarToken") === "on" || !(await prisma.configuracao.findUnique({ where: { chave: "melhorenvio" } }))) return { ok: true, mensagem: "Configuração do frete salva" };
+    // desligado (ou sem token): só salva, não há o que testar
+    if (form.get("ativo") !== "on") return { ok: true, mensagem: "Configuração salva (Melhor Envio desligado)" };
     try {
       const t = await testarConexao();
       return { ok: true, mensagem: `Configuração salva. Conectado à conta ${t.nome}${t.saldo != null ? ` (saldo da carteira: ${brl(t.saldo)})` : ""}.` };

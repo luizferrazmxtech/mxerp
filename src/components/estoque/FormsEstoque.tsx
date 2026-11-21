@@ -182,7 +182,7 @@ export function FormInventario({ usuarios, grupos, usuarioAtual }: { usuarios: {
   const [escolhidos, setEscolhidos] = useState<{ id: string; nome: string }[]>([]);
   const [resumo, setResumo] = useState<{ produtos: number; grupos: number; unidades: number; valor: number } | null>(null);
   const set = <K extends keyof DadosInventario>(k: K, v: DadosInventario[K]) => setD((x) => ({ ...x, [k]: v }));
-  useEffect(() => { let vivo = true; resumoInventarioAcao(d.escopo, d.filtroIds).then((x) => vivo && setResumo(x)); return () => { vivo = false; }; }, [d.escopo, d.filtroIds]);
+  useEffect(() => { let vivo = true; resumoInventarioAcao(d.escopo, d.filtroIds).then((x) => vivo && setResumo(x), () => vivo && setResumo(null)); return () => { vivo = false; }; }, [d.escopo, d.filtroIds]);
   const toggle = (k: keyof DadosInventario, titulo: string, texto: string) => (
     <label className="flex items-start gap-3 rounded border border-slate-200 p-3"><input type="checkbox" checked={!!d[k]} onChange={(e) => set(k, e.target.checked as never)} className="chave mt-0.5" /><span><b className="block text-[13px]">{titulo}</b><span className="text-[12px] text-slate-500">{texto}</span></span></label>
   );

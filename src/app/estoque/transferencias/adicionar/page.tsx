@@ -2,12 +2,21 @@ import { prisma } from "@/lib/db";
 import { todasAsLojas } from "@/lib/empresa/loja";
 import { Pagina } from "@/components/ui/Pagina";
 import { FormTransferencia } from "@/components/estoque/FormsEstoque";
+import { usuarioAtual } from "@/lib/auth/atual";
+import { PODE_LANCAR_ESTOQUE } from "@/lib/compras/papeis";
+import SemPermissao from "@/components/ui/SemPermissao";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Adicionar transferência" };
 
 export default async function AdicionarTransferencia({ searchParams }: { searchParams: Promise<{ origem?: string; destino?: string }> }) {
   const sp = await searchParams;
+  const u = await usuarioAtual();
+  if (u && !PODE_LANCAR_ESTOQUE.includes(u.papel)) return (
+    <Pagina titulo="Adicionar transferência" trilha={[{ rotulo: "Transferências", href: "/estoque/transferencias" }, { rotulo: "Adicionar" }]}>
+      <SemPermissao texto="Seu perfil de usuário não pode lançar transferências de estoque. Peça a um gerente ou ao administrador." />
+    </Pagina>
+  );
   // origem e destino podem ser de lojas (CNPJs) diferentes, ou o carro de uma equipe
   const depositos = await todasAsLojas(() => prisma.deposito.findMany({
     where: { ativo: true }, orderBy: { nome: "asc" },
