@@ -180,7 +180,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
       await tx.vendaParcela.deleteMany({ where: { vendaId: id } });
       await tx.vendaParcela.createMany({ data: parcelas.map((p) => ({ ...p, vendaId: id })) });
       const de = { estado: atual.situacaoCfg ? estadoDe(atual.situacaoCfg.estoque) : estadoDoEnum(atual.situacao), financeiro: !!atual.situacaoCfg?.financeiro };
-      if (mudouItens) await aplicar(tx, id, de, para, { ...opts, usuarioId: u.id, refazerFinanceiro: mudouFin, refazerItens: () => criarItens(id) });
+      if (mudouItens) await aplicar(tx, id, de, para, { ...opts, usuarioId: u.id || undefined, refazerFinanceiro: mudouFin, refazerItens: () => criarItens(id) });
       else {
         // mesmos produtos e quantidades: troca valores sem mexer nas reservas/baixas
         const porProduto = new Map(existentes.map((e) => [e.produtoId, e]));
@@ -190,7 +190,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
         }
         await tx.vendaItemServico.deleteMany({ where: { vendaId: id } });
         await tx.vendaItemServico.createMany({ data: servicos.map((l, i) => ({ vendaId: id, ordem: i, servicoId: l.servicoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalServico(l)) })) });
-        await aplicar(tx, id, de, para, { ...opts, usuarioId: u.id, refazerFinanceiro: mudouFin });
+        await aplicar(tx, id, de, para, { ...opts, usuarioId: u.id || undefined, refazerFinanceiro: mudouFin });
       }
       await tx.vendaHistorico.create({ data: { vendaId: id, descricao: atual.situacaoId !== para.id ? `Venda alterada e levada para "${para.nome}"` : "Venda alterada", situacao: para.nome, usuarioNome: u.nome } });
       return tx.venda.findUniqueOrThrow({ where: { id } });
@@ -203,9 +203,9 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
     } else {
       do numero = await proximoNumero(tx, "VENDA"); while (await tx.venda.findUnique({ where: { numero } }));
     }
-    const v = await tx.venda.create({ data: { ...dados, numero, situacao: "CANCELADA", situacaoId: para.id, criadoPorId: u.id, parcelas: { create: parcelas } } });
+    const v = await tx.venda.create({ data: { ...dados, numero, situacao: "CANCELADA", situacaoId: para.id, criadoPorId: u.id || null, parcelas: { create: parcelas } } });
     await criarItens(v.id);
-    await aplicar(tx, v.id, { estado: "LIVRE", financeiro: false }, para, { ...opts, usuarioId: u.id });
+    await aplicar(tx, v.id, { estado: "LIVRE", financeiro: false }, para, { ...opts, usuarioId: u.id || undefined });
     await tx.vendaHistorico.create({ data: { vendaId: v.id, descricao: opts.orcamentoNumero ? `A venda foi gerada do orçamento nº ${opts.orcamentoNumero}` : "A venda foi cadastrada no sistema", situacao: para.nome, usuarioNome: u.nome } });
     return tx.venda.findUniqueOrThrow({ where: { id: v.id } });
   }, { timeout: 30000 });
@@ -223,7 +223,7 @@ export async function alterarSituacaoPedido(id: string, situacaoId: string, u: U
     if (u.papel && v.situacaoCfg?.bloqueados.includes(u.papel)) throw new PedidoError(`Seu grupo não pode trocar a situação "${v.situacaoCfg.nome}"`);
     const para = await tx.situacaoVendaConfig.findUniqueOrThrow({ where: { id: situacaoId } });
     if (v.situacaoId === para.id) return { para };
-    await aplicar(tx, id, { estado: v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao), financeiro: !!v.situacaoCfg?.financeiro }, para, { ...opts, usuarioId: u.id });
+    await aplicar(tx, id, { estado: v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao), financeiro: !!v.situacaoCfg?.financeiro }, para, { ...opts, usuarioId: u.id || undefined });
     await tx.vendaHistorico.create({ data: { vendaId: id, descricao: opts.observacao?.trim() || `Situação alterada para "${para.nome}"`, situacao: para.nome, usuarioNome: u.nome } });
     return { para };
   }, { timeout: 30000 });

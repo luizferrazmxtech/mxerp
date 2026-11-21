@@ -25,12 +25,12 @@ async function portal(req: NextRequest, caminho: string) {
 }
 
 /** Toda página, ação e API exige login, menos a tela de login, a rota do agendador e o webhook do Inter (que têm senha própria). */
-const LIVRES = ["/login", "/api/saude", "/api/inter/sincronizar", "/api/contratos/processar", "/api/dfe/sincronizar"];
+const LIVRES = ["/login", "/api/saude", "/api/inter/sincronizar", "/api/contratos/processar", "/api/dfe/sincronizar", "/api/mercadolivre/sincronizar"];
 
 export async function middleware(req: NextRequest) {
   const caminho = req.nextUrl.pathname;
   if (caminho === "/area-cliente" || caminho.startsWith("/area-cliente/")) return portal(req, caminho);
-  if (LIVRES.includes(caminho) || caminho.startsWith("/api/inter/webhook/") || ["/proposta/", "/cobranca/", "/compra/", "/cotacao/"].some((p) => caminho.startsWith(p))) return NextResponse.next(); // links públicos (proposta, cobrança, compra e cotação)
+  if (LIVRES.includes(caminho) || caminho.startsWith("/api/inter/webhook/") || caminho.startsWith("/api/mercadolivre/notificacoes/") || ["/proposta/", "/cobranca/", "/compra/", "/cotacao/"].some((p) => caminho.startsWith(p))) return NextResponse.next(); // links públicos (proposta, cobrança, compra e cotação)
   const usuario = await usuarioDoToken(req.cookies.get(COOKIE)?.value);
   const api = caminho.startsWith("/api/");
   if (!usuario) {
