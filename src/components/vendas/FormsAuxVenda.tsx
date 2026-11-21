@@ -91,7 +91,7 @@ export function FormSituacaoVenda({ s, modelos, usada, modulo = "venda" }: { s?:
           <div><span className="rotulo">Envio de mensagem</span><input type="hidden" name="enviarMensagem" value={msg} />
             <div className="flex flex-wrap gap-2">
               <Radio name="_msg" valor="0" atual={msg} titulo="Não enviar" onChange={setMsg} />
-              <Radio name="_msg" valor="1" atual={msg} titulo="Enviar mensagem" onChange={setMsg}>Por e-mail, SMS ou WhatsApp, com o modelo escolhido.</Radio>
+              <Radio name="_msg" valor="1" atual={msg} titulo="Enviar mensagem" onChange={setMsg}>{os ? "Avisa o cliente pelo WhatsApp (MXChat) quando a OS entrar nesta situação, com o texto de WhatsApp do modelo escolhido." : "Por e-mail, SMS ou WhatsApp, com o modelo escolhido."}</Radio>
             </div>
             {msg === "1" && <label className="mt-2 block max-w-md"><span className="rotulo">Modelo de mensagem</span>
               <select name="modeloMensagemId" defaultValue={s?.modeloMensagemId ?? ""} className="campo"><option value="">Mensagem padrão</option>{modelos.map((m) => <option key={m.id} value={m.id}>{m.assunto}</option>)}</select></label>}

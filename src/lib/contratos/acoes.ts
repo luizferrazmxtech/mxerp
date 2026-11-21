@@ -7,7 +7,7 @@ import { exigirUsuario } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
 import { enviarEmail, salvarConfigEmail } from "@/lib/email/email";
 import { configContratos, salvarConfigContratos } from "./config";
-import { alterarSituacaoContrato, enviarEmailCobranca, excluirContrato, gerarCobrancaAgora, gerarVendaDaCobranca, processarContratos, salvarContrato, textoResumo } from "./contratos";
+import { alterarSituacaoContrato, enviarCobranca, type Canal, excluirContrato, gerarCobrancaAgora, gerarVendaDaCobranca, processarContratos, salvarContrato, textoResumo } from "./contratos";
 import type { DadosContrato } from "./tipos";
 
 export type Resultado = { ok: boolean; mensagem: string } | null;
@@ -71,14 +71,17 @@ export async function tentarDeNovoAcao(cobrancaId: string) {
   } catch (e) { revalidatePath("/contratos", "layout"); return erro(e); }
 }
 
-export async function reenviarAcao(cobrancaId: string, tipo: "BOLETO" | "LEMBRETE") {
-  await exigirUsuario(GER);
+export async function reenviarAcao(cobrancaId: string, tipo: "BOLETO" | "LEMBRETE", canal?: Canal) {
+  const u = await exigirUsuario(GER);
   try {
-    const s = await enviarEmailCobranca(cobrancaId, tipo);
+    const cob = await prisma.contratoCobranca.findUniqueOrThrow({ where: { id: cobrancaId }, select: { contrato: { select: { canalEmail: true, canalWhatsapp: true } } } });
+    const canais: Canal[] = canal ? [canal] : [...(cob.contrato.canalEmail ? ["EMAIL" as const] : []), ...(cob.contrato.canalWhatsapp ? ["WHATSAPP" as const] : [])];
+    if (!canais.length) return { ok: false, mensagem: "O contrato não tem e-mail nem WhatsApp marcado para a cobrança" };
+    const s = await enviarCobranca(cobrancaId, tipo, {}, { canais, usuarioNome: u.nome });
     revalidatePath("/contratos", "layout");
     if (s === "AGUARDANDO") return { ok: false, mensagem: "O boleto ainda está sendo registrado no Inter. Tente de novo em alguns minutos." };
     if (s === "PAGO") return { ok: false, mensagem: "Esta cobrança já foi paga." };
-    return { ok: true, mensagem: "E-mail enviado" };
+    return { ok: true, mensagem: canais.length > 1 ? "Enviado por e-mail e WhatsApp" : canais[0] === "EMAIL" ? "E-mail enviado" : "WhatsApp enviado" };
   } catch (e) {
     await prisma.contratoCobranca.update({ where: { id: cobrancaId }, data: { envioErro: (e instanceof Error ? e.message : String(e)).slice(0, 500) } }).catch(() => {});
     revalidatePath("/contratos", "layout");
@@ -100,6 +103,7 @@ export async function salvarConfigContratosAcao(_: Resultado, form: FormData): P
       ...atual, situacaoVendaId, diasAntecedencia: int("diasAntecedencia", atual.diasAntecedencia), diasLembrete: int("diasLembrete", atual.diasLembrete),
       assuntoBoleto: str(form.get("assuntoBoleto")) || atual.assuntoBoleto, textoBoleto: str(form.get("textoBoleto")) || atual.textoBoleto,
       assuntoLembrete: str(form.get("assuntoLembrete")) || atual.assuntoLembrete, textoLembrete: str(form.get("textoLembrete")) || atual.textoLembrete,
+      whatsBoleto: str(form.get("whatsBoleto")) || atual.whatsBoleto, whatsLembrete: str(form.get("whatsLembrete")) || atual.whatsLembrete,
     });
     revalidatePath("/contratos/configuracoes");
     return { ok: true, mensagem: "Configurações salvas" };

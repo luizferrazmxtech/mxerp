@@ -34,6 +34,8 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   // custos e margens são da gerência
   { prefixo: "/estoque/custos", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/migracao", papeis: ["ADMIN"] },
+  // WhatsApp (MXChat): configuração e histórico de mensagens mandadas aos clientes
+  { prefixo: "/whatsapp", papeis: ["ADMIN", "GERENTE"] },
   // contratos mexem com cobrança e financeiro
   { prefixo: "/contratos", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/financeiro", papeis: ["ADMIN", "GERENTE"] },

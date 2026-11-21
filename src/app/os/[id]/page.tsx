@@ -27,6 +27,10 @@ import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import BoletoParcela from "@/components/BoletoParcela";
 import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
+import { foneBonito, whatsappAtivo } from "@/lib/whatsapp/mxchat";
+import { mensagemOs } from "@/lib/whatsapp/os";
+import EnviarWhatsappOs from "@/components/whatsapp/EnviarWhatsappOs";
+import ListaMensagens from "@/components/whatsapp/ListaMensagens";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar OS" };
@@ -39,7 +43,7 @@ function Vazio({ icone, titulo, texto }: { icone: string; titulo: string; texto?
   return <div className="cartao flex flex-col items-center px-4 py-10 text-center text-slate-500"><Icone nome={icone} size={28} /><b className="mt-2 text-slate-700">{titulo}</b>{texto && <span className="text-[13px]">{texto}</span>}</div>;
 }
 
-export default async function VerOs({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string; carro?: string; q?: string; conta?: string }> }) {
+export default async function VerOs({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string; carro?: string; q?: string; conta?: string; whatsapp?: string }> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const o = await prisma.ordemServico.findUnique({
     where: { id },
@@ -71,7 +75,11 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   ]);
   const livreCarro = sp.carro ? await livreNosCarros(o.produtos.map((p) => p.produtoId), carros.map((c) => c.localId)) : new Map<string, number>();
   const h = await headers();
-  const [interAtivo, baseCliente] = await Promise.all([boletosDisponiveis(), baseLinks()]);
+  const [interAtivo, baseCliente, zapAtivo, mensagensZap] = await Promise.all([
+    boletosDisponiveis(), baseLinks(), whatsappAtivo(),
+    prisma.mensagemWhatsapp.findMany({ where: { entidade: "OS", entidadeId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
+  ]);
+  const zapOs = sp.whatsapp && zapAtivo ? await mensagemOs(id) : null;
   const errosBoleto = lancamentos.filter((l) => !l.pagoEm && l.boletos[0]?.situacao === "ERRO").length;
   const link = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}/cobranca/os/${o.token}`;
   const nomeEmpresa = empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH";
@@ -132,6 +140,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
           <Suspenso direita classe="btn bg-emerald-600 hover:bg-emerald-700" botao={<><Icone nome="compartilhar" size={15} /> Compartilhar <Icone nome="abaixo" size={13} /></>}>
             <a href={`mailto:${o.cliente.email ?? ""}?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`} className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="email" size={15} /> Por e-mail</a>
             <a href={`https://wa.me/${fone.length >= 10 ? "55" + fone.replace(/^55/, "") : ""}?text=${encodeURIComponent(zap)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="whatsapp" size={15} /> Por WhatsApp</a>
+            {zapAtivo && <LinkSuspenso href={`${base}?whatsapp=1`} icone="whatsapp">WhatsApp (MXChat)</LinkSuspenso>}
             <CopiarLink url={link} menu />
             <a href={`${base}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> Imprimir</a>
           </Suspenso>
@@ -144,6 +153,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
         </Link>
       )}
 
+      {zapOs && <EnviarWhatsappOs id={id} numeroOs={o.numero} fone={zapOs.numero ? foneBonito(zapOs.numero) : ""} texto={zapOs.texto} temSenha={zapOs.temSenha} voltar={base} />}
       {sp.situacao && <FormSituacao id={id} numero={o.numero} atual={o.situacaoId ?? ""} situacoes={situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacaoOs(s) }))} voltar={base} acao={alterarSituacaoOsAcao} rotulo="da OS"
         depois={o.produtos.length && carros.length ? { href: `${base}?carro=1`, texto: "Indo para execução? Marque os itens que estão no carro da equipe" } : undefined} />}
       {sp.carro && <FormItensCarro osId={id} numero={o.numero} voltar={base}
@@ -316,7 +326,8 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
 
           {aba === "campos" && <div className="cartao p-4 text-[13px]">{campos.map((x) => <div key={x.id}><b>{x.nome}:</b> {ce[x.id] || "—"}</div>)}</div>}
 
-          {aba === "envios" && <Vazio icone="envios" titulo="Nenhum envio registrado" texto="Use Compartilhar › Por e-mail ou WhatsApp para mandar a OS e o link de cobrança ao cliente." />}
+          {aba === "envios" && (mensagensZap.length ? <div className="cartao"><ListaMensagens mensagens={mensagensZap} /></div>
+            : <Vazio icone="envios" titulo="Nenhum envio registrado" texto={zapAtivo ? "Use Compartilhar › WhatsApp (MXChat) para mandar o status da OS ao cliente." : "Use Compartilhar › Por e-mail ou WhatsApp para mandar a OS e o link de cobrança ao cliente."} />)}
 
           {aba === "historico" && (
             <div className="cartao p-4">

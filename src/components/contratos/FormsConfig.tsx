@@ -40,6 +40,12 @@ export function FormConfigContratos({ c, situacoes }: { c: ConfigContratos; situ
           </div>
         </div>
       </Bloco>
+      <Bloco icone="whatsapp" titulo={<>Textos do <b>WhatsApp</b> (MXChat)</>} subtitulo={`Para os contratos com o WhatsApp marcado. *texto* fica em negrito. O boleto vai em PDF junto com a cobrança. Tags: ${TAGS_CONTRATO.join(" ")}`}>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Campo rotulo="WhatsApp da cobrança"><textarea name="whatsBoleto" defaultValue={c.whatsBoleto} className="campo min-h-56 font-mono text-[12px]" /></Campo>
+          <Campo rotulo="WhatsApp do lembrete"><textarea name="whatsLembrete" defaultValue={c.whatsLembrete} className="campo min-h-56 font-mono text-[12px]" /></Campo>
+        </div>
+      </Bloco>
       <div className="mb-6 flex items-center gap-3"><button className="btn-verde" disabled={p}>{p ? "Salvando…" : "Salvar configurações"}</button><Msg e={e} /></div>
     </form>
   );

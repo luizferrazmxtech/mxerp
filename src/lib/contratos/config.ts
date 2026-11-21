@@ -6,6 +6,7 @@ export type ConfigContratos = {
   diasAntecedencia: number; diasLembrete: number; // padrões do formulário
   assuntoBoleto: string; textoBoleto: string;
   assuntoLembrete: string; textoLembrete: string;
+  whatsBoleto: string; whatsLembrete: string; // textos do WhatsApp (MXChat); o boleto vai em PDF junto
 };
 
 export const PADRAO_CONTRATOS: ConfigContratos = {
@@ -19,6 +20,12 @@ export const PADRAO_CONTRATOS: ConfigContratos = {
   textoLembrete:
     "Olá, [nome_cliente]!\n\nPassando para lembrar que a cobrança de [referencia] do contrato nº [numero_contrato], no valor de R$ [valor], vence em [vencimento].\n\n" +
     "Linha digitável do boleto: [linha_digitavel]\nPix copia e cola: [pix_copia_cola]\n\nSe já pagou, por favor desconsidere esta mensagem.\n\nObrigado,\n[nome_empresa]",
+  whatsBoleto:
+    "Olá, [nome_cliente]! Segue a cobrança de *[referencia]* do contrato nº [numero_contrato].\n\n" +
+    "Valor: *R$ [valor]*\nVencimento: *[vencimento]*\n\nO boleto vai em anexo. Linha digitável:\n[linha_digitavel]\n\nPix copia e cola:\n[pix_copia_cola]\n\n[nome_empresa]",
+  whatsLembrete:
+    "Olá, [nome_cliente]! Passando para lembrar que a cobrança de *[referencia]* (contrato nº [numero_contrato]), no valor de *R$ [valor]*, vence em *[vencimento]*.\n\n" +
+    "Pix copia e cola:\n[pix_copia_cola]\n\nSe já pagou, por favor desconsidere esta mensagem.\n[nome_empresa]",
 };
 
 export async function configContratos(): Promise<ConfigContratos> {

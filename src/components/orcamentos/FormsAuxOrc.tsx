@@ -99,7 +99,12 @@ export function FormSituacaoOrc({ s, modelos }: { s?: SituacaoForm; modelos: { i
 
 const EXEMPLO = { "[nome_cliente]": "Maria Silva", "[numero]": "6650", "[valor_total]": "R$ 299,40", "[data]": "16/11/2026", "[validade]": "10 dias", "[vendedor]": "Caue", "[link]": "https://…/proposta/abc", "[nome_empresa]": "MXTECH" };
 
-export function FormMensagemOrc({ m, acao: acaoServidor, voltar = "/orcamentos/mensagens" }: { m?: { id: string; assunto: string; email: string; sms: string | null; padrao: boolean }; acao?: (r: Resultado, f: FormData) => Promise<Resultado>; voltar?: string }) {
+export function FormMensagemOrc({ m, acao: acaoServidor, voltar = "/orcamentos/mensagens", whatsapp: zap }: {
+  m?: { id: string; assunto: string; email: string; sms: string | null; padrao: boolean; whatsapp?: string | null }; acao?: (r: Resultado, f: FormData) => Promise<Resultado>; voltar?: string;
+  /** texto de WhatsApp próprio (OS: enviado pelo MXChat), com as tags e o texto sugerido */
+  whatsapp?: { tags: string[]; padrao: string };
+}) {
+  const [textoZap, setTextoZap] = useState(m?.whatsapp ?? zap?.padrao ?? "");
   const [r, acao, pendente] = useActionState<Resultado, FormData>(acaoServidor ?? salvarMensagemAcao, null);
   const [email, setEmail] = useState(m?.email ?? "");
   const [sms, setSms] = useState(m?.sms ?? "");
@@ -129,9 +134,16 @@ export function FormMensagemOrc({ m, acao: acaoServidor, voltar = "/orcamentos/m
         <textarea name="sms" value={sms} onChange={(e) => setSms(e.target.value.slice(0, 120))} rows={3} className="campo h-auto" />
         <p className="mt-1 text-right text-[12px] text-slate-500">{sms.length} de 120 caracteres</p>
       </Bloco>
-      <Bloco icone="whatsapp" titulo="Mensagem via WhatsApp" subtitulo="Gerada automaticamente a partir do e-mail. Não é editável.">
-        <div className="whitespace-pre-wrap rounded bg-[#e7fbe6] p-3 text-[13px] text-slate-700">{whats || "—"}</div>
-      </Bloco>
+      {zap ? (
+        <Bloco icone="whatsapp" titulo="Mensagem via WhatsApp (MXChat)" subtitulo="Enviada pelo MXChat: pela visualização da OS e, sozinha, nas situações marcadas com &quot;Enviar mensagem&quot;. *texto* fica em negrito.">
+          <textarea name="whatsapp" value={textoZap} onChange={(e) => setTextoZap(e.target.value)} rows={8} className="campo h-auto font-mono text-[12px]" />
+          <p className="mt-1 text-[12px] text-slate-500">Tags: {zap.tags.join(" ")}</p>
+        </Bloco>
+      ) : (
+        <Bloco icone="whatsapp" titulo="Mensagem via WhatsApp" subtitulo="Gerada automaticamente a partir do e-mail. Não é editável.">
+          <div className="whitespace-pre-wrap rounded bg-[#e7fbe6] p-3 text-[13px] text-slate-700">{whats || "—"}</div>
+        </Bloco>
+      )}
       <Rodape r={r} pendente={pendente} voltar={voltar} editando={!!m} />
     </form>
   );

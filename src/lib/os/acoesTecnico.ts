@@ -1,5 +1,6 @@
 "use server";
 
+import { avisoAutomaticoOs } from "@/lib/whatsapp/os";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
@@ -80,9 +81,11 @@ export async function situacaoTecnicoAcao(osId: string, situacaoId: string): Pro
   const u = await exigirAcao("os.situacao");
   try {
     if (!(await podeMexerNaOs(prisma, u, osId))) throw new Error("Você não é técnico desta OS nem da equipe dela");
+    const antes = (await prisma.ordemServico.findUnique({ where: { id: osId }, select: { situacaoId: true } }))?.situacaoId ?? null;
     const r = await alterarSituacaoOrdem(osId, situacaoId, u, { permitirNegativo: (await configOs()).estoqueNegativo });
+    const zap = await avisoAutomaticoOs(osId, antes, u);
     atualizar(osId);
-    return { ok: true, mensagem: `Situação: ${r.para.nome}.` };
+    return { ok: true, mensagem: `Situação: ${r.para.nome}.${zap ? ` ${zap}` : ""}` };
   } catch (e) { return erro(e); }
 }
 

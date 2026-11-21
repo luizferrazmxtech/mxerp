@@ -1,3 +1,4 @@
+import { whatsappAtivo } from "@/lib/whatsapp/mxchat";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/auth/atual";
@@ -17,7 +18,7 @@ const hoje = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/S
 /** Página "Adicionar/Editar contrato". */
 export default async function PaginaFormContrato({ id, clienteId }: { id?: string; clienteId?: string }) {
   const u = await usuarioAtual();
-  const [vendedores, formas, canais, centros, proximo, cfg, interAtivo] = await Promise.all([
+  const [vendedores, formas, canais, centros, proximo, cfg, interAtivo, zapAtivo] = await Promise.all([
     prisma.usuario.findMany({ where: { ativo: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
     prisma.formaPagamento.findMany({ where: { ativa: true }, select: { id: true, nome: true, boletoInter: true }, orderBy: { nome: "asc" } }),
     prisma.canalVenda.findMany({ orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
@@ -25,6 +26,7 @@ export default async function PaginaFormContrato({ id, clienteId }: { id?: strin
     proximoNumeroContrato(),
     configContratos(),
     boletosDisponiveis(),
+    whatsappAtivo(),
   ]);
   const boleto = formas.find((f) => f.boletoInter);
   let inicial: DadosContrato = {
@@ -32,6 +34,7 @@ export default async function PaginaFormContrato({ id, clienteId }: { id?: strin
     dataInicio: hoje(), periodicidade: "MENSAL", diaVencimento: "10", proximoVencimento: "", termino: "SEM", dataFim: "", totalCobrancas: "",
     servicos: [], desconto: "", descontoPct: false, formaPagamentoId: boleto?.id ?? "", diasAntecedencia: String(cfg.diasAntecedencia), enviarBoleto: true,
     lembrete: cfg.diasLembrete > 0, diasLembrete: String(cfg.diasLembrete), emitirNota: false, emailCobranca: "", observacoes: "", observacaoInterna: "",
+    canalEmail: true, canalWhatsapp: false, whatsappCobranca: "",
   };
   if (!id) {
     const d = new Date(`${hoje()}T00:00:00Z`);
@@ -55,12 +58,13 @@ export default async function PaginaFormContrato({ id, clienteId }: { id?: strin
       formaPagamentoId: c.formaPagamentoId ?? "", diasAntecedencia: String(c.diasAntecedencia), enviarBoleto: c.enviarBoleto,
       lembrete: c.diasLembrete != null, diasLembrete: String(c.diasLembrete ?? cfg.diasLembrete), emitirNota: c.emitirNota, emailCobranca: c.emailCobranca ?? "",
       observacoes: c.observacoes ?? "", observacaoInterna: c.observacaoInterna ?? "",
+      canalEmail: c.canalEmail, canalWhatsapp: c.canalWhatsapp, whatsappCobranca: c.whatsappCobranca ?? "",
     };
   }
   const acao = id ? "Editar" : "Adicionar";
   return (
     <Pagina titulo={`${acao} contrato`} icone="contratos" trilha={[{ rotulo: "Contratos", href: "/contratos" }, { rotulo: acao }]}>
-      <FormContrato inicial={inicial} proximoNumero={proximo} interAtivo={interAtivo}
+      <FormContrato inicial={inicial} proximoNumero={proximo} interAtivo={interAtivo} whatsappAtivo={zapAtivo}
         op={{ vendedores, formas, canais: canalLista(canais.map((c) => c.nome), inicial.canal), centros: centros.map((c) => c.centroCusto!) }} />
     </Pagina>
   );

@@ -12,6 +12,8 @@ import BotaoAcao from "@/components/ui/BotaoAcao";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import BotaoResultado from "@/components/contratos/BotaoResultado";
 import Icone from "@/components/Icone";
+import ListaMensagens from "@/components/whatsapp/ListaMensagens";
+import { foneBonito, numeroDaPessoa, whatsappAtivo } from "@/lib/whatsapp/mxchat";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar contrato" };
@@ -42,6 +44,11 @@ export default async function VerContrato({ params }: { params: Promise<{ id: st
   const base = `/contratos/${id}`;
   const termino = c.termino === "DATA" ? `até ${dataUtc(c.dataFim)}` : c.termino === "VEZES" ? `${c.cobrancasGeradas} de ${c.totalCobrancas} cobranças` : "sem término";
   const emailPara = c.emailCobranca ?? c.cliente.email;
+  const zapPara = c.whatsappCobranca ?? numeroDaPessoa(c.cliente);
+  const [zapAtivo, mensagens] = await Promise.all([
+    whatsappAtivo(),
+    prisma.mensagemWhatsapp.findMany({ where: { entidade: "CONTRATO", entidadeId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
+  ]);
 
   return (
     <Pagina voltar="/contratos" titulo="Visualizar contrato" icone="contratos" trilha={[{ rotulo: "Contratos", href: "/contratos" }, { rotulo: "Visualizar" }]}>
@@ -52,7 +59,7 @@ export default async function VerContrato({ params }: { params: Promise<{ id: st
           <p className="text-[12px] text-slate-500">Desde {dataUtc(c.dataInicio)} · {rotuloPeriodicidade(c.periodicidade as PeriodicidadeContrato)}, todo dia {c.diaVencimento} · {termino}</p>
         </div>
         <div className="no-print ml-auto flex flex-wrap items-start gap-2">
-          {c.situacao === "ATIVO" && <BotaoResultado acao={gerarCobrancaAgoraAcao.bind(null, id)} icone="dinheiro" confirmar={`Gerar agora a cobrança de ${dataUtc(c.proximoVencimento)} (venda${c.formaPagamento?.boletoInter ? ", boleto" : ""}${c.enviarBoleto ? " e e-mail" : ""})?`}>Gerar cobrança agora</BotaoResultado>}
+          {c.situacao === "ATIVO" && <BotaoResultado acao={gerarCobrancaAgoraAcao.bind(null, id)} icone="dinheiro" confirmar={`Gerar agora a cobrança de ${dataUtc(c.proximoVencimento)} (venda${c.formaPagamento?.boletoInter ? ", boleto" : ""}${c.enviarBoleto ? [c.canalEmail && " e e-mail", c.canalWhatsapp && " e WhatsApp"].filter(Boolean).join("") : ""})?`}>Gerar cobrança agora</BotaoResultado>}
           <Suspenso direita classe="btn-laranja" botao={<><Icone nome="editar" size={15} /> Editar <Icone nome="abaixo" size={13} /></>}>
             <LinkSuspenso href={`${base}/editar`} icone="editar">Editar contrato</LinkSuspenso>
             {c.situacao !== "ATIVO" && <BotaoAcao acao={situacaoContratoAcao.bind(null, id, "ATIVO")} icone="ok">Ativar</BotaoAcao>}
@@ -83,7 +90,9 @@ export default async function VerContrato({ params }: { params: Promise<{ id: st
             <h3 className="mb-1 font-semibold">Cobrança automática</h3>
             <ul className="space-y-1 text-slate-700">
               <li>Gera a venda {c.diasAntecedencia} dias antes do vencimento</li>
-              <li>{c.enviarBoleto ? `Envia a cobrança por e-mail para ${emailPara ?? "— (sem e-mail!)"}` : "Não envia a cobrança por e-mail"}</li>
+              <li>{!c.enviarBoleto ? "Não envia a cobrança" : c.canalEmail || c.canalWhatsapp ? "Envia a cobrança assim que gerada" : "Sem canal de envio marcado"}</li>
+              {c.canalEmail && <li>Por e-mail para {emailPara ?? "— (sem e-mail!)"}</li>}
+              {c.canalWhatsapp && <li>Por WhatsApp para {zapPara ? foneBonito(zapPara) : "— (sem celular!)"}{!zapAtivo && <span className="text-amber-700"> (MXChat desligado)</span>}</li>}
               <li>{c.diasLembrete != null ? `Lembrete ${c.diasLembrete} dias antes, se não pago` : "Sem lembrete de pagamento"}</li>
               <li>{c.emitirNota ? "Emite a NFS-e automaticamente" : "NFS-e manual (na venda)"}</li>
             </ul>
@@ -114,7 +123,7 @@ export default async function VerContrato({ params }: { params: Promise<{ id: st
           <Bloco icone="dinheiro" titulo={<>Cobranças geradas</>} subtitulo="Cada vencimento vira uma venda de serviços com a conta a receber." corpo="p-0">
             <div className="overflow-x-auto">
               <table className="tabela">
-                <thead><tr><th>Nº</th><th>Referência</th><th>Vencimento</th><th>Venda</th><th>Pagamento</th><th>E-mails</th><th className="whitespace-nowrap">NFS-e</th><th></th></tr></thead>
+                <thead><tr><th>Nº</th><th>Referência</th><th>Vencimento</th><th>Venda</th><th>Pagamento</th><th>Envios</th><th className="whitespace-nowrap">NFS-e</th><th></th></tr></thead>
                 <tbody>
                   {c.cobrancas.map((x) => {
                     const l = x.vendaId ? lanc.get(x.vendaId) : undefined;
@@ -133,15 +142,27 @@ export default async function VerContrato({ params }: { params: Promise<{ id: st
                           {b && <span className={`block ${b.situacao === "ERRO" ? "text-red-700" : "text-slate-500"}`}>Boleto: {ROTULO_BOLETO[b.situacao] ?? b.situacao}{b.erro ? ` (${b.erro})` : ""}</span>}
                         </td>
                         <td className="text-[12px]">
-                          {x.boletoEnviadoEm && <span className="block">Cobrança: {dataHora(x.boletoEnviadoEm)}</span>}
-                          {x.lembreteEnviadoEm && <span className="block">Lembrete: {dataHora(x.lembreteEnviadoEm)}</span>}
+                          {x.boletoEnviadoEm && <span className="block">Cobrança (e-mail): {dataHora(x.boletoEnviadoEm)}</span>}
+                          {x.boletoWhatsEm && <span className="block">Cobrança (WhatsApp): {dataHora(x.boletoWhatsEm)}</span>}
+                          {x.lembreteEnviadoEm && <span className="block">Lembrete (e-mail): {dataHora(x.lembreteEnviadoEm)}</span>}
+                          {x.lembreteWhatsEm && <span className="block">Lembrete (WhatsApp): {dataHora(x.lembreteWhatsEm)}</span>}
                           {x.envioErro && <span className="block text-red-700">{x.envioErro}</span>}
-                          {!x.boletoEnviadoEm && !x.lembreteEnviadoEm && !x.envioErro && <span className="text-slate-500">—</span>}
+                          {!x.boletoEnviadoEm && !x.boletoWhatsEm && !x.lembreteEnviadoEm && !x.lembreteWhatsEm && !x.envioErro && <span className="text-slate-500">—</span>}
                         </td>
                         <td className="text-[12px]">{x.notaMsg ?? (c.emitirNota && x.vendaId ? "aguardando" : "—")}</td>
                         <td className="whitespace-nowrap text-[12px]">
                           {!x.vendaId && x.situacao === "ERRO" && <BotaoResultado acao={tentarDeNovoAcao.bind(null, x.id)} className="btn-sec !py-1 text-[12px]">Tentar de novo</BotaoResultado>}
-                          {x.vendaId && !l?.pagoEm && <BotaoResultado acao={reenviarAcao.bind(null, x.id, x.boletoEnviadoEm ? "LEMBRETE" : "BOLETO")} icone="email" className="btn-sec !py-1 text-[12px]">{x.boletoEnviadoEm ? "Mandar lembrete" : "Enviar cobrança"}</BotaoResultado>}
+                          {x.vendaId && !l?.pagoEm && (() => {
+                            const saiu = !!(x.boletoEnviadoEm || x.boletoWhatsEm);
+                            const tipo = saiu ? "LEMBRETE" : "BOLETO";
+                            const rot = saiu ? "Mandar lembrete" : "Enviar cobrança";
+                            return (
+                              <span className="flex flex-col gap-1">
+                                {c.canalEmail && <BotaoResultado acao={reenviarAcao.bind(null, x.id, tipo, "EMAIL")} icone="email" className="btn-sec !py-1 text-[12px]">{rot}{c.canalWhatsapp || zapAtivo ? " (e-mail)" : ""}</BotaoResultado>}
+                                {(c.canalWhatsapp || zapAtivo) && <BotaoResultado acao={reenviarAcao.bind(null, x.id, tipo, "WHATSAPP")} icone="whatsapp" className="btn-sec !py-1 text-[12px]">{rot} (WhatsApp)</BotaoResultado>}
+                              </span>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );
@@ -151,6 +172,12 @@ export default async function VerContrato({ params }: { params: Promise<{ id: st
               </table>
             </div>
           </Bloco>
+
+          {mensagens.length > 0 && (
+            <Bloco icone="whatsapp" titulo={<>Mensagens de <b>WhatsApp</b></>} corpo="p-0">
+              <ListaMensagens mensagens={mensagens} />
+            </Bloco>
+          )}
 
           <Bloco icone="relogio" titulo={<>Histórico</>} corpo="p-0">
             <ul className="divide-y text-[13px]">

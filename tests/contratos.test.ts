@@ -8,6 +8,8 @@ const { prisma } = await import("@/lib/db");
 const { garantirPadroes } = await import("@/lib/financeiro/padroes");
 const { ClienteInter, ESCOPOS_PADRAO } = await import("@/lib/financeiro/inter");
 const { salvarConfigEmail } = await import("@/lib/email/email");
+const { salvarConfigWhatsapp } = await import("@/lib/whatsapp/mxchat");
+process.env.CHAVE_SEGREDOS ??= "chave-de-teste-dos-contratos-123";
 const ct = await import("@/lib/contratos/contratos");
 const tp = await import("@/lib/contratos/tipos");
 const { diaSP, somarDias } = await import("@/lib/datas");
@@ -61,7 +63,8 @@ const u = { id: "", nome: "Luiz" };
 beforeEach(async () => {
   await prisma.$executeRawUnsafe(`TRUNCATE "Contrato","ContratoCobranca","Boleto","Lancamento","Venda","NotaFiscal","Servico","Pessoa","FormaPagamento","CategoriaFinanceira","ContaBancaria","IntegracaoInter","Empresa" CASCADE`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Sequencia" WHERE chave IN ('BOLETO','CONTRATO','VENDA')`);
-  await prisma.$executeRawUnsafe(`DELETE FROM "Configuracao" WHERE chave IN ('email','contratos')`);
+  await prisma.$executeRawUnsafe(`DELETE FROM "Configuracao" WHERE chave IN ('email','contratos','whatsapp')`);
+  await prisma.$executeRawUnsafe(`TRUNCATE "MensagemWhatsapp"`);
   await prisma.$transaction((tx) => garantirPadroes(tx));
   boleto = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "Boleto" } })).id;
   cli = (await prisma.pessoa.create({ data: {
@@ -82,7 +85,8 @@ const dados = (m: Partial<import("@/lib/contratos/tipos").DadosContrato> = {}): 
     termino: "SEM", dataFim: "", totalCobrancas: "",
     servicos: [linha(serv, "800,00"), linha(serv2, "100,00")], desconto: "", descontoPct: false,
     formaPagamentoId: boleto, diasAntecedencia: "10", enviarBoleto: true, lembrete: true, diasLembrete: "3", emitirNota: false,
-    emailCobranca: "", observacoes: "Manutenção preventiva e suporte remoto", observacaoInterna: "", ...m,
+    emailCobranca: "", observacoes: "Manutenção preventiva e suporte remoto", observacaoInterna: "",
+    canalEmail: true, canalWhatsapp: false, whatsappCobranca: "", ...m,
   };
 };
 
@@ -139,6 +143,62 @@ describe("contratos", () => {
     expect(await prisma.venda.count()).toBe(1);
     expect(inter.cobrancas.size).toBe(1);
     expect(cx.enviados).toHaveLength(1);
+  });
+
+  it("WhatsApp (MXChat): cobrança com o boleto em PDF e lembrete pelo WhatsApp, sem e-mail, no celular do cliente", async () => {
+    const inter = interFalso(); const cx = caixaDeSaida();
+    const zap: import("@/lib/whatsapp/mxchat").EnvioMxchat[] = [];
+    await salvarConfigWhatsapp({ ativo: true, url: "https://mxchat.teste/backend/api/messages/send", token: "tok-123", salvarNoTicket: true, convidarAreaCliente: false });
+    const deps = { cliente: inter.cliente(), transporte: cx.transporte, transporteWhatsapp: async (e: import("@/lib/whatsapp/mxchat").EnvioMxchat) => { zap.push(e); } };
+    await expect(ct.salvarContrato(dados({ canalEmail: false, canalWhatsapp: false }), u)).rejects.toThrow(/Escolha por onde/);
+    await expect(ct.salvarContrato(dados({ canalWhatsapp: true, whatsappCobranca: "123" }), u)).rejects.toThrow(/WhatsApp de cobrança inválido/);
+    const c = await ct.salvarContrato(dados({ canalEmail: false, canalWhatsapp: true }), u);
+
+    expect(await ct.processarContratos({ ...deps, hoje })).toMatchObject({ vendas: 1, boletosEnviados: 1, erros: [] });
+    expect(cx.enviados).toHaveLength(0);
+    expect(zap).toHaveLength(1);
+    expect(zap[0]).toMatchObject({ numero: "5511987654321", token: "tok-123", url: "https://mxchat.teste/backend/api/messages/send" });
+    expect(zap[0].texto).toContain("*R$ 900,00*");
+    expect(zap[0].texto).toContain("07790.00116 1");
+    expect(zap[0].arquivo?.nome).toMatch(/^boleto-.*\.pdf$/);
+    const cob = await prisma.contratoCobranca.findFirstOrThrow({ where: { contratoId: c.id } });
+    expect(cob.boletoWhatsEm).not.toBeNull();
+    expect(cob.boletoEnviadoEm).toBeNull();
+    expect(await prisma.mensagemWhatsapp.findFirstOrThrow()).toMatchObject({ entidade: "CONTRATO", entidadeId: c.id, situacao: "ENVIADA", automatica: true, arquivoNome: zap[0].arquivo?.nome });
+
+    // rodar de novo não repete; o lembrete sai 3 dias antes, sem anexo
+    await ct.processarContratos({ ...deps, hoje: somarDias(hoje, 1) });
+    expect(zap).toHaveLength(1);
+    expect(await ct.processarContratos({ ...deps, hoje: somarDias(hoje, 7) })).toMatchObject({ lembretes: 1, erros: [] });
+    expect(zap).toHaveLength(2);
+    expect(zap[1].texto).toContain("lembrar");
+    expect(zap[1].arquivo).toBeUndefined();
+
+    // ligar o e-mail depois: a cobrança e o lembrete que faltam por e-mail saem, sem repetir o WhatsApp
+    await prisma.contrato.update({ where: { id: c.id }, data: { canalEmail: true } });
+    await ct.processarContratos({ ...deps, hoje: somarDias(hoje, 7) });
+    expect(zap).toHaveLength(2);
+    expect(cx.enviados.map((m) => m.assunto.includes("Lembrete") ? "L" : "C")).toEqual(["C", "L"]);
+  });
+
+  it("WhatsApp: MXChat fora do ar deixa o erro na cobrança e no histórico, e o e-mail sai mesmo assim", async () => {
+    const inter = interFalso(); const cx = caixaDeSaida();
+    await salvarConfigWhatsapp({ ativo: true, url: "https://mxchat.teste/backend/api/messages/send", token: "tok", salvarNoTicket: false, convidarAreaCliente: false });
+    let falhar = true; const zap: string[] = [];
+    const deps = { cliente: inter.cliente(), transporte: cx.transporte, transporteWhatsapp: async (e: import("@/lib/whatsapp/mxchat").EnvioMxchat) => { if (falhar) throw new Error("MXChat respondeu 500"); zap.push(e.numero); } };
+    await ct.salvarContrato(dados({ canalWhatsapp: true, whatsappCobranca: "(21) 99999-0000", lembrete: false }), u);
+    const r = await ct.processarContratos({ ...deps, hoje });
+    expect(r.erros[0]).toMatch(/WhatsApp: MXChat respondeu 500/);
+    expect(cx.enviados).toHaveLength(1);
+    const cob = await prisma.contratoCobranca.findFirstOrThrow();
+    expect(cob).toMatchObject({ boletoWhatsEm: null, envioErro: expect.stringMatching(/WhatsApp/) });
+    expect(cob.boletoEnviadoEm).not.toBeNull();
+    expect(await prisma.mensagemWhatsapp.findFirstOrThrow()).toMatchObject({ situacao: "ERRO", numero: "5521999990000" });
+    falhar = false;
+    expect(await ct.processarContratos({ ...deps, hoje })).toMatchObject({ boletosEnviados: 1, erros: [] });
+    expect(zap).toEqual(["5521999990000"]);
+    expect(cx.enviados).toHaveLength(1);
+    expect((await prisma.contratoCobranca.findFirstOrThrow()).envioErro).toBeNull();
   });
 
   it("manda o lembrete N dias antes do vencimento, só uma vez e só se não foi pago", async () => {
