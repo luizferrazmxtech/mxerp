@@ -13,6 +13,8 @@ export type DadosOs = DadosOrcamento & {
   saida: string;
   prioridade: string;
   tecnicoIds: string[];
+  /** equipe de técnicos (opcional): todos os membros podem lançar itens pela tela do técnico */
+  equipeId?: string;
   equipamentos: EquipamentoForm[];
   outros: string;
 };

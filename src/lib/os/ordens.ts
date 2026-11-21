@@ -103,6 +103,27 @@ async function aplicar(tx: Tx, osId: string, de: EstadoEstoque, para: SituacaoOs
   if (para.financeiro && !aindaTem) await lancarFinanceiro(tx, osId);
 }
 
+/**
+ * O formulário regrava os itens da OS; para não perder o que o técnico marcou (quem lançou, instalado e as fotos),
+ * cada linha nova herda as marcas da linha antiga com o mesmo id ou, sem id, do mesmo produto/serviço.
+ */
+async function marcasDosItens(tx: Tx, tipo: "produto" | "servico", osId: string) {
+  const sel = { id: true, criadoPorId: true, instalado: true, instaladoEm: true, instaladoPorId: true } as const;
+  const antigos = tipo === "produto"
+    ? (await tx.osItemProduto.findMany({ where: { osId }, select: { ...sel, produtoId: true }, orderBy: [{ ordem: "asc" }, { createdAt: "asc" }] })).map(({ produtoId, ...r }) => ({ ...r, itemId: produtoId }))
+    : (await tx.osItemServico.findMany({ where: { osId }, select: { ...sel, servicoId: true }, orderBy: [{ ordem: "asc" }, { createdAt: "asc" }] })).map(({ servicoId, ...r }) => ({ ...r, itemId: servicoId }));
+  const usados = new Set<string>();
+  return (linhaId: string | undefined, itemId: string) => {
+    const a = antigos.find((x) => !usados.has(x.id) && x.id === linhaId) ?? antigos.find((x) => !usados.has(x.id) && x.itemId === itemId);
+    if (!a) return null;
+    usados.add(a.id);
+    return { id: a.id, marcas: { criadoPorId: a.criadoPorId, instalado: a.instalado, instaladoEm: a.instaladoEm, instaladoPorId: a.instaladoPorId } };
+  };
+}
+
+const moverFotos = (tx: Tx, osId: string, de: string, para: string) =>
+  de === para ? null : tx.anexo.updateMany({ where: { entidade: "OS_FOTO", entidadeId: osId, referencia: de }, data: { referencia: para } });
+
 export async function proximoNumeroOs() {
   const [s, m] = await Promise.all([prisma.sequencia.findUnique({ where: { chave: "OS" } }), prisma.ordemServico.aggregate({ _max: { numero: true } })]);
   return Math.max(s?.valor ?? 0, m._max.numero ?? 0) + 1;
@@ -141,7 +162,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
   const tecnicoIds = [...new Set(d.tecnicoIds.filter(Boolean))];
 
   const dados = {
-    clienteId: d.clienteId, vendedorId: t(d.vendedorId), tecnicoId: tecnicoIds[0] ?? null, tecnicoIds,
+    clienteId: d.clienteId, vendedorId: t(d.vendedorId), tecnicoId: tecnicoIds[0] ?? null, tecnicoIds, equipeId: t(d.equipeId),
     entrada: entradaEm, saida: saidaEm, previsao: saidaEm, prioridade: prioridades.includes(d.prioridade) ? (d.prioridade as PrioridadeOs) : null,
     canal: d.canal, centroCusto: t(d.centroCusto), transportadoraId: t(d.transportadoraId), frete: D(tot.frete), outros: D(tot.outros),
     mostrarEntrega: d.mostrarEntrega, enderecoEntregaId: d.mostrarEntrega ? t(d.enderecoEntregaId) : null,
@@ -157,13 +178,22 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
   return prisma.$transaction(async (tx) => {
     const custos = new Map((await tx.produto.findMany({ where: { id: { in: produtos.map((p) => p.produtoId) } }, select: { id: true, custo: true } })).map((p) => [p.id, p.custo]));
     const criarItens = async (osId: string) => {
+      const casar = await marcasDosItens(tx, "produto", osId);
       await tx.osItemProduto.deleteMany({ where: { osId } });
-      for (const [i, l] of produtos.entries())
-        await tx.osItemProduto.create({ data: { osId, ordem: i, produtoId: l.produtoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), custoUnit: custos.get(l.produtoId) ?? 0, desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)) } });
+      for (const [i, l] of produtos.entries()) {
+        const antigo = casar(l.id, l.produtoId);
+        const novo = await tx.osItemProduto.create({ data: { osId, ordem: i, produtoId: l.produtoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), custoUnit: custos.get(l.produtoId) ?? 0, desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)), ...antigo?.marcas } });
+        if (antigo) await moverFotos(tx, osId, antigo.id, novo.id);
+      }
     };
     const criarServicos = async (osId: string) => {
+      const casar = await marcasDosItens(tx, "servico", osId);
       await tx.osItemServico.deleteMany({ where: { osId } });
-      await tx.osItemServico.createMany({ data: servicos.map((l, i) => ({ osId, ordem: i, servicoId: l.servicoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalServico(l)) })) });
+      for (const [i, l] of servicos.entries()) {
+        const antigo = casar(l.id, l.servicoId);
+        const novo = await tx.osItemServico.create({ data: { osId, ordem: i, servicoId: l.servicoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalServico(l)), ...antigo?.marcas } });
+        if (antigo) await moverFotos(tx, osId, antigo.id, novo.id);
+      }
     };
     const criarEquipamentos = async (osId: string) => {
       await tx.osEquipamento.deleteMany({ where: { osId } });
@@ -239,7 +269,7 @@ export async function excluirOrdem(id: string, opts: { forcar?: boolean } = {}) 
     if (notas) throw new OsError("A OS tem nota fiscal autorizada: cancele a nota antes");
     await cancelarRecebimentos(tx, "OS", id, opts.forcar);
     await transicionarEstoque(tx, "OS", id, await estadoEfetivo(tx, id, estadoAtual(o)), "LIVRE", itensDoc(tx, id));
-    await tx.anexo.deleteMany({ where: { entidade: "OS", entidadeId: id } });
+    await tx.anexo.deleteMany({ where: { entidade: { in: ["OS", "OS_FOTO"] }, entidadeId: id } });
     await tx.anotacao.deleteMany({ where: { entidade: "OS", entidadeId: id } });
     await tx.orcamento.updateMany({ where: { osId: id }, data: { osId: null } });
     await tx.ordemServico.delete({ where: { id } });
@@ -261,7 +291,7 @@ export async function clonarOrdem(id: string, u: Usuario) {
     desconto: f(o.desconto), descontoPct: false, exibirTotal: o.exibirTotal, gerarCondicoes: true, condicao: "AVISTA", formaPagamentoId: o.formaPagamentoId ?? "", vencimento: "",
     intervaloDias: String(o.intervaloDias), numParcelas: "1", primeiraParcela: "", parcelas: [], observacoes: o.observacoes ?? "", observacaoInterna: o.observacaoInterna ?? "",
     camposExtras: (o.camposExtras ?? {}) as Record<string, string>,
-    entrada: agora, saida: "", prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds, outros: f(o.outros),
+    entrada: agora, saida: "", prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds, equipeId: o.equipeId ?? "", outros: f(o.outros),
     equipamentos: o.equipamentos.map((e) => ({ equipamento: e.equipamento, marca: e.marca ?? "", modelo: e.modelo ?? "", serie: e.serie ?? "", condicoes: e.condicoes ?? "", defeitos: e.defeitos ?? "", acessorios: e.acessorios ?? "", solucao: "", laudo: "", garantia: e.garantia ?? "" })),
   }, u);
 }

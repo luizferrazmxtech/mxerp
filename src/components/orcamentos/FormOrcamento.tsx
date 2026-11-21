@@ -22,6 +22,8 @@ type Opcoes = {
   vendedores: { id: string; nome: string }[]; situacoes: { id: string; nome: string }[]; formas: { id: string; nome: string }[];
   tiposValor: { id: string; nome: string; padrao: boolean }[]; campos: { id: string; nome: string }[]; centros: string[]; canais: string[];
   tecnicos?: { id: string; nome: string }[];
+  /** equipes de técnicos (só OS) */
+  equipes?: { id: string; nome: string }[];
 };
 
 type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; situacao?: SituacaoEstoque; minimo?: number; valores: { tipoValorId: string; valor: number }[] };
@@ -189,7 +191,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
       </Bloco>
 
       {os && (
-        <Bloco icone="pessoa" titulo={<>Defina os <b>responsáveis</b> pela ordem de serviço</>} subtitulo="Vendedor e um ou mais técnicos.">
+        <Bloco icone="pessoa" titulo={<>Defina os <b>responsáveis</b> pela ordem de serviço</>} subtitulo="Vendedor, um ou mais técnicos e, se quiser, a equipe (todos os membros podem lançar itens pela tela do técnico).">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Campo rotulo="Vendedor"><select className="campo" value={d.vendedorId} onChange={(e) => set("vendedorId", e.target.value)}><option value="">Selecione</option>{op.vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select></Campo>
             {(d.tecnicoIds?.length ? d.tecnicoIds : [""]).map((tid, i, arr) => (
@@ -199,6 +201,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                   {arr.length > 1 && <button type="button" className="btn-icone text-red-600" title="Remover técnico" onClick={() => set("tecnicoIds", arr.filter((_, j) => j !== i))}><Icone nome="excluir" size={13} /></button>}
                 </div></div>
             ))}
+            {!!op.equipes?.length && <Campo rotulo="Equipe"><select className="campo" value={d.equipeId ?? ""} onChange={(e) => set("equipeId", e.target.value)}><option value="">Nenhuma</option>{op.equipes.map((q) => <option key={q.id} value={q.id}>{q.nome}</option>)}</select></Campo>}
           </div>
           <button type="button" className="btn-sec mt-3" onClick={() => set("tecnicoIds", [...(d.tecnicoIds?.length ? d.tecnicoIds : [""]), ""])}><Icone nome="mais" size={14} /> Adicionar técnico</button>
         </Bloco>
