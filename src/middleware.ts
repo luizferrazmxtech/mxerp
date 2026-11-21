@@ -25,7 +25,7 @@ async function portal(req: NextRequest, caminho: string) {
 }
 
 /** Toda página, ação e API exige login, menos a tela de login, a rota do agendador e o webhook do Inter (que têm senha própria). */
-const LIVRES = ["/login", "/api/saude", "/api/inter/sincronizar", "/api/contratos/processar", "/api/dfe/sincronizar"];
+const LIVRES = ["/login", "/api/saude", "/api/inter/sincronizar", "/api/contratos/processar", "/api/dfe/sincronizar", "/api/frete/sincronizar"];
 
 export async function middleware(req: NextRequest) {
   const caminho = req.nextUrl.pathname;

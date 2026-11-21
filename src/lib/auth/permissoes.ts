@@ -48,6 +48,10 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/fiscal/", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   { prefixo: "/fiscal", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/api/notas", papeis: ["ADMIN", "GERENTE"] },
+  // frete: configurar o Melhor Envio é da gerência; a lista de envios é de quem vende
+  { prefixo: "/frete/configuracoes", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/frete", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
+  { prefixo: "/api/frete", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   { prefixo: "/pdv", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   { prefixo: "/vendas", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   // a exportação segue a mesma regra da tela de vendas

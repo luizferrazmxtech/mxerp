@@ -12,6 +12,7 @@ import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
 import GerenciarColunas from "@/components/ui/GerenciarColunas";
 import type { PessoaBusca } from "@/lib/cadastros/tipos";
 import { LinhaToggle } from "@/components/itens/AbasVerticais";
+import CotarFrete from "@/components/frete/CotarFrete";
 import { salvarOrcamentoForm, type Resultado } from "@/lib/orcamentos/acoes";
 import { salvarPedidoForm } from "@/lib/vendas/acoes";
 import { salvarOsForm } from "@/lib/os/acoes";
@@ -27,6 +28,8 @@ type Opcoes = {
   equipes?: { id: string; nome: string }[];
   /** só OS: carros das equipes, para marcar o item que sai do carro */
   carros?: { equipeId: string; localId: string; nome: string }[];
+  /** frete pelo Melhor Envio ligado: mostra "Cotar frete" no transporte */
+  freteMelhorEnvio?: boolean;
 };
 
 type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; fisicoCarros?: number | null; situacao?: SituacaoEstoque; minimo?: number; valores: { tipoValorId: string; valor: number }[] };
@@ -257,8 +260,12 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
             <Busca<PessoaBusca> url={(q) => `/api/pessoas?papel=transportadora&q=${encodeURIComponent(q)}`}
               valor={d.transportadoraId ? { id: d.transportadoraId, nome: d.transportadoraNome } : null} rotulo={(p) => p.nome} linha={(p) => <LinhaPessoaBusca p={p} />}
               onEscolher={(p) => setD((x) => ({ ...x, transportadoraId: p?.id ?? "", transportadoraNome: p?.nome ?? "" }))} /></div>
-          <Campo rotulo="Valor do frete (R$)"><input className="campo text-right" value={d.frete} onChange={(e) => set("frete", e.target.value)} /></Campo>
+          <Campo rotulo="Valor do frete (R$)"><input className="campo text-right" value={d.frete} onChange={(e) => setD((x) => ({ ...x, frete: e.target.value, freteServicoId: "", freteServicoNome: "", fretePrazoDias: "" }))} /></Campo>
+          {op.freteMelhorEnvio && <div className="flex items-end"><CotarFrete clienteId={d.clienteId} enderecoEntregaId={d.mostrarEntrega ? d.enderecoEntregaId : ""} escolhido={d.freteServicoId ? Number(d.freteServicoId) : null}
+            itens={d.produtos.filter((l) => l.produtoId).map((l) => ({ produtoId: l.produtoId, quantidade: lerNumero(l.quantidade) ?? 0, valor: subtotalProduto(l) }))}
+            onEscolher={(c) => setD((x) => ({ ...x, frete: n2(c.valor), freteServicoId: String(c.servicoId), freteServicoNome: `${c.transportadora} ${c.servico}`.trim(), fretePrazoDias: c.prazoDias != null ? String(c.prazoDias) : "" }))} /></div>}
         </div>}
+        {!os && d.freteServicoNome && <p className="mt-2 text-[12px] text-slate-600"><Icone nome="frete" size={12} /> Frete escolhido: <b>{d.freteServicoNome}</b>{d.fretePrazoDias ? ` · entrega em até ${d.fretePrazoDias} dias úteis` : ""} (Melhor Envio)</p>}
         <div className={os ? "max-w-xl" : "mt-3 max-w-xl"}><LinhaToggle titulo="Informar endereço de entrega" texto="Mostra o endereço de entrega no pedido." ligado={d.mostrarEntrega} onChange={(v) => set("mostrarEntrega", v)} /></div>
         {d.mostrarEntrega && (
           <div className="mt-3 max-w-xl">

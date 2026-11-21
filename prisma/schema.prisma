@@ -1095,6 +1095,12 @@ model Venda {
   caixaId String?
   caixa   CaixaPdv? @relation(fields: [caixaId], references: [id])
 
+  // frete cotado no Melhor Envio (serviço escolhido no pedido); a etiqueta comprada fica em EnvioFrete
+  freteServicoId   Int?
+  freteServicoNome String?
+  fretePrazoDias   Int?
+  envios           EnvioFrete[]
+
   itens      VendaItem[]
   servicos   VendaItemServico[]
   pagamentos VendaPagamento[]
@@ -2262,4 +2268,36 @@ model MensagemWhatsapp {
 
   @@index([entidade, entidadeId])
   @@index([createdAt])
+}
+
+/// Etiqueta de frete comprada no Melhor Envio para uma venda (uma venda pode ter mais de uma: reenvio, cancelada).
+model EnvioFrete {
+  id             String    @id @default(cuid())
+  vendaId        String
+  venda          Venda     @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  empresaId      String?
+  servicoId      Int // id do serviço no Melhor Envio (1 = PAC, 2 = SEDEX, 3 = Jadlog .Package…)
+  servicoNome    String
+  transportadora String // Correios, Jadlog, Loggi…
+  valor          Decimal   @db.Decimal(14, 2) // custo da etiqueta no Melhor Envio
+  prazoDias      Int?
+  volumes        Json      @default("[]")
+  situacao       String    @default("CARRINHO") // CARRINHO | PAGA | GERADA | POSTADA | ENTREGUE | NAO_ENTREGUE | CANCELADA | ERRO
+  meId           String?   @unique // id da etiqueta (order) no Melhor Envio
+  protocolo      String?
+  rastreio       String? // código da transportadora
+  rastreioMe     String? // código do Melhor Rastreio
+  erro           String?
+  pagaEm         DateTime?
+  geradaEm       DateTime?
+  postadaEm      DateTime?
+  entregueEm     DateTime?
+  canceladaEm    DateTime?
+  consultadaEm   DateTime?
+  usuarioNome    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([vendaId])
+  @@index([situacao])
 }

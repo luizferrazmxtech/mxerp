@@ -5,6 +5,7 @@ import { colunasVisiveis } from "@/lib/ui/colunas";
 import { proximoNumeroOrcamento } from "@/lib/orcamentos/orcamentos";
 import { configOrcamento } from "@/lib/orcamentos/config";
 import { Pagina } from "@/components/ui/Pagina";
+import { freteAtivo } from "@/lib/frete/melhorEnvio";
 import FormOrcamento, { type InicialOrcamento } from "./FormOrcamento";
 import { CAMPOS_DADOS, COLUNAS_ITENS } from "@/lib/orcamentos/tipos";
 
@@ -70,7 +71,7 @@ export default async function PaginaFormOrcamento({ tipo, id }: { tipo?: "PRODUT
   return (
     <Pagina titulo={`${acao} orçamento`} trilha={[{ rotulo: "Orçamentos", href: "/orcamentos" }, { rotulo: acao }]}>
       <FormOrcamento inicial={inicial}
-        op={{ vendedores, situacoes, formas, tiposValor, campos, centros: centros.map((c) => c.centroCusto!), canais: canalLista(canais.map((c) => c.nome), inicial.canal) }}
+        op={{ vendedores, situacoes, formas, tiposValor, campos, centros: centros.map((c) => c.centroCusto!), canais: canalLista(canais.map((c) => c.nome), inicial.canal), freteMelhorEnvio: await freteAtivo() }}
         vis={{
           dados: colunasVisiveis(u?.preferencias, "orcamento-campos", CAMPOS_DADOS, CAMPOS_DADOS.map((c) => c.chave)),
           itens: colunasVisiveis(u?.preferencias, "orcamento-itens", COLUNAS_ITENS, COLUNAS_ITENS.map((c) => c.chave)),

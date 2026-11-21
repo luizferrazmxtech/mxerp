@@ -79,6 +79,7 @@ services:
             curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/inter/sincronizar; echo
             curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/contratos/processar; echo
             curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/dfe/sincronizar; echo
+            curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/frete/sincronizar; echo
           fi
           sleep 3600
         done

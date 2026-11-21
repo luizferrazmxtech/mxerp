@@ -55,6 +55,7 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Gerenciar vendas", href: "/vendas", icone: "gerenciar" },
       { rotulo: "Balcão", href: "/vendas/balcao", icone: "balcao" },
       { rotulo: "Trocas e devoluções", href: "/vendas/devolucoes", icone: "atualizar" },
+      { rotulo: "Envios (Melhor Envio)", href: "/frete", icone: "frete" },
       {
         rotulo: "Opções auxiliares", href: "/vendas/situacoes", icone: "auxiliares", filhos: [
           { rotulo: "Situações", href: "/vendas/situacoes", icone: "lista" },
@@ -169,8 +170,13 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Empresas (lojas)", href: "/empresas", icone: "lojas" },
       { rotulo: "Usuários e permissões", href: "/usuarios", icone: "funcionarios" },
       { rotulo: "Registro de auditoria", href: "/auditoria", icone: "lista" },
-      { rotulo: "Banco Inter (API)", href: "/financeiro/conciliacao/inter", icone: "conciliacao" },
-      { rotulo: "WhatsApp (MXChat)", href: "/whatsapp", icone: "whatsapp" },
+      {
+        rotulo: "Integrações", href: "/frete/configuracoes", icone: "conciliacao", filhos: [
+          { rotulo: "Banco Inter (API)", href: "/financeiro/conciliacao/inter", icone: "conciliacao" },
+          { rotulo: "WhatsApp (MXChat)", href: "/whatsapp", icone: "whatsapp" },
+          { rotulo: "Frete (Melhor Envio)", href: "/frete/configuracoes", icone: "frete" },
+        ],
+      },
       { rotulo: "Migração", href: "/migracao", icone: "migracao" },
       { rotulo: "Minha senha", href: "/conta", icone: "senha" },
     ],
@@ -185,6 +191,8 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/tecnico", rotulo: "Técnico", cor: "#e8730c", icone: "os" },
   { prefixo: "/vendas", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/contratos", rotulo: "Contratos", cor: "#0e7490", icone: "contratos" },
+  { prefixo: "/frete/configuracoes", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
+  { prefixo: "/frete", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/pdv", rotulo: "PDV", cor: "#2e9d4f", icone: "balcao" },
   { prefixo: "/financeiro", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
   { prefixo: "/relatorios", rotulo: "Relatórios", cor: "#5b6573", icone: "grafico" },
