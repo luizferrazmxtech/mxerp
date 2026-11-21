@@ -19,7 +19,7 @@ export function abreviar(v: number) {
   const a = Math.abs(v);
   if (a >= 1_000_000) return `${(v / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}mi`;
   if (a >= 1_000) return `${(v / 1_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}k`;
-  return v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+  return v.toLocaleString("pt-BR", { maximumFractionDigits: a < 10 ? 1 : 0 });
 }
 
 /** Percentual seguro (0 quando não há base), limitado a 0–100 para o anel. */
