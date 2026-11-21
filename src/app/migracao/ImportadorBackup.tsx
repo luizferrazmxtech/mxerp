@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { importarBackup, type EstadoBackup } from "./actions";
 
 const NOMES: Record<string, string> = {
@@ -21,10 +21,10 @@ const ETAPAS = [
 ];
 
 export default function ImportadorBackup() {
-  const [estado, act, pendente] = useActionState<EstadoBackup, FormData>(importarBackup, null);
+  const [estado, , pendente, formAct] = useFormAcao<EstadoBackup>(importarBackup, null);
   return (
     <div className="space-y-4">
-      <form action={act} className="cartao space-y-3">
+      <form {...formAct} className="cartao space-y-3">
         <label className="block space-y-1 text-sm">
           <span>Arquivo do backup (.zip)</span>
           <input name="arquivo" type="file" accept=".zip" className="campo w-full" required />

@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco } from "@/components/ui/Pagina";
 import { salvarCanalAcao, salvarConfigVendaAcao, salvarSituacaoVendaAcao, type Resultado } from "@/lib/vendas/acoes";
@@ -24,7 +25,7 @@ const SimNao = ({ name, valor, rotulo, dica }: { name: string; valor: boolean; r
 export function FormSituacaoVenda({ s, modelos, usada, modulo = "venda" }: { s?: SituacaoVendaForm; modelos: { id: string; assunto: string }[]; usada: number; modulo?: "venda" | "os" }) {
   const os = modulo === "os";
   const doc = os ? "OS" : "venda";
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(os ? salvarSituacaoOsAcao : salvarSituacaoVendaAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(os ? salvarSituacaoOsAcao : salvarSituacaoVendaAcao, null);
   const [saida, setSaida] = useState(s?.preencherSaida ? "1" : "0");
   const [corSel, setCor] = useState(s?.cor ?? "cinza");
   const [estoque, setEstoque] = useState(s?.estoque ?? "RESERVAR");
@@ -37,7 +38,7 @@ export function FormSituacaoVenda({ s, modelos, usada, modulo = "venda" }: { s?:
   const livres = PAPEIS.filter(([p]) => !bloq.includes(p));
   const travado = usada > 0;
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       {s && <input type="hidden" name="id" value={s.id} />}
       <Bloco icone="editar" titulo={<>Informe a <b>situação</b> da {doc}</>} subtitulo={`Nome, cor, se é a padrão das ${os ? "OS novas" : "vendas novas"} e onde aparece.`}>
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
@@ -122,9 +123,9 @@ export function FormSituacaoVenda({ s, modelos, usada, modulo = "venda" }: { s?:
 }
 
 export function FormCanal({ c }: { c?: { id: string; nome: string; padrao: boolean } }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarCanalAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarCanalAcao, null);
   return (
-    <form action={acao} className="cartao mb-3 flex flex-wrap items-end gap-3 p-4">
+    <form {...formAcao} className="cartao mb-3 flex flex-wrap items-end gap-3 p-4">
       {c && <input type="hidden" name="id" value={c.id} />}
       <label className="min-w-64 flex-1"><span className="rotulo obrig">Nome</span><input name="nome" defaultValue={c?.nome} required autoFocus className="campo" placeholder="Ex.: Mercado Livre" /></label>
       <label className="w-40"><span className="rotulo">Padrão</span><select name="padrao" defaultValue={c?.padrao ? "1" : "0"} className="campo"><option value="0">Não</option><option value="1">Sim</option></select></label>
@@ -140,11 +141,11 @@ export function FormConfigVenda({ ultimo, ultimaDev, c, grupos }: {
   c: { observacoes: string; validadeVale: number; estoqueNegativo: boolean; documentos: Record<string, boolean>; balanca: { prefixo: string; digitosCodigo: number; conteudo: string } };
   grupos: { grupo: string; itens: [string, string][] }[];
 }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarConfigVendaAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarConfigVendaAcao, null);
   const [num, setNum] = useState(String(ultimo));
   const [dev, setDev] = useState(String(ultimaDev));
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <Bloco icone="lista" titulo={<>Defina o <b>último número</b> de cada registro</>} subtitulo="O número vale só para a loja atual." corpo="p-0">
         <table className="tabela">
           <thead><tr><th>Registro</th><th className="w-48">Último número usado</th><th className="w-48">Próximo sai como</th></tr></thead>

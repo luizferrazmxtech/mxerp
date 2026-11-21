@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
+import { useState } from "react";
 import { Bloco } from "@/components/ui/Pagina";
 import { Rodape } from "@/components/orcamentos/FormsAuxOrc";
 import { salvarConfigOsAcao, type Resultado } from "@/lib/os/acoes";
@@ -11,10 +12,10 @@ export default function FormConfigOs({ ultimo, c, grupos }: {
   c: { observacoes: string; garantia: string; estoqueNegativo: boolean; semCondicao: boolean; documentos: Record<string, boolean> };
   grupos: { grupo: string; itens: [string, string][] }[];
 }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarConfigOsAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarConfigOsAcao, null);
   const [num, setNum] = useState(String(ultimo));
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <Bloco icone="estoque" titulo={<>Regras de <b>venda e estoque</b></>}>
         <div className="grid gap-3 sm:grid-cols-2">
           <label><span className="rotulo">Vender produto sem estoque</span>

@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
@@ -59,7 +60,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
   const [d, setD] = useState(inicial);
   const [editNumero, setEditNumero] = useState(false);
   const [enderecos, setEnderecos] = useState<{ id: string; texto: string }[]>([]);
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(os ? salvarOsForm : venda ? salvarPedidoForm : salvarOrcamentoForm, null);
+  const [estado, , pendente, formAcao] = useFormAcao<Resultado>(os ? salvarOsForm : venda ? salvarPedidoForm : salvarOrcamentoForm, null);
   const set = <K extends keyof InicialOrcamento>(k: K, v: InicialOrcamento[K]) => setD((x) => ({ ...x, [k]: v }));
   const tot = os ? totaisOs({ ...d, outros: d.outros ?? "" }) : { ...totais(d), outros: 0 };
   const ve = (c: string) => vis.dados.includes(c);
@@ -169,7 +170,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
   );
 
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="dados" value={JSON.stringify({ ...d, anexos: undefined, proximoNumero: undefined })} />
 
       <Bloco icone="editar" titulo={<>Informe os <b>dados</b> {doc}</>} subtitulo={os ? "Número, cliente, situação, entrada e saída, canal e prioridade." : venda ? "Número, cliente, situação, vendedor e datas." : "Número, cliente, vendedor, datas e a introdução da proposta."}

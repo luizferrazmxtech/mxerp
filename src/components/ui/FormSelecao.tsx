@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
 
 type Resultado = { ok: boolean; mensagem: string } | null;
@@ -10,9 +10,9 @@ export default function FormSelecao({ acao, titulo, botao, perigo, voltar, campo
   acao: (r: Resultado, f: FormData) => Promise<Resultado>; titulo: string; botao: string; perigo?: boolean; voltar: string;
   campos?: React.ReactNode; confirmar?: string; children: React.ReactNode;
 }) {
-  const [estado, enviar, pendente] = useActionState<Resultado, FormData>(acao, null);
+  const [estado, , pendente, formEnviar] = useFormAcao<Resultado>(acao, null);
   return (
-    <form action={enviar} onSubmit={(e) => { if (confirmar && !window.confirm(confirmar)) e.preventDefault(); }}>
+    <form {...formEnviar} onSubmit={(e) => { if (confirmar && !window.confirm(confirmar)) e.preventDefault(); }}>
       <div className={`mb-2 rounded border px-3 py-2 text-[13px] ${perigo ? "border-red-200 bg-red-50 text-red-800" : "border-sky-200 bg-sky-50 text-slate-800"}`}>
         <div className="flex flex-wrap items-center gap-3">
           <b>{titulo}</b>
@@ -32,9 +32,9 @@ export default function FormSelecao({ acao, titulo, botao, perigo, voltar, campo
 
 /** Formulário simples com resposta (usado em painéis como "Ajustar valores em massa"). */
 export function FormAcao({ acao, children, className }: { acao: (r: Resultado, f: FormData) => Promise<Resultado>; children: React.ReactNode; className?: string }) {
-  const [estado, enviar, pendente] = useActionState<Resultado, FormData>(acao, null);
+  const [estado, , pendente, formEnviar] = useFormAcao<Resultado>(acao, null);
   return (
-    <form action={enviar} className={className}>
+    <form {...formEnviar} className={className}>
       <fieldset disabled={pendente} className="contents">{children}</fieldset>
       {estado && <p className={`mt-2 text-[13px] ${estado.ok ? "text-emerald-700" : "text-red-700"}`}>{estado.mensagem}</p>}
     </form>

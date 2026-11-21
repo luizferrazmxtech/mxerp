@@ -1,13 +1,13 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState } from "react";
 import { salvarEquipeAcao, type Resultado } from "@/lib/os/equipes";
 
 export default function FormEquipe({ e, funcionarios }: { e?: { id: string; nome: string; ativo: boolean; membros: string[] }; funcionarios: { id: string; nome: string; tecnico: boolean }[] }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarEquipeAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarEquipeAcao, null);
   return (
-    <form action={acao} className="cartao mb-3 flex flex-wrap items-end gap-3 p-4">
+    <form {...formAcao} className="cartao mb-3 flex flex-wrap items-end gap-3 p-4">
       {e && <input type="hidden" name="id" value={e.id} />}
       <label className="min-w-64 flex-1"><span className="rotulo obrig">Nome</span><input name="nome" defaultValue={e?.nome} required autoFocus className="campo" placeholder="Ex.: Equipe de instalação" /></label>
       <label className="w-32"><span className="rotulo">Ativa</span><select name="ativo" defaultValue={e?.ativo === false ? "0" : "1"} className="campo"><option value="1">Sim</option><option value="0">Não</option></select></label>

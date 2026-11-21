@@ -1,12 +1,12 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { definirSenha, type Estado } from "../../acoes";
 
 export default function FormSenha({ token, login }: { token: string; login: string }) {
-  const [estado, act, pendente] = useActionState<Estado, FormData>(definirSenha, null);
+  const [estado, , pendente, formAct] = useFormAcao<Estado>(definirSenha, null);
   return (
-    <form action={act} className="space-y-4">
+    <form {...formAct} className="space-y-4">
       <input type="hidden" name="token" value={token} />
       {/* ajuda o gerenciador de senhas do celular a salvar o login certo */}
       <input type="text" name="usuario" value={login} autoComplete="username" readOnly hidden />

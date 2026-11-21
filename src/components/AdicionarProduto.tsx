@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
+import { useEffect, useRef, useState } from "react";
 import type { LinhaEstoque } from "@/lib/estoque/consultas";
 
 export type Resultado = { ok: boolean; mensagem: string; pegar?: { local: string; quantidade: number }[] } | null;
@@ -15,7 +16,7 @@ export default function AdicionarProduto({ docId, acao: acaoServidor, rotuloBota
   const [q, setQ] = useState("");
   const [opcoes, setOpcoes] = useState<LinhaEstoque[]>([]);
   const [sel, setSel] = useState<LinhaEstoque | null>(null);
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(acaoServidor, null);
+  const [estado, , pendente, formAcao] = useFormAcao<Resultado>(acaoServidor, null);
   const qtdRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -36,7 +37,7 @@ export default function AdicionarProduto({ docId, acao: acaoServidor, rotuloBota
 
   return (
     <div className="space-y-2">
-      <form action={acao} className="flex flex-wrap items-start gap-2">
+      <form {...formAcao} className="flex flex-wrap items-start gap-2">
         <input type="hidden" name="docId" value={docId} />
         <input type="hidden" name="produtoId" value={sel?.id ?? ""} />
         <div className="relative min-w-64 flex-1">

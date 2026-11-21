@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Icone from "@/components/Icone";
 import { salvarCampoExtraAcao, salvarTipoAcao, type Resultado } from "@/lib/cadastros/auxiliares";
 
@@ -20,9 +21,9 @@ export function FaixaInfo({ chave, titulo, children }: { chave: string; titulo: 
 }
 
 export function FormTipo({ tabela, id, nome, voltar }: { tabela: "contato" | "endereco"; id?: string; nome?: string; voltar: string }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarTipoAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarTipoAcao, null);
   return (
-    <form action={acao} className="cartao mb-3 flex flex-wrap items-end gap-2 p-4">
+    <form {...formAcao} className="cartao mb-3 flex flex-wrap items-end gap-2 p-4">
       <input type="hidden" name="tabela" value={tabela} />
       {id && <input type="hidden" name="id" value={id} />}
       <label className="min-w-64 flex-1"><span className="rotulo obrig">Nome</span><input name="nome" defaultValue={nome} required autoFocus className="campo" /></label>
@@ -39,11 +40,11 @@ const TIPOS = [
 
 export function FormCampoExtra({ c, entidade = "CLIENTE" }: { c?: { id: string; nome: string; tipo: string; opcoes: string[]; obrigatorio: boolean }; entidade?: string }) {
   const voltar = entidade === "PRODUTO" ? "/campos-extras?entidade=PRODUTO" : "/campos-extras";
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarCampoExtraAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarCampoExtraAcao, null);
   const [tipo, setTipo] = useState(c?.tipo ?? "");
   const selecao = tipo === "SELECAO_UNICA" || tipo === "MULTIPLA_SELECAO";
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       {c && <input type="hidden" name="id" value={c.id} />}
       <input type="hidden" name="entidade" value={entidade} />
       <section className="cartao mb-3">

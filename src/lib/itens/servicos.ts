@@ -15,7 +15,7 @@ export async function salvarServico(d: DadosServico, id?: string) {
   const codigo = d.codigo.trim() || (await gerarCodigoServico());
   const outro = await prisma.servico.findUnique({ where: { codigo }, select: { id: true } });
   if (outro && outro.id !== id) throw new Error(`Já existe serviço com o código ${codigo}`);
-  if (!d.lojas.length) throw new Error("Selecione ao menos uma loja");
+  if (!d.lojas.length && (await prisma.empresa.count())) throw new Error("Selecione ao menos uma loja"); // sem empresa: vazio = todas
   const dados = {
     nome: d.nome.trim(), codigo, comissao: D(lerNumero(d.comissao)), custo: D(lerNumero(d.custo) ?? 0)!, preco: D(lerNumero(d.preco) ?? 0)!,
     descricao: t(d.descricao), ativo: d.ativo, camposExtras: (d.camposExtras ?? {}) as Prisma.InputJsonValue, lojas: d.lojas,

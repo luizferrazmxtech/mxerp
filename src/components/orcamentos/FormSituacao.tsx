@@ -1,7 +1,7 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState } from "react";
 import { alterarSituacaoAcao, gerarVendaAcao, type Resultado } from "@/lib/orcamentos/acoes";
 import BotaoAcao from "@/components/ui/BotaoAcao";
 
@@ -12,10 +12,10 @@ export default function FormSituacao({ id, numero, atual, situacoes, voltar, aca
   /** próximo passo sugerido depois de salvar (OS: marcar os itens que estão no carro) */
   depois?: { href: string; texto: string };
 }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(acaoServidor ?? alterarSituacaoAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(acaoServidor ?? alterarSituacaoAcao, null);
   return (
     <div className="cartao mb-3 p-4">
-      <form action={acao} className="flex flex-wrap items-end gap-3">
+      <form {...formAcao} className="flex flex-wrap items-end gap-3">
         <input type="hidden" name="id" value={id} />
         <div className="w-full font-semibold">Alterar situação {rotulo} nº {numero}</div>
         <label className="w-64"><span className="rotulo obrig">Situação</span>

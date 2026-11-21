@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
 
 type Res = { ok: boolean; mensagem: string; notaId?: string } | null;
@@ -13,9 +13,9 @@ export default function BotaoAcao({ acao, campos, rotulo, secundario, children }
   secundario?: boolean;
   children?: React.ReactNode;
 }) {
-  const [estado, act, pendente] = useActionState<Res, FormData>(acao, null);
+  const [estado, , pendente, formAct] = useFormAcao<Res>(acao, null);
   return (
-    <form action={act} className="space-y-2">
+    <form {...formAct} className="space-y-2">
       {Object.entries(campos).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
       {children}
       <button className={secundario ? "btn-sec" : "btn"} disabled={pendente}>{pendente ? "Aguarde…" : rotulo}</button>

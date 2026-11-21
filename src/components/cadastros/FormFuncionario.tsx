@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useState } from "react";
 import type { LiberacaoComissao, PapelUsuario } from "@prisma/client";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
@@ -17,14 +18,14 @@ export default function FormFuncionario({ inicial, lojas, liberacoes, papeis, ad
   liberacoes: { valor: LiberacaoComissao; rotulo: string }[]; papeis: [string, string][]; admin: boolean;
 }) {
   const [d, setD] = useState(inicial);
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(salvarFuncionarioForm, null);
+  const [estado, , pendente, formAcao] = useFormAcao<Resultado>(salvarFuncionarioForm, null);
   const [removerFoto, setRemoverFoto] = useState(false);
   const [anexos, setAnexos] = useState(1);
   const set = <K extends keyof InicialFuncionario>(k: K, v: InicialFuncionario[K]) => setD((x) => ({ ...x, [k]: v }));
   const cpf = (v: string) => v.replace(/\D/g, "").slice(0, 11).replace(/^(\d{3})(\d)/, "$1.$2").replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3").replace(/\.(\d{3})(\d)/, ".$1-$2");
 
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="dados" value={JSON.stringify(d)} />
       {removerFoto && <input type="hidden" name="removerFoto" value="1" />}
 

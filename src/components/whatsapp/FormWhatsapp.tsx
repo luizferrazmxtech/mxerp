@@ -1,15 +1,15 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { salvarWhatsappAcao, type Resultado } from "@/lib/whatsapp/acoes";
 import type { ConfigWhatsappTela } from "@/lib/whatsapp/mxchat";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 
 /** Configurações → WhatsApp (MXChat): endereço da API, token (cifrado no servidor) e opções. */
 export default function FormWhatsapp({ c, admin }: { c: ConfigWhatsappTela; admin: boolean }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarWhatsappAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarWhatsappAcao, null);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <Bloco icone="whatsapp" titulo={<>API do <b>MXChat</b></>} subtitulo="Conta usada para mandar o status das OS e as cobranças dos contratos por WhatsApp. O token fica cifrado no servidor e não volta para a tela.">
         <fieldset disabled={!admin} className="grid gap-3 md:grid-cols-2">
           <label className="flex items-center gap-2 text-[13px] md:col-span-2"><input type="checkbox" name="ativo" defaultChecked={c.ativo} /> <b>Ligar o envio por WhatsApp</b></label>

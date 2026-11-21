@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
+import { useState } from "react";
 import { responderCotacaoAcao, type Resultado } from "@/lib/compras/acoes";
 import { lerNumero } from "@/lib/itens/tipos";
 
@@ -8,14 +9,14 @@ type Item = { id: string; nome: string; detalhes: string | null; quantidade: num
 
 /** Página pública: o fornecedor informa o valor unitário de cada item, frete, prazo e condição. */
 export default function FormRespostaCotacao({ token, itens, aberta, inicial }: { token: string; itens: Item[]; aberta: boolean; inicial: { frete: string; prazoEntrega: string; condicao: string; observacao: string } }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(responderCotacaoAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(responderCotacaoAcao, null);
   const [valores, setValores] = useState<Record<string, string>>(Object.fromEntries(itens.map((i) => [i.id, i.valor])));
   const [frete, setFrete] = useState(inicial.frete);
   const n = (s: string) => lerNumero(s) ?? 0;
   const total = itens.reduce((s, i) => s + n(valores[i.id] ?? "") * i.quantidade, 0) + n(frete);
   const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   return (
-    <form action={acao} className="space-y-4">
+    <form {...formAcao} className="space-y-4">
       <input type="hidden" name="token" value={token} />
       <table className="w-full border-collapse text-[13px]">
         <thead><tr className="border-b-2 border-slate-400 text-left"><th className="py-1">Item</th><th className="text-right">Qtd.</th><th className="pl-2">Un.</th><th className="w-40 text-right">Valor unitário (R$)</th><th className="w-32 text-right">Total</th></tr></thead>

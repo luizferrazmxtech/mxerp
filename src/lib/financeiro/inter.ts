@@ -5,6 +5,7 @@ import JSZip from "jszip";
 import { prisma } from "@/lib/db";
 import { decifrar } from "@/lib/seguranca/segredos";
 import { importarExtrato, type TransacaoExtrato } from "./extrato";
+import { diaSP } from "@/lib/datas";
 
 /**
  * Banco Inter (API PJ): puxa o extrato direto do banco e joga na conciliação.
@@ -157,7 +158,7 @@ export class ClienteInter {
 
   /** Saldo da conta: usado no teste de conexão (pede o escopo extrato.read). */
   async saldo(): Promise<number> {
-    const r = await this.get("/banking/v2/saldo", { dataSaldo: iso(new Date()) });
+    const r = await this.get("/banking/v2/saldo", { dataSaldo: iso(diaSP()) });
     if (r.status !== 200) throw new Error(`Inter: autenticou, mas não liberou o saldo/extrato (HTTP ${r.status}): ${explicar(r)}`);
     const j = JSON.parse(r.corpo) as { disponivel?: number | string };
     return Number(j.disponivel ?? 0);
@@ -238,7 +239,7 @@ export async function testarInter(opts: { cliente?: ClienteInter } = {}) {
     mensagem = `Conexão OK. Saldo disponível: ${saldo.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}.`;
     if (temCobranca(cliente.configuracao.escopos)) {
       // a permissão de boletos é testada à parte: sem ela o extrato continua funcionando
-      const hoje = iso(new Date());
+      const hoje = iso(diaSP()); // dia de Brasília (depois das 21h o UTC já é amanhã e o Inter recusa data futura)
       const r = await cliente.chamar("GET", "/cobranca/v3/cobrancas", { escopo: ESCOPOS_COBRANCA, params: { dataInicial: hoje, dataFinal: hoje, "paginacao.itensPorPagina": 1 } }).catch((e) => ({ status: 0, corpo: mensagemErro(e) }));
       if (r.status === 200) mensagem += " Boletos: OK.";
       else { ok = false; mensagem += ` Boletos: sem acesso (HTTP ${r.status}): ${explicar(r, ESCOPOS_COBRANCA)}`; }
@@ -267,7 +268,7 @@ export async function sincronizarInter(opts: { dias?: number; cliente?: ClienteI
   const conta = cfg?.contaBancariaId
     ? await prisma.contaBancaria.findUniqueOrThrow({ where: { id: cfg.contaBancariaId } })
     : await prisma.contaBancaria.upsert({ where: { nome: nomeConta }, create: { nome: nomeConta, banco: "077" }, update: {} });
-  const fim = new Date();
+  const fim = diaSP(); // hoje em Brasília: o Inter recusa dataFim no futuro
   const inicio = new Date(fim.getTime() - (opts.dias ?? 7) * 86400000);
   try {
     const ts = await cliente.extrato(inicio, fim);

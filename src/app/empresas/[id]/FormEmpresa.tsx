@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Icone from "@/components/Icone";
 import { buscarCep } from "@/components/cadastros/Endereco";
@@ -27,8 +28,8 @@ const REG_ESP: [number, string][] = [
 export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
   e: Dados | null; ultimos: { nfe: number; nfce: number; dps: number }; certificadoServidor: boolean;
 }) {
-  const [estado, acao, pendente] = useActionState<Res, FormData>(salvarEmpresa, null);
-  const [teste, testar, testando] = useActionState<Res, FormData>(testarSefaz, null);
+  const [estado, , pendente, formAcao] = useFormAcao<Res>(salvarEmpresa, null);
+  const [teste, , testando, formTestar] = useFormAcao<Res>(testarSefaz, null);
   const router = useRouter();
   useEffect(() => {
     if (estado?.ok && estado.id && !e) router.replace(`/empresas/${estado.id}`);
@@ -93,7 +94,7 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
 
   return (
     <>
-    <form action={acao} ref={formRef}>
+    <form {...formAcao} ref={formRef}>
       {e && <input type="hidden" name="id" value={e.id} />}
       <input type="hidden" name="ultimaNfeAntes" value={ultimos.nfe} />
       <input type="hidden" name="ultimaNfceAntes" value={ultimos.nfce} />
@@ -226,7 +227,7 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-3">
           <span className="text-[13px] text-slate-600">Testar certificado e SEFAZ (salve antes):</span>
           {["55", "65"].map((m) => (
-            <form key={m} action={testar}>
+            <form key={m} {...formTestar}>
               <input type="hidden" name="id" value={e.id} />
               <input type="hidden" name="modelo" value={m} />
               <button className="btn-sec" disabled={testando}>{m === "55" ? "NF-e" : "NFC-e"}</button>

@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useState } from "react";
 import { devolucaoAcao, type Resultado } from "@/lib/vendas/acoes";
 import { Bloco } from "@/components/ui/Pagina";
 
@@ -12,11 +13,11 @@ const num = (s: string) => Number(s.replace(/\./g, "").replace(",", ".")) || 0;
 /** Passo 2: quanto de cada produto volta para a loja. */
 export default function FormDevolucao({ vendaId, tipo, itens, desconto, frete }: { vendaId: string; tipo: "DEVOLUCAO" | "TROCA"; itens: Item[]; desconto: number; frete: number }) {
   const [q, setQ] = useState<Record<string, string>>({});
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(devolucaoAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(devolucaoAcao, null);
   const linhas = itens.map((i) => ({ ...i, dev: Math.min(num(q[i.id] ?? ""), i.vendido - i.jaDevolvido) }));
   const produtos = linhas.reduce((s, l) => s + Math.round(l.dev * l.unit * 100) / 100, 0);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="vendaId" value={vendaId} /><input type="hidden" name="tipo" value={tipo} />
       <input type="hidden" name="itens" value={JSON.stringify(linhas.filter((l) => l.dev > 0).map((l) => ({ vendaItemId: l.id, quantidade: l.dev })))} />
       <Bloco icone="produtos" titulo={<>Informe os <b>produtos devolvidos</b></>} subtitulo="O estoque é ajustado ao finalizar." corpo="p-0">

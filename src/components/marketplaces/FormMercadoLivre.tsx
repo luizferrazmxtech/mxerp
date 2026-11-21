@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { conectarMLAcao, desconectarMLAcao, irParaAutorizacaoMLAcao, salvarConfigMLAcao, type Resultado } from "@/lib/marketplaces/acoes";
 import type { ConfigMLTela } from "@/lib/marketplaces/mercadolivre";
 import { Bloco, Campo } from "@/components/ui/Pagina";
@@ -12,12 +12,12 @@ const Msg = ({ r }: { r: Resultado }) => (r ? <p className={`text-[13px] ${r.ok 
 export default function FormMercadoLivre({ c, admin, empresas, contas, situacoes, formas, urlCallback }: {
   c: ConfigMLTela; admin: boolean; empresas: Opcao[]; contas: Opcao[]; situacoes: Opcao[]; formas: Opcao[]; urlCallback: string;
 }) {
-  const [r, salvar, salvando] = useActionState<Resultado, FormData>(salvarConfigMLAcao, null);
-  const [rc, conectar, conectando] = useActionState<Resultado, FormData>(conectarMLAcao, null);
-  const [rd, desconectar, desconectando] = useActionState<Resultado, FormData>(async () => desconectarMLAcao(), null);
+  const [r, , salvando, formSalvar] = useFormAcao<Resultado>(salvarConfigMLAcao, null);
+  const [rc, , conectando, formConectar] = useFormAcao<Resultado>(conectarMLAcao, null);
+  const [rd, , desconectando, formDesconectar] = useFormAcao<Resultado>(async () => desconectarMLAcao(), null);
   return (
     <>
-      <form action={salvar}>
+      <form {...formSalvar}>
         <Bloco icone="chave" titulo={<>Aplicativo do <b>Mercado Livre</b></>} subtitulo="Crie o aplicativo em developers.mercadolivre.com.br (Minhas aplicações) com a sua conta de vendedor. A Secret Key fica cifrada no servidor e não volta para a tela.">
           <fieldset disabled={!admin} className="grid gap-3 md:grid-cols-2">
             <label className="flex items-center gap-2 text-[13px] md:col-span-2"><input type="checkbox" name="ativo" defaultChecked={c.ativo} /> <b>Integração ligada</b></label>
@@ -58,10 +58,10 @@ export default function FormMercadoLivre({ c, admin, empresas, contas, situacoes
               <p>1. Clique no botão, entre com a conta de vendedor e autorize o aplicativo.</p>
               <form action={irParaAutorizacaoMLAcao}><button className="btn" disabled={!admin}>{c.conectado ? "Conectar de novo" : "Conectar com o Mercado Livre"}</button></form>
               {c.conectado && (
-                <form action={desconectar}><button className="btn-sec" disabled={!admin || desconectando}>{desconectando ? "Aguarde…" : "Desconectar"}</button> <Msg r={rd} /></form>
+                <form {...formDesconectar}><button className="btn-sec" disabled={!admin || desconectando}>{desconectando ? "Aguarde…" : "Desconectar"}</button> <Msg r={rd} /></form>
               )}
             </div>
-            <form action={conectar} className="space-y-2">
+            <form {...formConectar} className="space-y-2">
               <p className="text-[13px]">2. Se a página final não foi o ERP, cole aqui o endereço completo dela (tem <span className="font-mono">?code=TG-…</span>). Vale por 10 minutos.</p>
               <input name="codigo" required className="campo font-mono text-[12px]" placeholder="https://…/?code=TG-…&state=…" disabled={!admin} />
               <div className="flex items-center gap-3"><button className="btn-sec" disabled={!admin || conectando}>{conectando ? "Conectando…" : "Concluir conexão"}</button><Msg r={rc} /></div>

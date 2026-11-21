@@ -1,15 +1,15 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { salvarPagSeguroAcao, type Resultado } from "@/lib/pagseguro/acoes";
 import type { ConfigPagSeguroTela } from "@/lib/pagseguro/pagseguro";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 
 /** Configurações → Integrações → PagSeguro: token da API (PIX no PDV) e credenciais do EDI (conciliação). */
 export default function FormPagSeguro({ c, admin }: { c: ConfigPagSeguroTela; admin: boolean }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarPagSeguroAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarPagSeguroAcao, null);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <Bloco icone="cartao" titulo={<>Conta do <b>PagSeguro</b></>} subtitulo="Os tokens ficam cifrados no servidor e não voltam para a tela. Ao ligar, o sistema cria a conta bancária PagSeguro e as formas PIX, débito e crédito (PagSeguro).">
         <fieldset disabled={!admin} className="grid gap-3 md:grid-cols-4">
           <label className="flex items-center gap-2 text-[13px] md:col-span-4"><input type="checkbox" name="ativo" defaultChecked={c.ativo} /> <b>Ligar o PagSeguro</b></label>

@@ -1,18 +1,19 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
+import { useState } from "react";
 import { salvarAliquotas, copiarMesAnterior, type Res } from "./actions";
 
 type Linha = { cnae: string; descricao: string; aliquota: string };
 
 export default function FormAliquotas({ competencia, inicial, sugestoes }: { competencia: string; inicial: Linha[]; sugestoes: string[] }) {
   const [linhas, setLinhas] = useState<Linha[]>(inicial.length ? inicial : [{ cnae: "*", descricao: "Demais atividades", aliquota: "" }]);
-  const [estado, salvar, salvando] = useActionState<Res, FormData>(salvarAliquotas, null);
-  const [copia, copiar, copiando] = useActionState<Res, FormData>(copiarMesAnterior, null);
+  const [estado, , salvando, formSalvar] = useFormAcao<Res>(salvarAliquotas, null);
+  const [copia, , copiando, formCopiar] = useFormAcao<Res>(copiarMesAnterior, null);
   const muda = (i: number, k: keyof Linha, v: string) => setLinhas((ls) => ls.map((l, j) => (j === i ? { ...l, [k]: v } : l)));
   return (
     <div className="space-y-2">
-      <form action={salvar} className="space-y-2">
+      <form {...formSalvar} className="space-y-2">
         <input type="hidden" name="competencia" value={competencia} />
         <table className="tabela">
           <thead><tr><th>CNAE</th><th>Atividade</th><th className="text-right">Alíquota efetiva (%)</th><th /></tr></thead>
@@ -34,7 +35,7 @@ export default function FormAliquotas({ competencia, inicial, sugestoes }: { com
           {estado && <span className={`text-sm ${estado.ok ? "text-emerald-700" : "text-red-700"}`}>{estado.mensagem}</span>}
         </div>
       </form>
-      <form action={copiar} className="flex items-center gap-2">
+      <form {...formCopiar} className="flex items-center gap-2">
         <input type="hidden" name="competencia" value={competencia} />
         <button className="text-[13px] text-marca hover:underline" disabled={copiando}>Copiar as alíquotas do mês anterior</button>
         {copia && <span className={`text-sm ${copia.ok ? "text-emerald-700" : "text-red-700"}`}>{copia.mensagem}</span>}

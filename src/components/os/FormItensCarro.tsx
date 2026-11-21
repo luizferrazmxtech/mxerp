@@ -1,7 +1,7 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState } from "react";
 import { itensCarroOsAcao, type Resultado } from "@/lib/os/acoes";
 
 /**
@@ -13,7 +13,7 @@ export default function FormItensCarro({ osId, numero, itens, carros, voltar, bl
   itens: { id: string; nome: string; codigo: string; quantidade: string; localOrigemId: string | null; livrePorCarro: Record<string, number> }[];
   carros: { localId: string; nome: string; daOs: boolean }[];
 }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(itensCarroOsAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(itensCarroOsAcao, null);
   const q = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 4 });
   const opcao = (c: (typeof carros)[number], i: (typeof itens)[number]) => <option key={c.localId} value={c.localId}>{c.nome} ({q(i.livrePorCarro[c.localId] ?? 0)} no carro)</option>;
   return (
@@ -24,7 +24,7 @@ export default function FormItensCarro({ osId, numero, itens, carros, voltar, bl
       {!carros.length ? (
         <div className="rounded bg-slate-50 px-3 py-2 text-[13px] text-slate-600">Nenhuma equipe tem carro com estoque. Crie em <Link href="/estoque/locais" className="text-sky-700 underline">Estoque › Locais</Link>.</div>
       ) : (
-        <form action={acao}>
+        <form {...formAcao}>
           <input type="hidden" name="osId" value={osId} />
           <table className="tabela">
             <thead><tr><th>Produto</th><th className="w-28 text-right">Quantidade</th><th className="w-72">Sai de</th></tr></thead>

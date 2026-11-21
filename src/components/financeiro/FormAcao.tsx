@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 export type Resultado = { ok: boolean; mensagem: string; ir?: string } | null;
@@ -15,7 +16,7 @@ export default function FormAcao({ acao, children, className, limpar = true, bot
   pendenteRotulo?: string;
   classeBotao?: string;
 }) {
-  const [r, enviar, pendente] = useActionState<Resultado, FormData>(acao, null);
+  const [r, , pendente, formEnviar] = useFormAcao<Resultado>(acao, null);
   const ref = useRef<HTMLFormElement>(null);
   const router = useRouter();
   useEffect(() => {
@@ -24,7 +25,7 @@ export default function FormAcao({ acao, children, className, limpar = true, bot
     else if (limpar) ref.current?.reset();
   }, [r, limpar, router]);
   return (
-    <form ref={ref} action={enviar} className={className}>
+    <form ref={ref} onSubmit={formEnviar.onSubmit} className={className}>
       {children}
       {r && <p className={`col-span-full rounded px-3 py-2 text-[13px] ${r.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{r.mensagem}</p>}
       {botao !== undefined && <button className={classeBotao} disabled={pendente}>{pendente ? pendenteRotulo : botao}</button>}

@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
@@ -21,7 +22,7 @@ const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
 export default function FormContrato({ inicial, op, proximoNumero, interAtivo, whatsappAtivo = false }: { inicial: DadosContrato; op: Opcoes; proximoNumero: number; interAtivo: boolean; whatsappAtivo?: boolean }) {
   const [d, setD] = useState(inicial);
   const [editNumero, setEditNumero] = useState(false);
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(salvarContratoForm, null);
+  const [estado, , pendente, formAcao] = useFormAcao<Resultado>(salvarContratoForm, null);
   const set = <K extends keyof DadosContrato>(k: K, v: DadosContrato[K]) => setD((x) => ({ ...x, [k]: v }));
   const setServ = (i: number, m: Partial<LinhaServico>) => set("servicos", d.servicos.map((l, j) => (j === i ? { ...l, ...m } : l)));
   const novo = (): LinhaServico => ({ servicoId: "", nome: "", codigo: "", detalhes: "", quantidade: "1", valorUnit: "0,00", desconto: "", descontoPct: false });
@@ -38,7 +39,7 @@ export default function FormContrato({ inicial, op, proximoNumero, interAtivo, w
   };
 
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="dados" value={JSON.stringify(d)} />
       <Bloco icone="editar" titulo={<>Informe os <b>dados</b> do contrato</>} subtitulo="Número, cliente, data, situação e classificação.">
         <div className="grid gap-3 md:grid-cols-4">

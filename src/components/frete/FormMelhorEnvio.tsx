@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { salvarFreteAcao, type Resultado } from "@/lib/frete/acoes";
 import type { ConfigFreteTela } from "@/lib/frete/melhorEnvio";
 import { Bloco, Campo } from "@/components/ui/Pagina";
@@ -9,9 +9,9 @@ const n = (v: number) => (v ? String(v).replace(".", ",") : "");
 
 /** Configurações → Integrações → Melhor Envio: token (cifrado no servidor), origem, acréscimos e caixa padrão. */
 export default function FormMelhorEnvio({ c, admin }: { c: ConfigFreteTela; admin: boolean }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarFreteAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarFreteAcao, null);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <Bloco icone="frete" titulo={<>Conta do <b>Melhor Envio</b></>} subtitulo="Gere o token no painel do Melhor Envio (Gerenciar → Tokens → Novo token, com todas as permissões de envio). O token fica cifrado no servidor e não volta para a tela.">
         <fieldset disabled={!admin} className="grid gap-3 md:grid-cols-4">
           <label className="flex items-center gap-2 text-[13px] md:col-span-4"><input type="checkbox" name="ativo" defaultChecked={c.ativo} /> <b>Ligar a cotação e as etiquetas pelo Melhor Envio</b></label>

@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco } from "@/components/ui/Pagina";
 import { salvarConfigOrcamentoAcao, salvarMensagemAcao, salvarSituacaoAcao, type Resultado } from "@/lib/orcamentos/acoes";
@@ -31,7 +32,7 @@ export function Radio({ name, valor, atual, titulo, children, onChange }: { name
 export type SituacaoForm = { id: string; nome: string; cor: string; exibir: boolean; geraVenda: boolean; enviarMensagem: boolean; modeloMensagemId: string | null; gerarAssinatura: boolean; bloqueados: string[] };
 
 export function FormSituacaoOrc({ s, modelos }: { s?: SituacaoForm; modelos: { id: string; assunto: string }[] }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarSituacaoAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarSituacaoAcao, null);
   const [corSel, setCor] = useState(s?.cor ?? "cinza");
   const [venda, setVenda] = useState(s?.geraVenda ? "1" : "0");
   const [msg, setMsg] = useState(s?.enviarMensagem ? "1" : "0");
@@ -39,7 +40,7 @@ export function FormSituacaoOrc({ s, modelos }: { s?: SituacaoForm; modelos: { i
   const [bloq, setBloq] = useState<string[]>(s?.bloqueados ?? []);
   const livres = PAPEIS.filter(([p]) => !bloq.includes(p));
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       {s && <input type="hidden" name="id" value={s.id} />}
       <Bloco icone="editar" titulo="Informe a situação do orçamento" subtitulo="Nome, cor da pílula e se aparece na listagem.">
         <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
@@ -105,14 +106,14 @@ export function FormMensagemOrc({ m, acao: acaoServidor, voltar = "/orcamentos/m
   whatsapp?: { tags: string[]; padrao: string };
 }) {
   const [textoZap, setTextoZap] = useState(m?.whatsapp ?? zap?.padrao ?? "");
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(acaoServidor ?? salvarMensagemAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(acaoServidor ?? salvarMensagemAcao, null);
   const [email, setEmail] = useState(m?.email ?? "");
   const [sms, setSms] = useState(m?.sms ?? "");
   const [previa, setPrevia] = useState(false);
   const [tags, setTags] = useState(false);
   const whats = aplicarTags(email, EXEMPLO).replace(/<[^>]+>/g, "");
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       {m && <input type="hidden" name="id" value={m.id} />}
       <div className="mb-3 flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-[13px] text-sky-800">
         <Icone nome="detalhes" size={15} /> Tags de personalização trocam o texto pelos dados do orçamento.
@@ -153,12 +154,12 @@ export function FormConfigOrc({ ultimo, c, grupos }: {
   ultimo: number; c: { introducao: string; observacoes: string; formatoA4: string; fonteA4: number; fonteCupom: number; documentos: Record<string, boolean> };
   grupos: { grupo: string; itens: [string, string][] }[];
 }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarConfigOrcamentoAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarConfigOrcamentoAcao, null);
   const [num, setNum] = useState(String(ultimo));
   const [abertos, setAbertos] = useState({ introducao: !!c.introducao, observacoes: !!c.observacoes });
   const fontes = Array.from({ length: 10 }, (_, i) => i + 6);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <Bloco icone="lista" titulo="Defina o último número de cada registro" subtitulo="O número vale só para a loja atual." corpo="p-0">
         <table className="tabela">
           <thead><tr><th>Registro</th><th className="w-48">Último número usado</th><th className="w-48">Próximo sai como</th></tr></thead>

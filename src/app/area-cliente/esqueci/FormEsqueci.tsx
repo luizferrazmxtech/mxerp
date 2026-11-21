@@ -1,11 +1,11 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState } from "react";
 import { esqueciSenha, type Estado } from "../acoes";
 
 export default function FormEsqueci() {
-  const [estado, act, pendente] = useActionState<Estado, FormData>(esqueciSenha, null);
+  const [estado, , pendente, formAct] = useFormAcao<Estado>(esqueciSenha, null);
   if (estado?.ok) return (
     <div className="space-y-4">
       <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-[13px] text-emerald-800">{estado.ok}</p>
@@ -13,7 +13,7 @@ export default function FormEsqueci() {
     </div>
   );
   return (
-    <form action={act} className="space-y-4">
+    <form {...formAct} className="space-y-4">
       <label className="block">
         <span className="rotulo">CPF, CNPJ ou e-mail</span>
         <input name="login" autoComplete="username" className="campo h-11 text-[15px]" required autoFocus />

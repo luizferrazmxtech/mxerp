@@ -1,15 +1,15 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
 import Icone from "@/components/Icone";
 import { excluirVariasAcao, type Resultado } from "@/lib/cadastros/acoes";
 
 /** Modo "Excluir em massa": a tabela vira formulário com caixas de seleção. */
 export default function FormExcluirVarios({ papel, plural, voltar, children }: { papel: string; plural: string; voltar: string; children: React.ReactNode }) {
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(excluirVariasAcao, null);
+  const [estado, , pendente, formAcao] = useFormAcao<Resultado>(excluirVariasAcao, null);
   return (
-    <form action={acao} onSubmit={(e) => { if (!window.confirm(`Excluir os ${plural.toLowerCase()} marcados?`)) e.preventDefault(); }}>
+    <form {...formAcao} onSubmit={(e) => { if (!window.confirm(`Excluir os ${plural.toLowerCase()} marcados?`)) e.preventDefault(); }}>
       <input type="hidden" name="papel" value={papel} />
       <div className="mb-2 flex flex-wrap items-center gap-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800">
         <Icone nome="excluir" size={14} /> Marque os {plural.toLowerCase()} que deseja excluir.

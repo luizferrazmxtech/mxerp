@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { salvarAgendaAcao, type Resultado } from "@/lib/agenda/acoes";
 import type { ConfigAgendaTela } from "@/lib/agenda/google";
 import { DURACOES_AGENDA } from "@/lib/os/tipos";
@@ -8,9 +8,9 @@ import { Bloco, Campo } from "@/components/ui/Pagina";
 
 /** Conta de serviço do Google e a agenda de cada equipe. */
 export default function FormAgenda({ c, equipes, admin }: { c: ConfigAgendaTela; equipes: { id: string; nome: string; googleAgendaId: string | null }[]; admin: boolean }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarAgendaAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarAgendaAcao, null);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <Bloco icone="ajustes" titulo={<>Conta de <b>serviço</b> do Google</>} subtitulo="No Google Cloud: crie um projeto, ative a Google Calendar API, crie uma conta de serviço e baixe a chave .json. A chave fica cifrada no servidor.">
         <fieldset disabled={!admin} className="grid gap-3 md:grid-cols-4">
           <label className="flex items-center gap-2 text-[13px] md:col-span-4"><input type="checkbox" name="ativo" defaultChecked={c.ativo} /> <b>Ligar o Google Agenda</b> (cada OS agendada vira um evento na agenda da equipe)</label>

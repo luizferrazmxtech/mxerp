@@ -1,7 +1,7 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState } from "react";
 import { confirmarSugestoes, enviarExtrato, puxarInter, type Estado } from "./actions";
 
 function Msg({ e }: { e: Estado }) {
@@ -9,9 +9,9 @@ function Msg({ e }: { e: Estado }) {
 }
 
 export function EnviarExtrato({ contas }: { contas: { id: string; nome: string }[] }) {
-  const [e, act, p] = useActionState<Estado, FormData>(enviarExtrato, null);
+  const [e, , p, formAct] = useFormAcao<Estado>(enviarExtrato, null);
   return (
-    <form action={act} className="cartao space-y-2 p-4">
+    <form {...formAct} className="cartao space-y-2 p-4">
       <div className="text-sm font-medium">Subir extrato (OFX, CSV ou Excel)</div>
       <div className="flex flex-wrap gap-2">
         <select name="contaBancariaId" className="campo w-48" required defaultValue="">
@@ -27,9 +27,9 @@ export function EnviarExtrato({ contas }: { contas: { id: string; nome: string }
 }
 
 export function PuxarInter({ configurado, aviso, ultima }: { configurado: boolean; aviso?: string | null; ultima?: string | null }) {
-  const [e, act, p] = useActionState<Estado, FormData>(puxarInter, null);
+  const [e, , p, formAct] = useFormAcao<Estado>(puxarInter, null);
   return (
-    <form action={act} className="cartao space-y-2 p-4">
+    <form {...formAct} className="cartao space-y-2 p-4">
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm font-medium">Banco Inter (API)</div>
         <Link href="/financeiro/conciliacao/inter" className="text-sm underline">{configurado ? "Configuração" : "Configurar"}</Link>
@@ -56,10 +56,10 @@ export function PuxarInter({ configurado, aviso, ultima }: { configurado: boolea
 }
 
 export function ConfirmarSugestoes({ n }: { n: number }) {
-  const [e, act, p] = useActionState<Estado, FormData>(confirmarSugestoes, null);
+  const [e, , p, formAct] = useFormAcao<Estado>(confirmarSugestoes, null);
   if (!n && !e) return null;
   return (
-    <form action={act} className="flex items-center gap-2">
+    <form {...formAct} className="flex items-center gap-2">
       {n > 0 && <button className="btn" disabled={p}>{p ? "Baixando…" : `Confirmar as ${n} sugestões`}</button>}
       <Msg e={e} />
     </form>

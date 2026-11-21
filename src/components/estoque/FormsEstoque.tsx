@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
@@ -31,7 +32,7 @@ function LinhaProduto({ item, onEscolher }: { item: { produtoId: string; nome?: 
 
 /** Ajuste de estoque: entrada soma, saída retira. Trocar o tipo limpa a lista de produtos. */
 export function FormAjuste({ inicial }: { inicial?: { tipo: "ENTRADA" | "SAIDA"; frete: string; observacoes: string; itens: ItemAjuste[] } }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarAjusteForm, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarAjusteForm, null);
   const [tipo, setTipo] = useState<"" | "ENTRADA" | "SAIDA">(inicial?.tipo ?? "");
   const [frete, setFrete] = useState(inicial?.frete ?? "0,00");
   const [obs, setObs] = useState(inicial?.observacoes ?? "");
@@ -40,7 +41,7 @@ export function FormAjuste({ inicial }: { inicial?: { tipo: "ENTRADA" | "SAIDA";
   const up = (i: number, m: Partial<ItemAjuste>) => setItens(itens.map((x, j) => (j === i ? { ...x, ...m } : x)));
   const total = itens.reduce((s, i) => s + n(i.quantidade) * n(i.custo), 0) + n(frete);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="dados" value={JSON.stringify({ tipo, frete, observacoes: obs, itens, atualizarCusto: tipo === "ENTRADA" && atualizarCusto })} />
       <Bloco icone="ajustes" titulo={<>Defina o <b>tipo do ajuste</b></>} subtitulo="Entrada soma ao estoque da loja; saída retira. Trocar o tipo limpa a lista de produtos.">
         <div className="grid items-end gap-3 sm:grid-cols-3">
@@ -108,7 +109,7 @@ const escolhaInicial = (depositos: EstoqueTransf[], depositoId: string) => {
 };
 
 export function FormTransferencia({ depositos, origemInicial = "", destinoInicial = "" }: { depositos: EstoqueTransf[]; origemInicial?: string; destinoInicial?: string }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarTransferenciaForm, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarTransferenciaForm, null);
   const [origem, setOrigem] = useState(() => escolhaInicial(depositos, origemInicial));
   const [destino, setDestino] = useState(() => escolhaInicial(depositos, destinoInicial));
   const o = lerEscolha(origem), de = lerEscolha(destino);
@@ -134,7 +135,7 @@ export function FormTransferencia({ depositos, origemInicial = "", destinoInicia
   const up = (i: number, m: Partial<(typeof itens)[number]>) => setItens(itens.map((x, j) => (j === i ? { ...x, ...m } : x)));
   const total = itens.reduce((s, i) => s + n(i.quantidade) * i.custo, 0);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="dados" value={JSON.stringify({ origemDepositoId: o.depositoId, origemLocalId: o.localId || undefined, destinoDepositoId: de.depositoId, destinoLocalId: de.localId || undefined, observacoes: obs, itens })} />
       <Bloco icone="lojas" titulo={<>Informe a <b>origem e o destino</b> da transferência</>} subtitulo="Locais de estoque: prateleiras da loja ou carros das equipes. Transferir não gera venda; os produtos entram depois de escolher a origem e o destino.">
         <div className="grid items-end gap-3 sm:grid-cols-3">
@@ -176,7 +177,7 @@ export function FormTransferencia({ depositos, origemInicial = "", destinoInicia
 
 /** Novo inventário: quem conta, quais produtos entram e as regras da contagem. */
 export function FormInventario({ usuarios, grupos, usuarioAtual }: { usuarios: { id: string; nome: string }[]; grupos: { id: string; nome: string }[]; usuarioAtual: { id: string; nome: string } }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarInventarioForm, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarInventarioForm, null);
   const hoje = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   const [d, setD] = useState<DadosInventario>({ descricao: "", responsavelId: usuarioAtual.id, responsavelNome: usuarioAtual.nome, data: hoje, motivo: "", escopo: "TODOS", filtroIds: [], contagemCega: true, somarLeituras: true, considerarMovimento: true });
   const [escolhidos, setEscolhidos] = useState<{ id: string; nome: string }[]>([]);
@@ -187,7 +188,7 @@ export function FormInventario({ usuarios, grupos, usuarioAtual }: { usuarios: {
     <label className="flex items-start gap-3 rounded border border-slate-200 p-3"><input type="checkbox" checked={!!d[k]} onChange={(e) => set(k, e.target.checked as never)} className="chave mt-0.5" /><span><b className="block text-[13px]">{titulo}</b><span className="text-[12px] text-slate-500">{texto}</span></span></label>
   );
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="dados" value={JSON.stringify(d)} />
       <Bloco icone="editar" titulo={<>Defina o <b>inventário</b></>}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -231,9 +232,9 @@ export function FormInventario({ usuarios, grupos, usuarioAtual }: { usuarios: {
 
 /** Zerar estoque: gera um ajuste de saída com todo o saldo positivo. Pede para digitar ZERAR. */
 export function FormZerar({ produtos, unidades }: { produtos: number; unidades: number }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(zerarEstoqueAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(zerarEstoqueAcao, null);
   return (
-    <form action={acao} className="cartao max-w-2xl space-y-3 p-5">
+    <form {...formAcao} className="cartao max-w-2xl space-y-3 p-5">
       <div className="rounded border border-red-200 bg-red-50 p-3 text-[13px] text-red-800">
         <b>Atenção:</b> {produtos.toLocaleString("pt-BR")} produto(s) com {unidades.toLocaleString("pt-BR")} unidade(s) em estoque vão ficar com saldo zero. O sistema gera um ajuste de saída com tudo, e você pode desfazer depois com um ajuste de entrada (clonando o ajuste gerado).
       </div>
@@ -247,9 +248,9 @@ export function FormZerar({ produtos, unidades }: { produtos: number; unidades: 
 
 /** Leitor do inventário: código de barras ou código, com quantidade (padrão 1). */
 export function LeitorInventario({ id }: { id: string }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(lerCodigoAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(lerCodigoAcao, null);
   return (
-    <form action={acao} className="flex flex-wrap items-end gap-2" key={r?.ok ? r.mensagem + Date.now() : "f"}>
+    <form {...formAcao} className="flex flex-wrap items-end gap-2" key={r?.ok ? r.mensagem + Date.now() : "f"}>
       <input type="hidden" name="id" value={id} />
       <Campo rotulo="Código de barras ou código" className="min-w-64 flex-1"><input name="codigo" className="campo" autoFocus autoComplete="off" placeholder="Leia o código e tecle Enter" /></Campo>
       <Campo rotulo="Quantidade" className="w-28"><input name="quantidade" className="campo text-right" defaultValue="1" /></Campo>
@@ -261,11 +262,11 @@ export function LeitorInventario({ id }: { id: string }) {
 
 /** Contagem digitada do inventário: um campo por produto, salvo de uma vez. */
 export function ContagemInventario({ id, cega, itens }: { id: string; cega: boolean; itens: { id: string; codigo: string; nome: string; unidade: string; saldo: number; contado: number | null }[] }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(registrarContagemAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(registrarContagemAcao, null);
   const [filtro, setFiltro] = useState("");
   const f = filtro.trim().toLowerCase();
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="id" value={id} />
       <div className="flex flex-wrap items-center gap-2 p-3">
         <input className="campo w-72" placeholder="Filtrar por código ou nome" value={filtro} onChange={(e) => setFiltro(e.target.value)} />

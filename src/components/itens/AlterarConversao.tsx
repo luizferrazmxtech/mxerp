@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { alterarConversaoForm, simularConversaoAcao, type Resultado } from "@/lib/itens/acoes";
 
 type Simulacao = Awaited<ReturnType<typeof simularConversaoAcao>>;
@@ -16,7 +17,7 @@ const q = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 4 })
 
 /** Alterar conversão: mostra o efeito (custo por base, compras que mudam) antes de gravar. */
 export default function AlterarConversao({ produto }: { produto: { id: string; nome: string; unidade: string; unidadeCompra: string | null; fator: number } }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(alterarConversaoForm, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(alterarConversaoForm, null);
   const [converte, setConverte] = useState(!!produto.unidadeCompra);
   const [un, setUn] = useState(produto.unidadeCompra ?? "CX");
   const [fator, setFator] = useState(produto.unidadeCompra ? String(produto.fator).replace(".", ",") : "");
@@ -28,7 +29,7 @@ export default function AlterarConversao({ produto }: { produto: { id: string; n
   }, [produto.id, converte, un, fator]);
 
   return (
-    <form action={acao} className="cartao border-marca p-4 text-[13px]">
+    <form {...formAcao} className="cartao border-marca p-4 text-[13px]">
       <input type="hidden" name="produtoId" value={produto.id} />
       <h3 className="mb-1 font-semibold">Alterar conversão de unidade</h3>
       <p className="mb-3 text-slate-500">Hoje: {produto.unidadeCompra ? `1 ${produto.unidadeCompra} = ${q(produto.fator)} ${produto.unidade}` : `compra e venda em ${produto.unidade}`}.</p>

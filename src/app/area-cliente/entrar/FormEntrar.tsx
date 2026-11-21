@@ -1,13 +1,13 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState } from "react";
 import { entrarCliente, type Estado } from "../acoes";
 
 export default function FormEntrar({ voltar }: { voltar: string }) {
-  const [estado, act, pendente] = useActionState<Estado, FormData>(entrarCliente, null);
+  const [estado, , pendente, formAct] = useFormAcao<Estado>(entrarCliente, null);
   return (
-    <form action={act} className="space-y-4">
+    <form {...formAct} className="space-y-4">
       <input type="hidden" name="voltar" value={voltar} />
       <label className="block">
         <span className="rotulo">CPF, CNPJ ou e-mail</span>
