@@ -3,7 +3,7 @@
 import { exigirUsuario } from "@/lib/auth/atual";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { conciliarTx, desfazerTx, ignorarTx, importarExtrato, lancarAvulsoTx, lerExtrato, sugestoes } from "@/lib/financeiro/extrato";
+import { conciliarTx, desfazerTx, importarExtrato, lancarAvulsoTx, lerExtrato } from "@/lib/financeiro/extrato";
 import { sincronizarInter } from "@/lib/financeiro/inter";
 import { sincronizarBoletos } from "@/lib/financeiro/boletos";
 
@@ -37,33 +37,42 @@ export async function puxarInter(_: Estado, form: FormData): Promise<Estado> {
   } catch (e) { return falha(e); }
 }
 
-export async function confirmarSugestoes(): Promise<Estado> {
+export type ItemLote = { transacaoId: string; acao: "BAIXAR" | "LANCAR"; lancamentoId?: string | null; categoriaId?: string | null; centroCustoId?: string | null };
+
+/**
+ * Confirma várias linhas de uma vez (ou uma só, pelo botão da linha). Cada linha numa transação: uma que falhe
+ * (já conciliada por outra pessoa, conta já baixada) não desfaz as outras.
+ */
+export async function confirmarLote(itens: ItemLote[]): Promise<Estado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
-  try {
-    // só contas a pagar: conta a receber é baixada pelo boleto do Inter ou confirmada uma a uma
-    const s = (await sugestoes()).filter((x) => x.tipo === "PAGAR");
-    for (const x of s) await prisma.$transaction((tx) => conciliarTx(tx, x.transacaoId, [x.lancamentoId]));
-    return feito(`${s.length} contas baixadas`);
-  } catch (e) { return falha(e); }
+  if (!Array.isArray(itens) || !itens.length) return { ok: false, mensagem: "Marque ao menos uma linha" };
+  let baixadas = 0, lancadas = 0;
+  const erros: string[] = [];
+  for (const it of itens.slice(0, 1000)) {
+    try {
+      if (it.acao === "BAIXAR") {
+        if (!it.lancamentoId) throw new Error("escolha a conta a baixar");
+        await prisma.$transaction((tx) => conciliarTx(tx, it.transacaoId, [String(it.lancamentoId)], { centroCustoId: it.centroCustoId || null }));
+        baixadas++;
+      } else if (it.acao === "LANCAR") {
+        if (!it.categoriaId) throw new Error("escolha a categoria");
+        await prisma.$transaction((tx) => lancarAvulsoTx(tx, it.transacaoId, String(it.categoriaId), undefined, it.centroCustoId || null));
+        lancadas++;
+      }
+    } catch (e) {
+      erros.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+  const partes = [baixadas && `${baixadas} conta${baixadas > 1 ? "s" : ""} baixada${baixadas > 1 ? "s" : ""}`, lancadas && `${lancadas} lançamento${lancadas > 1 ? "s" : ""} avulso${lancadas > 1 ? "s" : ""}`].filter(Boolean).join(" e ");
+  revalidatePath("/financeiro/conciliacao"); revalidatePath("/financeiro");
+  return { ok: !erros.length, mensagem: `${partes || "Nada conciliado"}.${erros.length ? ` ${erros.length} com erro: ${[...new Set(erros)].slice(0, 2).join("; ")}` : ""}` };
 }
 
-export async function conciliar(form: FormData) {
+export async function ignorarLote(ids: string[]): Promise<Estado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
-  const ids = form.getAll("lancamentoId").map(String).filter(Boolean);
-  await prisma.$transaction((tx) => conciliarTx(tx, str(form.get("transacaoId")), ids));
-  feito("");
-}
-
-export async function lancarAvulso(form: FormData) {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
-  await prisma.$transaction((tx) => lancarAvulsoTx(tx, str(form.get("transacaoId")), str(form.get("categoriaId"))));
-  feito("");
-}
-
-export async function ignorar(form: FormData) {
-  await exigirUsuario(["ADMIN", "GERENTE"]);
-  await prisma.$transaction((tx) => ignorarTx(tx, str(form.get("transacaoId"))));
-  feito("");
+  if (!Array.isArray(ids) || !ids.length) return { ok: false, mensagem: "Marque ao menos uma linha" };
+  const r = await prisma.transacaoBancaria.updateMany({ where: { id: { in: ids.map(String) }, situacao: "PENDENTE" }, data: { situacao: "IGNORADA" } });
+  return feito(`${r.count} linha${r.count === 1 ? "" : "s"} ignorada${r.count === 1 ? "" : "s"}`);
 }
 
 export async function desfazer(form: FormData) {
