@@ -73,8 +73,9 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
   const novoProduto = (): LinhaProduto => ({ produtoId: "", nome: "", codigo: "", unidade: "", detalhes: "", quantidade: "1", tipoValorId: padrao, valorUnit: "0,00", desconto: "", descontoPct: false });
   const novoServico = (): LinhaServico => ({ servicoId: "", nome: "", codigo: "", detalhes: "", quantidade: "1", valorUnit: "0,00", desconto: "", descontoPct: false });
 
-  // a equipe da OS é o carro: o item pode sair do estoque do carro dela
-  const carros = (atual?: string) => (op.carros ?? []).filter((c) => c.equipeId === d.equipeId || c.localId === atual);
+  // de onde sai cada peça: a loja (padrão) ou o carro de uma equipe; o carro da equipe da OS vem primeiro
+  const carrosDaOs = (op.carros ?? []).filter((c) => c.equipeId === d.equipeId);
+  const outrosCarros = (op.carros ?? []).filter((c) => c.equipeId !== d.equipeId);
 
   const blocoProdutos = (
     <Bloco key="p" icone="produtos" titulo={os ? <>Adicione os <b>produtos e peças</b> {doc}</> : <>Adicione os <b>produtos</b> {doc}</>} subtitulo="Produto, quantidade, valor e desconto por linha." corpo="p-0"
@@ -92,11 +93,12 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                   {l.produtoId ? (
                     <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}
                       {l.disponivel != null && <span className={`block text-[11px] ${l.disponivel < (lerNumero(l.quantidade) ?? 0) ? "text-red-600" : "text-slate-500"}`}>Disponível: {l.disponivel.toLocaleString("pt-BR")} {l.unidade}</span>}
-                      {os && carros(l.localOrigemId).length > 0 && (
+                      {os && (op.carros ?? []).length > 0 && (
                         <label className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">Sai de
                           <select className={`rounded border px-1 py-0.5 text-[11px] ${l.localOrigemId ? "border-marca bg-teal-50 text-marca-escura" : "border-slate-300"}`} value={l.localOrigemId ?? ""} onChange={(e) => setProd(i, { localOrigemId: e.target.value })}>
-                            <option value="">Estoque da loja</option>
-                            {carros(l.localOrigemId).map((c) => <option key={c.localId} value={c.localId}>{c.nome}</option>)}
+                            <option value="">Loja</option>
+                            {carrosDaOs.map((c) => <option key={c.localId} value={c.localId}>{c.nome} (equipe da OS)</option>)}
+                            {outrosCarros.length > 0 && <optgroup label="Outros carros">{outrosCarros.map((c) => <option key={c.localId} value={c.localId}>{c.nome}</option>)}</optgroup>}
                           </select>
                         </label>
                       )}</div>

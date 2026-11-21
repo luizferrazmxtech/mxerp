@@ -49,7 +49,7 @@ export default async function Movimentacoes({ searchParams }: { searchParams: Pr
                   <td>{p.codigo}</td>
                   <td><Link href={`/produtos/${p.id}`} className="hover:underline">{p.nome}</Link></td>
                   <td className="text-right">{num2(p.precoVenda)}</td>
-                  <td className="text-right"><CelulaEstoque controla={p.controlaEstoque} fisico={e.fisico} reservado={e.reservado} minimo={p.estoqueMinimo} maximo={p.estoqueMaximo} unidade={p.unidade} /></td>
+                  <td className="text-right"><CelulaEstoque controla={p.controlaEstoque} fisico={e.fisico} reservado={e.reservado} fisicoCarros={e.fisicoCarros} livreCarros={e.carros} minimo={p.estoqueMinimo} maximo={p.estoqueMaximo} unidade={p.unidade} /></td>
                   <td className="text-right"><Link href={`/produtos/${p.id}?aba=movimentacoes`} className="btn-icone" title="Movimentações"><Icone nome="transferir" size={13} /></Link></td>
                 </tr>
               );

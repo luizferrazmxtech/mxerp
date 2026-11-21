@@ -162,4 +162,19 @@ describe("estoque do carro da equipe", () => {
     expect(r.reduce((s, x) => s + Number(x.quantidade), 0)).toBe(9);
     expect(await resumo()).toMatchObject({ fisico: 15, nosCarros: 12 });
   });
+
+  it("transfere entre prateleiras escolhidas, inclusive dentro da mesma loja", async () => {
+    // A-01 → B-01 na própria loja
+    await doc.criarTransferencia({ origemDepositoId: loja, origemLocalId: loc, destinoDepositoId: loja, destinoLocalId: loc2, observacoes: "", itens: [{ produtoId: prod, quantidade: "4" }] }, escritorio);
+    expect(await saldo(loc)).toBe(6);
+    expect(await saldo(loc2)).toBe(4);
+    // sai só da prateleira escolhida
+    await expect(doc.criarTransferencia({ origemDepositoId: loja, origemLocalId: loc2, destinoDepositoId: carroAna.depositoId, observacoes: "", itens: [{ produtoId: prod, quantidade: "5" }] }, escritorio)).rejects.toThrow(/local de origem só tem 4/);
+    await doc.criarTransferencia({ origemDepositoId: loja, origemLocalId: loc2, destinoDepositoId: carroAna.depositoId, observacoes: "", itens: [{ produtoId: prod, quantidade: "4" }] }, escritorio);
+    expect(await saldo(loc2)).toBe(0);
+    expect(await saldo(carroAna.localId)).toBe(4);
+    // mesmo estoque sem prateleiras diferentes continua barrado; local de outro estoque é recusado
+    await expect(doc.criarTransferencia({ origemDepositoId: loja, destinoDepositoId: loja, observacoes: "", itens: [{ produtoId: prod, quantidade: "1" }] }, escritorio)).rejects.toThrow(/diferentes/);
+    await expect(doc.criarTransferencia({ origemDepositoId: loja, origemLocalId: carroAna.localId, destinoDepositoId: carroAna.depositoId, observacoes: "", itens: [{ produtoId: prod, quantidade: "1" }] }, escritorio)).rejects.toThrow(/não é deste estoque/);
+  });
 });

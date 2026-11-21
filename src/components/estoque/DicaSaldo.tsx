@@ -56,7 +56,16 @@ export default function DicaSaldo({ produtoId, children }: { produtoId?: string;
             : (
               <>
                 <div className="mb-1 font-semibold text-slate-800">Estoque no sistema</div>
-                <div className="flex justify-between"><span>Físico</span><b>{q(dados.fisico)} {dados.unidade}</b></div>
+                {(() => {
+                  const carros = dados.onde.filter((o) => o.carro).reduce((a, o) => a + o.fisico, 0);
+                  return carros !== 0 ? (
+                    <>
+                      <div className="flex justify-between"><span>Físico total</span><b>{q(dados.fisico)} {dados.unidade}</b></div>
+                      <div className="flex justify-between"><span>Físico - Loja</span><b>{q(dados.fisico - carros)}</b></div>
+                      <div className="flex justify-between text-slate-600"><span>Físico nos carros</span><b>{q(carros)}</b></div>
+                    </>
+                  ) : <div className="flex justify-between"><span>Físico</span><b>{q(dados.fisico)} {dados.unidade}</b></div>;
+                })()}
                 <div className="flex justify-between text-amber-700"><span>Reservado</span><b>{q(dados.reservado)}</b></div>
                 <div className={`flex justify-between ${dados.disponivel > 0 ? "text-emerald-700" : "text-red-600"}`}><span>Disponível{dados.nosCarros ? " na loja" : ""}</span><b>{q(dados.disponivel)}</b></div>
                 {dados.nosCarros !== 0 && <div className="flex justify-between text-slate-600"><span>Livre nos carros</span><b>{q(dados.nosCarros)}</b></div>}

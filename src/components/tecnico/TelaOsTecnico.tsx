@@ -287,7 +287,7 @@ function AdicionarItem({ fechar, lancar, ocupado, meuEstoque }: {
             <ul className="mt-2 min-h-0 flex-1 overflow-y-auto">
               {achados.map((a) => (
                 <li key={a.id}>
-                  <button className="flex w-full items-center gap-2 border-b px-1 py-3 text-left active:bg-slate-50" onClick={() => { setEscolhido(a); setQtd("1"); setDoCarro(tipo === "produto" && noCarro(a.id) > 0); }}>
+                  <button className="flex w-full items-center gap-2 border-b px-1 py-3 text-left active:bg-slate-50" onClick={() => { setEscolhido(a); setQtd("1"); setDoCarro(tipo === "produto" && !!meuEstoque); }}>
                     <div className="min-w-0 flex-1">
                       <div className="text-[15px] leading-tight">{a.nome}</div>
                       <div className="text-[12px] text-slate-500">{a.codigo}</div>

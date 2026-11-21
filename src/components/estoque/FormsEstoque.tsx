@@ -94,14 +94,39 @@ export function FormAjuste({ inicial }: { inicial?: { tipo: "ENTRADA" | "SAIDA";
 }
 
 /** Transferência entre lojas (depósitos): o saldo sai da origem e entra no destino. */
-export function FormTransferencia({ depositos, origemInicial = "", destinoInicial = "" }: { depositos: { id: string; nome: string; carro?: boolean }[]; origemInicial?: string; destinoInicial?: string }) {
+type EstoqueTransf = { id: string; nome: string; carro?: boolean; locais?: { id: string; codigo: string }[] };
+
+/** Valor do select de origem/destino: "d:<depósito>" (qualquer local do estoque) ou "l:<depósito>:<local>" (a prateleira exata). */
+const lerEscolha = (v: string) => {
+  const [t, dep, loc] = v.split(":");
+  return { depositoId: t ? dep ?? "" : "", localId: t === "l" ? loc ?? "" : "" };
+};
+const escolhaInicial = (depositos: EstoqueTransf[], depositoId: string) => {
+  const d = depositos.find((x) => x.id === depositoId);
+  if (!d) return "";
+  return d.locais?.length === 1 ? `l:${d.id}:${d.locais[0].id}` : `d:${d.id}`;
+};
+
+export function FormTransferencia({ depositos, origemInicial = "", destinoInicial = "" }: { depositos: EstoqueTransf[]; origemInicial?: string; destinoInicial?: string }) {
   const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarTransferenciaForm, null);
-  const [origem, setOrigem] = useState(origemInicial);
-  const [destino, setDestino] = useState(destinoInicial);
-  const opcoes = (lista: typeof depositos) => (
+  const [origem, setOrigem] = useState(() => escolhaInicial(depositos, origemInicial));
+  const [destino, setDestino] = useState(() => escolhaInicial(depositos, destinoInicial));
+  const o = lerEscolha(origem), de = lerEscolha(destino);
+  // os locais (prateleiras) de cada estoque; no carro há um só local
+  const opcoesDe = (d: EstoqueTransf, papel: "origem" | "destino") => {
+    const locais = d.locais ?? [];
+    if (locais.length <= 1) return [<option key={d.id} value={locais[0] ? `l:${d.id}:${locais[0].id}` : `d:${d.id}`}>{d.nome}{locais[0] ? ` · ${locais[0].codigo}` : ""}</option>];
+    return [
+      <option key={d.id} value={`d:${d.id}`}>{d.nome} · {papel === "origem" ? "qualquer local" : "local padrão"}</option>,
+      ...locais.map((l) => <option key={l.id} value={`l:${d.id}:${l.id}`}>{d.nome} · {l.codigo}</option>),
+    ];
+  };
+  const opcoes = (papel: "origem" | "destino") => (
     <>
-      {lista.filter((d) => !d.carro).map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}
-      {lista.some((d) => d.carro) && <optgroup label="Carros das equipes">{lista.filter((d) => d.carro).map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}</optgroup>}
+      {depositos.filter((d) => !d.carro).map((d) => (d.locais?.length ?? 0) > 1
+        ? <optgroup key={d.id} label={d.nome}>{opcoesDe(d, papel)}</optgroup>
+        : opcoesDe(d, papel))}
+      {depositos.some((d) => d.carro) && <optgroup label="Carros das equipes">{depositos.filter((d) => d.carro).flatMap((d) => opcoesDe(d, papel))}</optgroup>}
     </>
   );
   const [obs, setObs] = useState("");
@@ -110,11 +135,11 @@ export function FormTransferencia({ depositos, origemInicial = "", destinoInicia
   const total = itens.reduce((s, i) => s + n(i.quantidade) * i.custo, 0);
   return (
     <form action={acao}>
-      <input type="hidden" name="dados" value={JSON.stringify({ origemDepositoId: origem, destinoDepositoId: destino, observacoes: obs, itens })} />
-      <Bloco icone="lojas" titulo={<>Informe a <b>origem e o destino</b> da transferência</>} subtitulo="Lojas ou carros das equipes. Transferir não gera venda; os produtos entram depois de escolher a origem e o destino.">
+      <input type="hidden" name="dados" value={JSON.stringify({ origemDepositoId: o.depositoId, origemLocalId: o.localId || undefined, destinoDepositoId: de.depositoId, destinoLocalId: de.localId || undefined, observacoes: obs, itens })} />
+      <Bloco icone="lojas" titulo={<>Informe a <b>origem e o destino</b> da transferência</>} subtitulo="Locais de estoque: prateleiras da loja ou carros das equipes. Transferir não gera venda; os produtos entram depois de escolher a origem e o destino.">
         <div className="grid items-end gap-3 sm:grid-cols-3">
-          <Campo rotulo="Origem" obrigatorio><select className="campo" value={origem} onChange={(e) => setOrigem(e.target.value)}><option value="">Selecione</option>{opcoes(depositos)}</select></Campo>
-          <Campo rotulo="Destino" obrigatorio><select className="campo" value={destino} onChange={(e) => setDestino(e.target.value)}><option value="">Selecione</option>{opcoes(depositos.filter((d) => d.id !== origem))}</select></Campo>
+          <Campo rotulo="Origem" obrigatorio><select className="campo" value={origem} onChange={(e) => setOrigem(e.target.value)}><option value="">Selecione</option>{opcoes("origem")}</select></Campo>
+          <Campo rotulo="Destino" obrigatorio><select className="campo" value={destino} onChange={(e) => setDestino(e.target.value)}><option value="">Selecione</option>{opcoes("destino")}</select></Campo>
           <Campo rotulo="Valor total (R$)"><input className="campo text-right font-semibold" readOnly value={n2(total)} /><span className="text-[11px] text-slate-500">Soma do custo dos itens.</span></Campo>
         </div>
       </Bloco>

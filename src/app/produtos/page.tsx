@@ -66,7 +66,7 @@ export default async function Produtos({ searchParams }: { searchParams: Promise
                 {tem("codigo") && <td>{p.codigo}</td>}
                 {tem("nome") && <td><Link href={`/produtos/${p.id}`} className="hover:underline">{p.nome}</Link>{!p.ativo && <span className="ml-2 text-[11px]">(inativo)</span>}</td>}
                 {tem("valor") && <td className="text-right">{num2(p.precoVenda)}</td>}
-                {tem("estoque") && <td className="text-right"><CelulaEstoque controla={p.controlaEstoque} fisico={e.fisico} reservado={e.reservado} minimo={p.estoqueMinimo} maximo={p.estoqueMaximo} /></td>}
+                {tem("estoque") && <td className="text-right"><CelulaEstoque controla={p.controlaEstoque} fisico={e.fisico} reservado={e.reservado} fisicoCarros={e.fisicoCarros} livreCarros={e.carros} minimo={p.estoqueMinimo} maximo={p.estoqueMaximo} /></td>}
                 {tem("cadastrado") && <td>{dataSP(p.createdAt)}</td>}
                 <td>
                   <div className="flex justify-end gap-1">
