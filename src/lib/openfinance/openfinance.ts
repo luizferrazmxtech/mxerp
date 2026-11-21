@@ -99,7 +99,7 @@ export async function tokenConexao(itemId?: string, opts: OpcoesOF = {}) {
 
 type ItemPluggy = { id: string; status: string; executionStatus?: string; connector?: { name?: string; imageUrl?: string }; consentExpiresAt?: string | null; error?: { message?: string } | null };
 type ContaPluggy = { id: string; type: string; subtype?: string; name?: string; number?: string; balance?: number; marketingName?: string };
-type TransacaoPluggy = { id: string; date: string; description?: string; descriptionRaw?: string | null; amount: number; type?: "DEBIT" | "CREDIT"; paymentData?: { referenceNumber?: string | null } | null };
+type TransacaoPluggy = { id: string; date: string; description?: string; descriptionRaw?: string | null; amount: number; type?: "DEBIT" | "CREDIT"; paymentData?: { referenceNumber?: string | null; payer?: { documentNumber?: { value?: string | null } | null } | null; receiver?: { documentNumber?: { value?: string | null } | null } | null } | null };
 
 const SITUACOES: Record<string, string> = {
   UPDATED: "Atualizado", UPDATING: "Atualizando", LOGIN_ERROR: "Autorização recusada", OUTDATED: "Desatualizado",
@@ -151,7 +151,9 @@ export function paraExtrato(ts: TransacaoPluggy[]): TransacaoExtrato[] {
     const negativo = t.type ? t.type === "DEBIT" : Number(t.amount) < 0;
     // a data vem como instante (meia-noite de Brasília em UTC): vale o dia em São Paulo
     const data = /^\d{4}-\d{2}-\d{2}$/.test(t.date) ? new Date(`${t.date}T00:00:00Z`) : diaSP(new Date(t.date));
-    return { data, valor: Math.round((negativo ? -v : v) * 100) / 100, descricao: (t.description || t.descriptionRaw || "(sem descrição)").trim(), documento: t.paymentData?.referenceNumber ?? null, chave: `pluggy:${t.id}` };
+    return { data, valor: Math.round((negativo ? -v : v) * 100) / 100, descricao: (t.description || t.descriptionRaw || "(sem descrição)").trim(), documento: t.paymentData?.referenceNumber ?? null, chave: `pluggy:${t.id}`,
+      dataHora: /T\d{2}:\d{2}/.test(t.date) && !/T00:00:00(\.0+)?Z$/.test(t.date) ? new Date(t.date) : null,
+      contraparteDocumento: ((negativo ? t.paymentData?.receiver : t.paymentData?.payer)?.documentNumber?.value ?? "").replace(/\D/g, "") || null };
   });
 }
 

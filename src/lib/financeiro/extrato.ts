@@ -13,7 +13,13 @@ import { nomeConfere } from "./conciliacao";
  * aparece como sugestão para confirmar.
  */
 
-export type TransacaoExtrato = { data: Date; valor: number; descricao: string; documento?: string | null; chave: string };
+export type TransacaoExtrato = {
+  data: Date; valor: number; descricao: string; documento?: string | null; chave: string;
+  /** data e hora do lançamento no banco (quando o extrato traz a hora) */
+  dataHora?: Date | null;
+  /** CPF/CNPJ de quem pagou/recebeu (só dígitos), quando o banco manda */
+  contraparteDocumento?: string | null;
+};
 
 const D = (v: number) => new Prisma.Decimal(v.toFixed(2));
 const DIA = 86400000;
@@ -23,6 +29,17 @@ const DIA = 86400000;
 function dataOfx(s: string) {
   const m = /^(\d{4})(\d{2})(\d{2})/.exec(s.trim());
   return m ? new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`) : null;
+}
+
+/** "20261105103000[-3:BRT]" → instante (sem fuso no arquivo, considera o horário de Brasília). Null sem hora. */
+export function dataHoraOfx(s: string) {
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?(?:\[([+-]?\d{1,2})(?:[.:]\d+)?(?::[^\]]*)?\])?/.exec(s.trim());
+  if (!m) return null;
+  if (m[4] === "00" && m[5] === "00" && (m[6] ?? "00") === "00") return null; // meia-noite em ponto = o banco não mandou a hora
+  const fuso = m[7] !== undefined ? Number(m[7]) : -3;
+  const off = `${fuso < 0 ? "-" : "+"}${String(Math.abs(fuso)).padStart(2, "0")}:00`;
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6] ?? "00"}${off}`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 export function lerOfx(texto: string): TransacaoExtrato[] {
@@ -38,7 +55,7 @@ export function lerOfx(texto: string): TransacaoExtrato[] {
     if (!data || !Number.isFinite(valor) || valor === 0) continue;
     const descricao = [tag(b, "NAME"), tag(b, "MEMO")].filter(Boolean).join(" - ") || "(sem descrição)";
     const fitid = tag(b, "FITID");
-    out.push({ data, valor, descricao, documento: tag(b, "CHECKNUM") || tag(b, "REFNUM") || null, chave: fitid ? `ofx:${fitid}` : "" });
+    out.push({ data, valor, descricao, documento: tag(b, "CHECKNUM") || tag(b, "REFNUM") || null, chave: fitid ? `ofx:${fitid}` : "", dataHora: dataHoraOfx(tag(b, "DTPOSTED")) });
   }
   return comChaves(out);
 }
@@ -243,11 +260,17 @@ export async function conciliarPorBoleto(contaBancariaId: string) {
 export async function importarExtrato(contaBancariaId: string, ts: TransacaoExtrato[], opts: { baixarAutomatico?: boolean } = {}) {
   let novas = 0;
   for (const t of ts) {
+    const extras = { dataHora: t.dataHora ?? null, contraparteDocumento: t.contraparteDocumento ?? null };
     const r = await prisma.transacaoBancaria.createMany({
-      data: [{ contaBancariaId, data: t.data, valor: D(t.valor), descricao: t.descricao.slice(0, 500), documento: t.documento ?? null, chave: t.chave }],
+      data: [{ contaBancariaId, data: t.data, valor: D(t.valor), descricao: t.descricao.slice(0, 500), documento: t.documento ?? null, chave: t.chave, ...extras }],
       skipDuplicates: true,
     });
     novas += r.count;
+    // linha que já tinha vindo antes desta versão: completa a hora e o CPF/CNPJ que agora o banco manda
+    if (!r.count && (extras.dataHora || extras.contraparteDocumento)) {
+      if (extras.dataHora) await prisma.transacaoBancaria.updateMany({ where: { contaBancariaId, chave: t.chave, dataHora: null }, data: { dataHora: extras.dataHora } });
+      if (extras.contraparteDocumento) await prisma.transacaoBancaria.updateMany({ where: { contaBancariaId, chave: t.chave, contraparteDocumento: null }, data: { contraparteDocumento: extras.contraparteDocumento } });
+    }
   }
   let baixadas = await conciliarPorBoleto(contaBancariaId);
   if (opts.baixarAutomatico !== false) {

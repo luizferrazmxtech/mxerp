@@ -198,6 +198,31 @@ type TransacaoInter = {
   detalhes?: Record<string, unknown>;
 };
 
+/** Data e hora do lançamento quando o Inter manda a hora (dataInclusao "2026-11-05 10:23:11" ou ISO); sem fuso = Brasília. */
+export function dataHoraInter(t: TransacaoInter): Date | null {
+  for (const v of [t.dataInclusao, t.dataTransacao, t.dataEntrada]) {
+    const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2})?)(\.\d+)?(Z|[+-]\d{2}:?\d{2})?/.exec(v ?? "");
+    if (!m) continue;
+    const fuso = m[4] ? (m[4] === "Z" ? "Z" : m[4].replace(/^([+-]\d{2})(\d{2})$/, "$1:$2")) : "-03:00";
+    const d = new Date(`${m[1]}T${m[2].length === 5 ? `${m[2]}:00` : m[2]}${fuso}`);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
+/**
+ * CPF/CNPJ de quem recebeu (saída) ou pagou (entrada), dos detalhes da transação do Inter (cpfCnpjRecebedor,
+ * cpfCnpjPagador, cnpjCpfBeneficiario…). Prefere o campo do lado certo; senão o primeiro documento válido.
+ */
+export function documentoContraparte(d: Record<string, unknown>, saida: boolean): string | null {
+  const docs = Object.entries(d)
+    .filter(([k, v]) => /cpf|cnpj|documento/i.test(k) && (typeof v === "string" || typeof v === "number"))
+    .map(([k, v]) => ({ k: k.toLowerCase(), v: String(v).replace(/\D/g, "") }))
+    .filter((x) => x.v.length === 11 || x.v.length === 14);
+  const lado = saida ? /recebedor|beneficiario|favorecido|destin|empresa|cedente/ : /pagador|remetente|origem|sacado/;
+  return (docs.find((x) => lado.test(x.k)) ?? docs[0])?.v ?? null;
+}
+
 function converter(t: TransacaoInter): TransacaoExtrato {
   const dataTxt = (t.dataTransacao ?? t.dataEntrada ?? t.dataInclusao ?? "").slice(0, 10);
   const valor = Math.abs(Number(String(t.valor ?? 0).replace(",", "."))) * (t.tipoOperacao === "D" ? -1 : 1);
@@ -210,6 +235,8 @@ function converter(t: TransacaoInter): TransacaoExtrato {
     valor: Math.round(valor * 100) / 100,
     descricao,
     documento: (d.nossoNumero as string) || (d.txid as string) || (d.endToEndId as string) || null,
+    dataHora: dataHoraInter(t),
+    contraparteDocumento: documentoContraparte(d, valor < 0),
     chave: t.idTransacao ? `inter:${t.idTransacao}` : `inter-h:${createHash("sha1").update(base).digest("hex").slice(0, 24)}`,
   };
 }
