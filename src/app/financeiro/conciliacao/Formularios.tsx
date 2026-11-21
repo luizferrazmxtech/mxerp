@@ -2,7 +2,7 @@
 
 import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { confirmarSugestoes, enviarExtrato, puxarInter, type Estado } from "./actions";
+import { enviarExtrato, puxarInter, type Estado } from "./actions";
 
 function Msg({ e }: { e: Estado }) {
   return e ? <p className={`text-sm ${e.ok ? "text-emerald-700" : "text-red-700"}`}>{e.mensagem}</p> : null;
@@ -50,17 +50,6 @@ export function PuxarInter({ configurado, aviso, ultima }: { configurado: boolea
       )}
       {configurado && aviso && <p className="text-sm text-red-700">Último teste falhou: {aviso}</p>}
       {configurado && ultima && <p className="text-xs text-slate-500">{ultima}</p>}
-      <Msg e={e} />
-    </form>
-  );
-}
-
-export function ConfirmarSugestoes({ n }: { n: number }) {
-  const [e, , p, formAct] = useFormAcao<Estado>(confirmarSugestoes, null);
-  if (!n && !e) return null;
-  return (
-    <form {...formAct} className="flex items-center gap-2">
-      {n > 0 && <button className="btn" disabled={p}>{p ? "Baixando…" : `Confirmar as ${n} sugestões`}</button>}
       <Msg e={e} />
     </form>
   );

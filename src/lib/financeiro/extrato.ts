@@ -168,7 +168,7 @@ export async function sugestoes(contaBancariaId?: string) {
 // ---------- ações
 
 /** Baixa os lançamentos com a data e a conta da transação. Diferença de valor vira juros (a mais) ou desconto (a menos). */
-export async function conciliarTx(tx: Tx, transacaoId: string, lancamentoIds: string[]) {
+export async function conciliarTx(tx: Tx, transacaoId: string, lancamentoIds: string[], opts: { centroCustoId?: string | null } = {}) {
   const t = await tx.transacaoBancaria.findUniqueOrThrow({ where: { id: transacaoId } });
   if (t.situacao !== "PENDENTE") throw new Error("Transação já conciliada ou ignorada");
   if (!lancamentoIds.length) throw new Error("Escolha ao menos uma conta");
@@ -180,13 +180,13 @@ export async function conciliarTx(tx: Tx, transacaoId: string, lancamentoIds: st
   for (const [i, l] of ls.entries()) {
     const ajuste = i === 0 ? dif : 0; // diferença vai toda no primeiro
     await baixarLancamento(tx, l.id, { data: t.data, contaBancariaId: t.contaBancariaId, juros: Math.max(0, ajuste), desconto: Math.max(0, -ajuste) });
-    await tx.lancamento.update({ where: { id: l.id }, data: { transacaoId } });
+    await tx.lancamento.update({ where: { id: l.id }, data: { transacaoId, ...(opts.centroCustoId ? { centroCustoId: opts.centroCustoId } : {}) } });
   }
   return tx.transacaoBancaria.update({ where: { id: transacaoId }, data: { situacao: "CONCILIADA" } });
 }
 
 /** Transação sem conta correspondente (tarifa, rendimento, PIX avulso): cria o lançamento já baixado. */
-export async function lancarAvulsoTx(tx: Tx, transacaoId: string, categoriaId: string, descricao?: string) {
+export async function lancarAvulsoTx(tx: Tx, transacaoId: string, categoriaId: string, descricao?: string, centroCustoId?: string | null) {
   const t = await tx.transacaoBancaria.findUniqueOrThrow({ where: { id: transacaoId } });
   if (t.situacao !== "PENDENTE") throw new Error("Transação já conciliada ou ignorada");
   const valor = Math.abs(Number(t.valor));
@@ -196,7 +196,7 @@ export async function lancarAvulsoTx(tx: Tx, transacaoId: string, categoriaId: s
   await tx.lancamento.create({
     data: {
       tipo, descricao: (descricao || t.descricao).slice(0, 300), categoriaId, valor: D(valor), vencimento: t.data, competencia: t.data,
-      pagoEm: t.data, valorPago: D(valor), contaBancariaId: t.contaBancariaId, transacaoId, idLegado: `extrato:${t.id}`,
+      pagoEm: t.data, valorPago: D(valor), contaBancariaId: t.contaBancariaId, transacaoId, idLegado: `extrato:${t.id}`, centroCustoId: centroCustoId || null,
     },
   });
   return tx.transacaoBancaria.update({ where: { id: transacaoId }, data: { situacao: "CONCILIADA" } });
