@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Icone from "@/components/Icone";
-import { anotarAcao, enviarFotoAcao, excluirFotoAcao, lancarItemAcao, marcarInstaladoAcao, origemItemAcao, removerItemAcao, situacaoTecnicoAcao, type RespostaTecnico } from "@/lib/os/acoesTecnico";
+import EscolherFoto from "@/components/tecnico/EscolherFoto";
+import { anotarAcao, enviarFotoAcao, excluirFotoAcao, finalizarTrabalhoAcao, iniciarTrabalhoAcao, lancarItemAcao, marcarInstaladoAcao, origemItemAcao, pausarTrabalhoAcao, removerItemAcao, situacaoTecnicoAcao, type RespostaTecnico } from "@/lib/os/acoesTecnico";
+import type { ResumoTrabalho } from "@/lib/os/trabalho";
 
 export type FotoTecnico = { id: string; nome: string; minha: boolean };
 export type ItemTecnico = {
@@ -37,6 +39,10 @@ export default function TelaOsTecnico(props: {
   anotacoes: { id: string; texto: string; autor: string; quando: string }[];
   /** carro da equipe (nome e livre por produto); null = equipe sem carro com estoque */
   meuEstoque: { nome: string; livre: Record<string, number> } | null;
+  /** tempo de mão de obra; null = sem permissão */
+  trabalho?: ResumoTrabalho | null;
+  /** situação sugerida depois de finalizar (ex.: "Finalizado") */
+  situacaoFinal?: string;
 }) {
   const { osId, itens, editavel, podeItens, podeFotos } = props;
   const router = useRouter();
@@ -45,8 +51,13 @@ export default function TelaOsTecnico(props: {
   const [adicionando, setAdicionando] = useState(false);
   const [foto, setFoto] = useState<string | null>(null);
   const [enviandoFoto, setEnviandoFoto] = useState<string | null>(null);
+  /** foto sendo escolhida: id do item, "geral" ou null */
+  const [pedindoFoto, setPedindoFoto] = useState<string | null>(null);
   const [nota, setNota] = useState("");
   const [sit, setSit] = useState(props.situacao?.atual ?? "");
+  // a situação pode mudar sozinha (ex.: Iniciar trabalho passa para "Em andamento")
+  const sitAtual = props.situacao?.atual ?? "";
+  useEffect(() => { setSit(sitAtual); }, [sitAtual]);
 
   const rodar = (f: () => Promise<RespostaTecnico>, depois?: () => void) =>
     iniciar(async () => {
@@ -88,6 +99,13 @@ export default function TelaOsTecnico(props: {
         <div role="status" className={`fixed inset-x-3 top-[58px] z-50 mx-auto max-w-3xl rounded-lg px-4 py-3 text-[14px] shadow-lg ${aviso.ok ? "bg-emerald-600 text-white" : "bg-red-600 text-white"}`} onClick={() => setAviso(null)}>
           {aviso.mensagem}
         </div>
+      )}
+
+      {props.trabalho && (
+        <PainelTrabalho t={props.trabalho} ocupado={ocupado} faltam={total - feitos}
+          iniciar={() => rodar(() => iniciarTrabalhoAcao(osId))}
+          pausar={(m) => rodar(() => pausarTrabalhoAcao(osId, m))}
+          finalizar={() => rodar(() => finalizarTrabalhoAcao(osId), () => { if (props.situacaoFinal) setSit(props.situacaoFinal); })} />
       )}
 
       {props.situacao && (
@@ -140,11 +158,10 @@ export default function TelaOsTecnico(props: {
                   {i.instalado ? (i.tipo === "produto" ? "Instalado" : "Feito") : (i.tipo === "produto" ? "Marcar instalado" : "Marcar feito")}
                 </button>
                 {podeFotos && (
-                  <label className={`flex h-11 cursor-pointer items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-4 text-[14px] text-slate-700 ${enviandoFoto ? "opacity-50" : ""}`}>
+                  <button className={`flex h-11 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-4 text-[14px] text-slate-700 ${enviandoFoto ? "opacity-50" : ""}`}
+                    disabled={!!enviandoFoto} onClick={() => setPedindoFoto(i.id)}>
                     <Icone nome="foto" size={18} /> {enviandoFoto === i.id ? "Enviando…" : "Foto"}
-                    <input type="file" accept="image/*" capture="environment" className="hidden" disabled={!!enviandoFoto}
-                      onChange={(e) => { void enviarFoto(e.target.files?.[0], i.id); e.target.value = ""; }} />
-                  </label>
+                  </button>
                 )}
               </div>
               {i.instaladoInfo && <div className="mt-1 text-[11px] text-emerald-700">{i.instaladoInfo}</div>}
@@ -185,14 +202,19 @@ export default function TelaOsTecnico(props: {
             </button>
           )}
           {podeFotos && (
-            <label className={`flex h-12 flex-1 cursor-pointer items-center justify-center gap-2 rounded-md bg-topo text-[15px] font-semibold text-white ${enviandoFoto ? "opacity-50" : ""}`}>
+            <button className={`flex h-12 flex-1 items-center justify-center gap-2 rounded-md bg-topo text-[15px] font-semibold text-white ${enviandoFoto ? "opacity-50" : ""}`}
+              disabled={!!enviandoFoto} onClick={() => setPedindoFoto("geral")}>
               <Icone nome="foto" size={18} /> {enviandoFoto === "geral" ? "Enviando…" : "Foto geral"}
-              <input type="file" accept="image/*" capture="environment" className="hidden" disabled={!!enviandoFoto}
-                onChange={(e) => { void enviarFoto(e.target.files?.[0], null); e.target.value = ""; }} />
-            </label>
+            </button>
           )}
         </div>
       </div>
+
+      {pedindoFoto && (
+        <EscolherFoto titulo={pedindoFoto === "geral" ? "Foto geral do serviço" : `Foto: ${itens.find((x) => x.id === pedindoFoto)?.nome ?? "item"}`}
+          fechar={() => setPedindoFoto(null)}
+          escolher={(f) => { const alvo = pedindoFoto; void enviarFoto(f, alvo === "geral" ? null : alvo); }} />
+      )}
 
       {adicionando && (
         <AdicionarItem
@@ -210,6 +232,81 @@ export default function TelaOsTecnico(props: {
         </div>
       )}
     </>
+  );
+}
+
+const MOTIVOS_PAUSA = ["Almoço / intervalo", "Buscar material", "Aguardando cliente", "Deslocamento", "Outro"];
+
+const relogio = (ms: number) => {
+  const t = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(t / 3600)}:${String(Math.floor((t % 3600) / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+};
+const hora = (iso: string) => new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
+
+/** Iniciar / Pausar / Retomar / Finalizar, com o relógio da mão de obra correndo. */
+function PainelTrabalho({ t, ocupado, faltam, iniciar, pausar, finalizar }: {
+  t: ResumoTrabalho; ocupado: boolean; faltam: number; iniciar: () => void; pausar: (motivo: string) => void; finalizar: () => void;
+}) {
+  const [agora, setAgora] = useState(() => Date.now());
+  const [pausando, setPausando] = useState(false);
+  const [confirmando, setConfirmando] = useState(false);
+  useEffect(() => {
+    if (!t.abertoDesde) return;
+    const i = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(i);
+  }, [t.abertoDesde]);
+  const total = t.fechadoMs + (t.abertoDesde ? Math.max(0, agora - new Date(t.abertoDesde).getTime()) : 0);
+  const rotulo = { NAO_INICIADO: "Não iniciado", TRABALHANDO: "Trabalhando", PAUSADO: "Pausado", FINALIZADO: "Finalizado" }[t.estado];
+  const cor = { NAO_INICIADO: "text-slate-500", TRABALHANDO: "text-emerald-700", PAUSADO: "text-amber-700", FINALIZADO: "text-sky-700" }[t.estado];
+  const ultimaPausa = [...t.trechos].reverse().find((x) => x.fim);
+
+  return (
+    <section className="mb-3 rounded-lg border bg-white p-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[12px] font-semibold uppercase text-slate-500">Mão de obra</div>
+          <div className="text-[28px] font-semibold tabular-nums leading-tight">{relogio(total)}</div>
+          <div className={`text-[13px] font-semibold ${cor}`}>
+            {rotulo}
+            {t.estado === "TRABALHANDO" && t.abertoDesde && <span className="font-normal text-slate-500"> desde {hora(t.abertoDesde)}</span>}
+            {t.estado === "PAUSADO" && ultimaPausa?.motivo && <span className="font-normal text-slate-500"> · {ultimaPausa.motivo}</span>}
+          </div>
+        </div>
+        {t.estado === "NAO_INICIADO" && <button className="btn h-12 bg-emerald-600 px-5 text-[15px] hover:bg-emerald-700" disabled={ocupado} onClick={iniciar}>Iniciar trabalho</button>}
+        {t.estado === "TRABALHANDO" && (
+          <div className="flex gap-2">
+            <button className="btn-sec h-12 px-4 text-[15px]" disabled={ocupado} onClick={() => { setPausando(true); setConfirmando(false); }}>Pausar</button>
+            <button className="btn h-12 px-4 text-[15px]" disabled={ocupado} onClick={() => { setConfirmando(true); setPausando(false); }}>Finalizar</button>
+          </div>
+        )}
+        {(t.estado === "PAUSADO" || t.estado === "FINALIZADO") && (
+          <div className="flex gap-2">
+            <button className="btn h-12 bg-emerald-600 px-4 text-[15px] hover:bg-emerald-700" disabled={ocupado} onClick={iniciar}>Retomar</button>
+            {t.estado === "PAUSADO" && <button className="btn-sec h-12 px-4 text-[15px]" disabled={ocupado} onClick={() => setConfirmando(true)}>Finalizar</button>}
+          </div>
+        )}
+      </div>
+
+      {pausando && (
+        <div className="mt-3 border-t pt-3">
+          <div className="mb-2 text-[13px] text-slate-600">Por que vai pausar?</div>
+          <div className="flex flex-wrap gap-2">
+            {MOTIVOS_PAUSA.map((m) => <button key={m} className="btn-sec h-10 px-3 text-[14px]" disabled={ocupado} onClick={() => { setPausando(false); pausar(m); }}>{m}</button>)}
+            <button className="h-10 px-3 text-[14px] text-slate-500" onClick={() => setPausando(false)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+      {confirmando && (
+        <div className="mt-3 border-t pt-3 text-[14px]">
+          {faltam > 0 && <p className="mb-2 rounded bg-amber-50 px-3 py-2 text-[13px] text-amber-900">Ainda há {faltam} item(ns) sem marcar como instalado/feito.</p>}
+          <p className="mb-2">Finalizar o trabalho com <b>{relogio(total)}</b> de mão de obra?</p>
+          <div className="flex gap-2">
+            <button className="btn h-11 flex-1" disabled={ocupado} onClick={() => { setConfirmando(false); finalizar(); }}>Sim, finalizar</button>
+            <button className="btn-sec h-11 flex-1" onClick={() => setConfirmando(false)}>Voltar</button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

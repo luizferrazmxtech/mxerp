@@ -816,12 +816,15 @@ model OrdemServico {
   equipeId           String?
   equipe             Equipe?           @relation(fields: [equipeId], references: [id], onDelete: SetNull)
 
-  equipamentos OsEquipamento[]
-  produtos     OsItemProduto[]
-  servicos     OsItemServico[]
-  historico    OsHistorico[]
-  parcelas     OsParcela[]
-  chamados     Chamado[]
+  equipamentos         OsEquipamento[]
+  produtos             OsItemProduto[]
+  servicos             OsItemServico[]
+  historico            OsHistorico[]
+  parcelas             OsParcela[]
+  chamados             Chamado[]
+  trabalho             OsTrabalho[]
+  /// o técnico apertou "Finalizar trabalho" (tempo de mão de obra fechado); "Retomar" limpa
+  trabalhoFinalizadoEm DateTime?
 
   @@index([situacao])
   @@index([clienteId])
@@ -917,6 +920,22 @@ model OsParcela {
   formaPagamentoId String?
   formaPagamento   FormaPagamento? @relation(fields: [formaPagamentoId], references: [id])
   observacao       String?
+
+  @@index([osId])
+}
+
+/// Tempo de mão de obra da OS: cada trecho vai de "Iniciar/Retomar" até "Pausar/Finalizar" na tela do técnico.
+model OsTrabalho {
+  id            String       @id @default(cuid())
+  osId          String
+  os            OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
+  inicio        DateTime     @default(now())
+  fim           DateTime?
+  /// por que parou: motivo da pausa ou "Finalizado"
+  motivo        String?
+  iniciadoPor   String
+  iniciadoPorId String?
+  encerradoPor  String?
 
   @@index([osId])
 }

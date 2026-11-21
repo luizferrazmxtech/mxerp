@@ -7,6 +7,7 @@ import { estadoDe } from "@/lib/os/ordens";
 import { estadoEstoque } from "@/lib/os/os";
 import { ehGerencia, podeMexerNaOs } from "@/lib/os/tecnico";
 import { carroDoTecnico, saldoDoCarro } from "@/lib/estoque/carro";
+import { resumoTrabalho } from "@/lib/os/trabalho";
 import { cor } from "@/lib/orcamentos/tipos";
 import { rotuloPrioridade } from "@/lib/os/tipos";
 import Icone from "@/components/Icone";
@@ -42,14 +43,17 @@ export default async function OsDoTecnico({ params }: { params: Promise<{ id: st
       </div>
     );
   }
-  const [reservas, fotos, anotacoes, situacoes, podeItens, podeFotos, podeSituacao, meuLocal] = await Promise.all([
+  const [reservas, fotos, anotacoes, situacoes, podeItens, podeFotos, podeSituacao, meuLocal, trabalho] = await Promise.all([
     prisma.reserva.findMany({ where: { origemTipo: "OS", origemId: id, status: { in: ["ATIVA", "BAIXADA"] } }, include: { local: { select: { codigo: true } } } }),
     prisma.anexo.findMany({ where: { entidade: "OS_FOTO", entidadeId: id }, select: { id: true, nome: true, referencia: true, usuarioId: true, createdAt: true }, orderBy: { createdAt: "asc" } }),
     prisma.anotacao.findMany({ where: { entidade: "OS", entidadeId: id }, orderBy: { createdAt: "desc" }, take: 20 }),
     prisma.situacaoOsConfig.findMany({ where: { exibir: true }, orderBy: { ordem: "asc" }, select: { id: true, nome: true, cor: true, bloqueados: true } }),
     pode(u.papel, "os.tecnicoItens"), pode(u.papel, "os.tecnicoFotos"), pode(u.papel, "os.situacao"),
     carroDoTecnico(prisma, u.id, id),
+    resumoTrabalho(id),
   ]);
+  // depois de finalizar, já sugere a situação de concluída (o técnico confirma em "Mudar situação")
+  const sitFinal = situacoes.find((s) => /finaliz|conclu|executad|encerrad/i.test(s.nome) && s.id !== o.situacaoId)?.id;
   const carro = meuLocal ? await prisma.local.findUnique({ where: { id: meuLocal }, select: { deposito: { select: { nome: true, equipeId: true } } } }) : null;
   const meuEstoque = carro?.deposito.equipeId ? { nome: carro.deposito.nome, livre: Object.fromEntries((await saldoDoCarro(carro.deposito.equipeId)).map((x) => [x.produtoId, x.livre])) } : null;
   const idsUsuarios = [...new Set([...o.tecnicoIds, ...(o.equipe?.membros ?? []), ...anotacoes.map((a) => a.usuarioId), ...o.produtos.map((p) => p.instaladoPorId), ...o.servicos.map((p) => p.instaladoPorId)].filter((x): x is string => !!x))];
@@ -128,6 +132,7 @@ export default async function OsDoTecnico({ params }: { params: Promise<{ id: st
         podeItens={podeItens} podeFotos={podeFotos}
         situacao={podeSituacao && !(o.situacaoCfg?.bloqueados.includes(u.papel)) ? { atual: o.situacaoId ?? "", opcoes: situacoes.map((s) => ({ id: s.id, nome: s.nome })) } : null}
         meuEstoque={meuEstoque}
+        trabalho={podeItens ? trabalho : null} situacaoFinal={sitFinal}
         anotacoes={anotacoes.map((a) => ({ id: a.id, texto: a.texto, autor: a.usuarioId ? nomes.get(a.usuarioId) ?? "" : "", quando: quando(a.createdAt) }))}
       />
     </div>
