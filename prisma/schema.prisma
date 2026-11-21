@@ -1505,16 +1505,48 @@ model CotacaoResposta {
 // ───────────────────────── Financeiro ─────────────────────────
 
 model ContaBancaria {
-  id               String              @id @default(cuid())
-  nome             String              @unique
-  banco            String?
-  agencia          String?
-  conta            String?
-  saldoInicial     Decimal             @default(0) @db.Decimal(14, 2)
-  ativa            Boolean             @default(true)
-  lancamentos      Lancamento[]
-  transacoes       TransacaoBancaria[]
-  integracoesInter IntegracaoInter[]
+  id                String              @id @default(cuid())
+  nome              String              @unique
+  banco             String?
+  agencia           String?
+  conta             String?
+  saldoInicial      Decimal             @default(0) @db.Decimal(14, 2)
+  ativa             Boolean             @default(true)
+  lancamentos       Lancamento[]
+  transacoes        TransacaoBancaria[]
+  integracoesInter  IntegracaoInter[]
+  contasOpenFinance ContaOpenFinance[]
+}
+
+/// Banco conectado pelo Open Finance (agregador Pluggy): um "item" por banco/consentimento autorizado pelo cliente.
+model ConexaoOpenFinance {
+  id               String             @id @default(cuid())
+  itemId           String             @unique // id do item no Pluggy
+  banco            String
+  logo             String?
+  situacao         String // UPDATED | UPDATING | LOGIN_ERROR | OUTDATED | WAITING_USER_INPUT | ...
+  consentimentoAte DateTime? // o consentimento do Open Finance vence (normalmente 12 meses)
+  ultimaSincEm     DateTime?
+  ultimaSincMsg    String?
+  contas           ContaOpenFinance[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+}
+
+/// Conta do banco conectado; ligada a uma conta bancária do ERP, o extrato entra na conciliação como o do Inter.
+model ContaOpenFinance {
+  id              String             @id @default(cuid())
+  conexaoId       String
+  conexao         ConexaoOpenFinance @relation(fields: [conexaoId], references: [id], onDelete: Cascade)
+  accountId       String             @unique // id da conta no Pluggy
+  nome            String
+  numero          String?
+  tipo            String // BANK | CREDIT
+  saldo           Decimal?           @db.Decimal(14, 2)
+  contaBancariaId String?
+  contaBancaria   ContaBancaria?     @relation(fields: [contaBancariaId], references: [id], onDelete: SetNull)
+  importarDesde   DateTime?          @db.Date // primeiro dia do extrato que entra na conciliação
+  createdAt       DateTime           @default(now())
 }
 
 /// Integração com a API PJ do Banco Inter, cadastrada pela tela (uma só, id "inter").
