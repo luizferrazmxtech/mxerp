@@ -15,6 +15,8 @@ export type DadosOrcamento = {
   aosCuidados: string; canal: string; centroCusto: string; introducao: string; situacaoId: string;
   produtos: LinhaProduto[]; servicos: LinhaServico[];
   transportadoraId: string; transportadoraNome: string; frete: string; mostrarEntrega: boolean; enderecoEntregaId: string;
+  /** serviço do Melhor Envio escolhido em "Cotar frete" (só a venda grava) */
+  freteServicoId?: string; freteServicoNome?: string; fretePrazoDias?: string;
   desconto: string; descontoPct: boolean; exibirTotal: boolean;
   gerarCondicoes: boolean; condicao: "AVISTA" | "PARCELADO"; formaPagamentoId: string; vencimento: string; intervaloDias: string; numParcelas: string; primeiraParcela: string;
   parcelas: Parcela[];

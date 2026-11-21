@@ -551,25 +551,25 @@ model Produto {
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
-  saldos             Saldo[]
-  reservas           Reserva[]
-  movimentos         MovimentoEstoque[]
-  itensOs            OsItemProduto[]
-  itensVenda         VendaItem[]
-  itensOrc           OrcamentoItem[]
-  itensCompra        CompraItem[]
-  itensAjuste        AjusteEstoqueItem[]
-  itensTransferencia TransferenciaEstoqueItem[]
-  itensInventario    InventarioItem[]
-  valores            ProdutoValor[]
-  componentes        ProdutoComponente[]        @relation("Kit")
-  usadoEm            ProdutoComponente[]        @relation("ComponenteDe")
-  variacoes          ProdutoVariacao[]
-  fornecedores       ItemFornecedor[]
-  historico          HistoricoValor[]
+  saldos              Saldo[]
+  reservas            Reserva[]
+  movimentos          MovimentoEstoque[]
+  itensOs             OsItemProduto[]
+  itensVenda          VendaItem[]
+  itensOrc            OrcamentoItem[]
+  itensCompra         CompraItem[]
+  itensAjuste         AjusteEstoqueItem[]
+  itensTransferencia  TransferenciaEstoqueItem[]
+  itensInventario     InventarioItem[]
+  valores             ProdutoValor[]
+  componentes         ProdutoComponente[]        @relation("Kit")
+  usadoEm             ProdutoComponente[]        @relation("ComponenteDe")
+  variacoes           ProdutoVariacao[]
+  fornecedores        ItemFornecedor[]
+  historico           HistoricoValor[]
+  anunciosMarketplace AnuncioMarketplace[]
 
   @@index([nome])
-  anunciosMarketplace  AnuncioMarketplace[]
 }
 
 model Servico {
@@ -827,22 +827,34 @@ model OrdemServico {
   /// o técnico apertou "Finalizar trabalho" (tempo de mão de obra fechado); "Retomar" limpa
   trabalhoFinalizadoEm DateTime?
 
+  // agendamento da visita/serviço (Agenda das equipes e Google Agenda)
+  agendaInicio     DateTime?
+  agendaDuracaoMin Int?
+  googleEventoId   String? // evento criado no Google Agenda
+  googleAgendaId   String? // agenda (calendário) onde o evento está
+  googleSincEm     DateTime?
+  googleErro       String?
+  googlePendente   Boolean   @default(false) // a última tentativa falhou: o agendador tenta de novo
+
   @@index([situacao])
   @@index([clienteId])
   @@index([empresaId])
   @@index([equipeId])
+  @@index([agendaInicio])
 }
 
 /// Equipe de técnicos (Cadastros › Equipes). A OS da equipe aparece para todos os membros na tela do técnico.
 model Equipe {
-  id        String         @id @default(cuid())
-  nome      String         @unique
-  ativo     Boolean        @default(true)
-  membros   String[] // ids de Usuario
-  createdAt DateTime       @default(now())
-  ordens    OrdemServico[]
+  id             String         @id @default(cuid())
+  nome           String         @unique
+  ativo          Boolean        @default(true)
+  membros        String[] // ids de Usuario
+  /// ID da agenda do Google da equipe (compartilhada com a conta de serviço do ERP)
+  googleAgendaId String?
+  createdAt      DateTime       @default(now())
+  ordens         OrdemServico[]
   /// o carro da equipe (estoque à parte)
-  carro     Deposito?
+  carro          Deposito?
 }
 
 model OsItemProduto {
@@ -1095,6 +1107,12 @@ model Venda {
 
   caixaId String?
   caixa   CaixaPdv? @relation(fields: [caixaId], references: [id])
+
+  // frete cotado no Melhor Envio (serviço escolhido no pedido); a etiqueta comprada fica em EnvioFrete
+  freteServicoId   Int?
+  freteServicoNome String?
+  fretePrazoDias   Int?
+  envios           EnvioFrete[]
 
   itens      VendaItem[]
   servicos   VendaItemServico[]
@@ -1500,16 +1518,48 @@ model CotacaoResposta {
 // ───────────────────────── Financeiro ─────────────────────────
 
 model ContaBancaria {
-  id               String              @id @default(cuid())
-  nome             String              @unique
-  banco            String?
-  agencia          String?
-  conta            String?
-  saldoInicial     Decimal             @default(0) @db.Decimal(14, 2)
-  ativa            Boolean             @default(true)
-  lancamentos      Lancamento[]
-  transacoes       TransacaoBancaria[]
-  integracoesInter IntegracaoInter[]
+  id                String              @id @default(cuid())
+  nome              String              @unique
+  banco             String?
+  agencia           String?
+  conta             String?
+  saldoInicial      Decimal             @default(0) @db.Decimal(14, 2)
+  ativa             Boolean             @default(true)
+  lancamentos       Lancamento[]
+  transacoes        TransacaoBancaria[]
+  integracoesInter  IntegracaoInter[]
+  contasOpenFinance ContaOpenFinance[]
+}
+
+/// Banco conectado pelo Open Finance (agregador Pluggy): um "item" por banco/consentimento autorizado pelo cliente.
+model ConexaoOpenFinance {
+  id               String             @id @default(cuid())
+  itemId           String             @unique // id do item no Pluggy
+  banco            String
+  logo             String?
+  situacao         String // UPDATED | UPDATING | LOGIN_ERROR | OUTDATED | WAITING_USER_INPUT | ...
+  consentimentoAte DateTime? // o consentimento do Open Finance vence (normalmente 12 meses)
+  ultimaSincEm     DateTime?
+  ultimaSincMsg    String?
+  contas           ContaOpenFinance[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+}
+
+/// Conta do banco conectado; ligada a uma conta bancária do ERP, o extrato entra na conciliação como o do Inter.
+model ContaOpenFinance {
+  id              String             @id @default(cuid())
+  conexaoId       String
+  conexao         ConexaoOpenFinance @relation(fields: [conexaoId], references: [id], onDelete: Cascade)
+  accountId       String             @unique // id da conta no Pluggy
+  nome            String
+  numero          String?
+  tipo            String // BANK | CREDIT
+  saldo           Decimal?           @db.Decimal(14, 2)
+  contaBancariaId String?
+  contaBancaria   ContaBancaria?     @relation(fields: [contaBancariaId], references: [id], onDelete: SetNull)
+  importarDesde   DateTime?          @db.Date // primeiro dia do extrato que entra na conciliação
+  createdAt       DateTime           @default(now())
 }
 
 /// Integração com a API PJ do Banco Inter, cadastrada pela tela (uma só, id "inter").
@@ -1579,24 +1629,26 @@ model Boleto {
 }
 
 model FormaPagamento {
-  id             String             @id @default(cuid())
-  nome           String             @unique
-  tPag           String // código do meio de pagamento na NF-e (01 dinheiro, 03 crédito, 17 PIX...)
-  taxa           Decimal            @default(0) @db.Decimal(7, 4)
-  diasPrazo      Int                @default(0)
-  ativa          Boolean            @default(true)
-  boletoInter    Boolean            @default(false) // parcelas desta forma viram boleto registrado no Banco Inter
-  pagamentos     VendaPagamento[]
-  lancamentos    Lancamento[]
-  orcamentos     Orcamento[]
-  parcelasOrc    OrcamentoParcela[]
-  vendas         Venda[]            @relation("VendaForma")
-  parcelasVen    VendaParcela[]
-  ordens         OrdemServico[]     @relation("OsForma")
-  parcelasOs     OsParcela[]
-  compras        Compra[]           @relation("CompraForma")
-  parcelasCompra CompraParcela[]
-  contratos      Contrato[]
+  id              String             @id @default(cuid())
+  nome            String             @unique
+  tPag            String // código do meio de pagamento na NF-e (01 dinheiro, 03 crédito, 17 PIX...)
+  taxa            Decimal            @default(0) @db.Decimal(7, 4)
+  diasPrazo       Int                @default(0)
+  ativa           Boolean            @default(true)
+  boletoInter     Boolean            @default(false) // parcelas desta forma viram boleto registrado no Banco Inter
+  pagseguro       Boolean            @default(false) // recebida pelo PagSeguro (maquininha/PIX): conciliada pelo EDI com a taxa real
+  contaBancariaId String? // conta onde cai o recebimento à vista (vazio = Caixa)
+  pagamentos      VendaPagamento[]
+  lancamentos     Lancamento[]
+  orcamentos      Orcamento[]
+  parcelasOrc     OrcamentoParcela[]
+  vendas          Venda[]            @relation("VendaForma")
+  parcelasVen     VendaParcela[]
+  ordens          OrdemServico[]     @relation("OsForma")
+  parcelasOs      OsParcela[]
+  compras         Compra[]           @relation("CompraForma")
+  parcelasCompra  CompraParcela[]
+  contratos       Contrato[]
 }
 
 /// Grupo da DRE gerencial para onde a categoria soma.
@@ -1784,6 +1836,8 @@ model NotaRecebida {
   protocoloManifesto String?
   justificativa      String?
   compraId           String? // compra lançada a partir desta nota
+  xmlTentativas      Int       @default(0) // pedidos automáticos do XML completo depois da ciência (o agendador desiste depois de 24)
+  xmlTentadoEm       DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -2265,33 +2319,127 @@ model MensagemWhatsapp {
   @@index([createdAt])
 }
 
+/// Etiqueta de frete comprada no Melhor Envio para uma venda (uma venda pode ter mais de uma: reenvio, cancelada).
+model EnvioFrete {
+  id             String    @id @default(cuid())
+  vendaId        String
+  venda          Venda     @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  empresaId      String?
+  servicoId      Int // id do serviço no Melhor Envio (1 = PAC, 2 = SEDEX, 3 = Jadlog .Package…)
+  servicoNome    String
+  transportadora String // Correios, Jadlog, Loggi…
+  valor          Decimal   @db.Decimal(14, 2) // custo da etiqueta no Melhor Envio
+  prazoDias      Int?
+  volumes        Json      @default("[]")
+  situacao       String    @default("CARRINHO") // CARRINHO | PAGA | GERADA | POSTADA | ENTREGUE | NAO_ENTREGUE | CANCELADA | ERRO
+  meId           String?   @unique // id da etiqueta (order) no Melhor Envio
+  protocolo      String?
+  rastreio       String? // código da transportadora
+  rastreioMe     String? // código do Melhor Rastreio
+  erro           String?
+  pagaEm         DateTime?
+  geradaEm       DateTime?
+  postadaEm      DateTime?
+  entregueEm     DateTime?
+  canceladaEm    DateTime?
+  consultadaEm   DateTime?
+  usuarioNome    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([vendaId])
+  @@index([situacao])
+}
+
+/// PIX dinâmico gerado no PDV pelo PagSeguro (API de pedidos). A venda só fecha depois de PAGA.
+model CobrancaPix {
+  id        String    @id @default(cuid())
+  pedidoId  String    @unique // ORDE_… no PagSeguro
+  qrId      String?
+  texto     String // PIX copia e cola
+  valor     Decimal   @db.Decimal(14, 2)
+  situacao  String    @default("PENDENTE") // PENDENTE | PAGA | CANCELADA | EXPIRADA
+  vendaId   String?   @unique
+  caixaId   String?
+  usuarioId String?
+  expiraEm  DateTime
+  pagaEm    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+/// Linha do extrato EDI do PagSeguro (uma por parcela de cada venda na maquininha ou PIX), ligada à conta a receber.
+model TransacaoPagSeguro {
+  id               String    @id @default(cuid())
+  codigo           String // codigo_transacao
+  parcela          Int       @default(1)
+  totalParcelas    Int       @default(1)
+  dataVenda        DateTime
+  meio             String // CREDITO | DEBITO | PIX | OUTRO
+  valorBruto       Decimal   @db.Decimal(14, 2) // valor da parcela
+  taxa             Decimal   @default(0) @db.Decimal(14, 2)
+  valorLiquido     Decimal   @db.Decimal(14, 2)
+  dataPrevista     DateTime? @db.Date
+  pagaEm           DateTime? @db.Date
+  nsu              String?
+  cartao           String? // bandeira/final
+  situacao         String    @default("SEM_CONTA") // SEM_CONTA | CONCILIADA | RECEBIDA | IGNORADA
+  lancamentoId     String?   @unique
+  taxaLancamentoId String?
+  dados            Json      @default("{}")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([codigo, parcela])
+  @@index([situacao])
+  @@index([dataVenda])
+}
+
+/// Pacote do mês mandado ao contador (XMLs emitidos e recebidos + resumo), um por CNPJ e competência.
+model EnvioContador {
+  id            String   @id @default(cuid())
+  empresaId     String
+  competencia   String // AAAA-MM
+  situacao      String // ENVIADO | ERRO
+  destinatarios String
+  arquivos      Int      @default(0)
+  tamanho       Int      @default(0) // bytes do .zip
+  token         String   @unique @default(cuid()) // link de download para o contador
+  erro          String?
+  automatico    Boolean  @default(false)
+  usuarioNome   String?
+  createdAt     DateTime @default(now())
+
+  @@index([empresaId, competencia])
+}
+
 // ---------- marketplaces (Mercado Livre primeiro; Shopee, Amazon e Magalu depois)
 
 /// Conta conectada de um marketplace. id = canal ("MERCADO_LIVRE"). Segredos e tokens cifrados (src/lib/seguranca/segredos.ts).
 model IntegracaoMarketplace {
-  id                   String    @id
-  ativo                Boolean   @default(true)
-  clientId             String
-  clientSecretCifrado  String
-  redirectUri          String
-  accessTokenCifrado   String?
-  refreshTokenCifrado  String?
-  tokenExpiraEm        DateTime?
-  estadoOauth          String? // "state" do link de autorização em andamento
-  contaId              String? // id do vendedor no marketplace
-  contaNome            String? // apelido da conta
-  empresaId            String? // loja (CNPJ) das vendas geradas
-  contaBancariaId      String? // conta do financeiro onde o dinheiro é liberado (padrão "Mercado Pago")
-  situacaoVendaId      String? // situação das vendas geradas (padrão: a que lança estoque e financeiro)
-  formaPagamentoId     String? // forma das contas a receber (padrão "Mercado Pago")
-  canalVenda           String    @default("Mercado Livre")
-  importarDesde        DateTime? // pedidos criados antes disto não viram venda (já lançados à mão)
-  cancelarAuto         Boolean   @default(true) // pedido cancelado no marketplace cancela a venda (se o dinheiro não foi liberado)
-  sincronizarAuto      Boolean   @default(true)
-  webhookToken         String?
-  ultimaSincEm         DateTime?
-  ultimaSincMsg        String?
-  atualizadoEm         DateTime  @updatedAt
+  id                  String    @id
+  ativo               Boolean   @default(true)
+  clientId            String
+  clientSecretCifrado String
+  redirectUri         String
+  accessTokenCifrado  String?
+  refreshTokenCifrado String?
+  tokenExpiraEm       DateTime?
+  estadoOauth         String? // "state" do link de autorização em andamento
+  contaId             String? // id do vendedor no marketplace
+  contaNome           String? // apelido da conta
+  empresaId           String? // loja (CNPJ) das vendas geradas
+  contaBancariaId     String? // conta do financeiro onde o dinheiro é liberado (padrão "Mercado Pago")
+  situacaoVendaId     String? // situação das vendas geradas (padrão: a que lança estoque e financeiro)
+  formaPagamentoId    String? // forma das contas a receber (padrão "Mercado Pago")
+  canalVenda          String    @default("Mercado Livre")
+  importarDesde       DateTime? // pedidos criados antes disto não viram venda (já lançados à mão)
+  cancelarAuto        Boolean   @default(true) // pedido cancelado no marketplace cancela a venda (se o dinheiro não foi liberado)
+  sincronizarAuto     Boolean   @default(true)
+  webhookToken        String?
+  ultimaSincEm        DateTime?
+  ultimaSincMsg       String?
+  atualizadoEm        DateTime  @updatedAt
 }
 
 /// Pedido vindo de um marketplace: vira venda (estoque + conta a receber) e é baixado quando o dinheiro é liberado.

@@ -12,10 +12,11 @@ import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
 import GerenciarColunas from "@/components/ui/GerenciarColunas";
 import type { PessoaBusca } from "@/lib/cadastros/tipos";
 import { LinhaToggle } from "@/components/itens/AbasVerticais";
+import CotarFrete from "@/components/frete/CotarFrete";
 import { salvarOrcamentoForm, type Resultado } from "@/lib/orcamentos/acoes";
 import { salvarPedidoForm } from "@/lib/vendas/acoes";
 import { salvarOsForm } from "@/lib/os/acoes";
-import { CAMPOS_OS, PRIORIDADES, equipamentoVazio, totaisOs, type DadosOs, type EquipamentoForm } from "@/lib/os/tipos";
+import { CAMPOS_OS, DURACOES_AGENDA, PRIORIDADES, equipamentoVazio, totaisOs, type DadosOs, type EquipamentoForm } from "@/lib/os/tipos";
 import { CAMPOS_DADOS, CAMPOS_VENDA, COLUNAS_ITENS, gerarParcelas, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento, type LinhaProduto, type LinhaServico } from "@/lib/orcamentos/tipos";
 
 export type InicialOrcamento = DadosOrcamento & Partial<Omit<DadosOs, keyof DadosOrcamento>> & { id?: string; proximoNumero: number; anexos: { id: string; nome: string }[] };
@@ -27,6 +28,8 @@ type Opcoes = {
   equipes?: { id: string; nome: string }[];
   /** só OS: carros das equipes, para marcar o item que sai do carro */
   carros?: { equipeId: string; localId: string; nome: string }[];
+  /** frete pelo Melhor Envio ligado: mostra "Cotar frete" no transporte */
+  freteMelhorEnvio?: boolean;
 };
 
 type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; fisicoCarros?: number | null; situacao?: SituacaoEstoque; minimo?: number; valores: { tipoValorId: string; valor: number }[] };
@@ -207,9 +210,11 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
       </Bloco>
 
       {os && (
-        <Bloco icone="pessoa" titulo={<>Defina os <b>responsáveis</b> pela ordem de serviço</>} subtitulo="A equipe é o carro (sempre os mesmos técnicos): as peças do carro saem do estoque dela. Técnico adicional é só para constar quem foi junto.">
+        <Bloco icone="pessoa" titulo={<>Defina os <b>responsáveis</b> pela ordem de serviço</>} subtitulo="A equipe é o carro (sempre os mesmos técnicos): as peças do carro saem do estoque dela. Técnico adicional é só para constar quem foi junto. O agendamento aparece na Agenda das equipes e no Google Agenda da equipe.">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Campo rotulo="Vendedor"><select className="campo" value={d.vendedorId} onChange={(e) => set("vendedorId", e.target.value)}><option value="">Selecione</option>{op.vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select></Campo>
+            <Campo rotulo="Agendado para"><input type="datetime-local" className="campo" value={d.agendaInicio ?? ""} onChange={(e) => set("agendaInicio", e.target.value)} /></Campo>
+            {d.agendaInicio && <Campo rotulo="Duração"><select className="campo" value={d.agendaDuracao ?? ""} onChange={(e) => set("agendaDuracao", e.target.value)}><option value="">Padrão</option>{DURACOES_AGENDA.map(([v, r]) => <option key={v} value={v}>{r}</option>)}</select></Campo>}
             {!!op.equipes?.length && <Campo rotulo="Equipe (carro)"><select className="campo" value={d.equipeId ?? ""} onChange={(e) => set("equipeId", e.target.value)}><option value="">Nenhuma</option>{op.equipes.map((q) => <option key={q.id} value={q.id}>{q.nome}{op.carros?.some((c) => c.equipeId === q.id) ? " (com carro)" : ""}</option>)}</select></Campo>}
             {(d.tecnicoIds?.length ? d.tecnicoIds : [""]).map((tid, i, arr) => (
               <div key={i}><span className="rotulo">{d.equipeId ? "Técnico adicional" : "Técnico"}{arr.length > 1 ? ` ${i + 1}` : ""}</span>
@@ -257,8 +262,12 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
             <Busca<PessoaBusca> url={(q) => `/api/pessoas?papel=transportadora&q=${encodeURIComponent(q)}`}
               valor={d.transportadoraId ? { id: d.transportadoraId, nome: d.transportadoraNome } : null} rotulo={(p) => p.nome} linha={(p) => <LinhaPessoaBusca p={p} />}
               onEscolher={(p) => setD((x) => ({ ...x, transportadoraId: p?.id ?? "", transportadoraNome: p?.nome ?? "" }))} /></div>
-          <Campo rotulo="Valor do frete (R$)"><input className="campo text-right" value={d.frete} onChange={(e) => set("frete", e.target.value)} /></Campo>
+          <Campo rotulo="Valor do frete (R$)"><input className="campo text-right" value={d.frete} onChange={(e) => setD((x) => ({ ...x, frete: e.target.value, freteServicoId: "", freteServicoNome: "", fretePrazoDias: "" }))} /></Campo>
+          {op.freteMelhorEnvio && <div className="flex items-end"><CotarFrete clienteId={d.clienteId} enderecoEntregaId={d.mostrarEntrega ? d.enderecoEntregaId : ""} escolhido={d.freteServicoId ? Number(d.freteServicoId) : null}
+            itens={d.produtos.filter((l) => l.produtoId).map((l) => ({ produtoId: l.produtoId, quantidade: lerNumero(l.quantidade) ?? 0, valor: subtotalProduto(l) }))}
+            onEscolher={(c) => setD((x) => ({ ...x, frete: n2(c.valor), freteServicoId: String(c.servicoId), freteServicoNome: `${c.transportadora} ${c.servico}`.trim(), fretePrazoDias: c.prazoDias != null ? String(c.prazoDias) : "" }))} /></div>}
         </div>}
+        {!os && d.freteServicoNome && <p className="mt-2 text-[12px] text-slate-600"><Icone nome="frete" size={12} /> Frete escolhido: <b>{d.freteServicoNome}</b>{d.fretePrazoDias ? ` · entrega em até ${d.fretePrazoDias} dias úteis` : ""} (Melhor Envio)</p>}
         <div className={os ? "max-w-xl" : "mt-3 max-w-xl"}><LinhaToggle titulo="Informar endereço de entrega" texto="Mostra o endereço de entrega no pedido." ligado={d.mostrarEntrega} onChange={(v) => set("mostrarEntrega", v)} /></div>
         {d.mostrarEntrega && (
           <div className="mt-3 max-w-xl">

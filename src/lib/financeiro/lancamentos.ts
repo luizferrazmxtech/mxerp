@@ -41,6 +41,8 @@ export async function gerarRecebimentos(
     for (let i = 0; i < n; i++) {
       const vencimento = somarDias(data, forma.diasPrazo * (i + 1));
       const aVista = forma.diasPrazo === 0;
+      // à vista cai na conta da forma (ex.: PIX do PagSeguro cai na conta PagSeguro); sem conta, no Caixa
+      const conta = aVista && forma.contaBancariaId ? forma.contaBancariaId : caixa.id;
       await tx.lancamento.create({
         data: {
           tipo: "RECEBER",
@@ -48,7 +50,7 @@ export async function gerarRecebimentos(
           pessoaId: args.pessoaId ?? null,
           categoriaId: args.categoriaId,
           formaPagamentoId: forma.id,
-          contaBancariaId: aVista ? caixa.id : null,
+          contaBancariaId: aVista ? conta : null,
           valor: D(valores[i]),
           vencimento,
           competencia: data,

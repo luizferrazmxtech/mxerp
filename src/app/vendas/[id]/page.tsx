@@ -24,6 +24,8 @@ import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import { avisoSituacao, baseVendas, tituloVendas } from "@/components/vendas/ListaVendas";
 import BoletoParcela from "@/components/BoletoParcela";
 import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
+import EnviosDaVenda from "@/components/frete/EnviosDaVenda";
+import { freteAtivo } from "@/lib/frete/melhorEnvio";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar venda" };
@@ -62,7 +64,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
     prisma.orcamento.findFirst({ where: { vendaId: id }, select: { id: true, numero: true } }),
   ]);
   const h = await headers();
-  const [interAtivo, baseCliente] = await Promise.all([boletosDisponiveis(), baseLinks()]);
+  const [interAtivo, baseCliente, comFrete, envios] = await Promise.all([boletosDisponiveis(), baseLinks(), freteAtivo(), prisma.envioFrete.count({ where: { vendaId: id } })]);
   const errosBoleto = lancamentos.filter((l) => !l.pagoEm && l.boletos[0]?.situacao === "ERRO").length;
   const link = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}/cobranca/${v.token}`;
   const nomeEmpresa = empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH";
@@ -83,7 +85,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
   const ABAS = [
     { chave: "cliente", rotulo: "Cliente", icone: "pessoa", tem: !!v.cliente }, { chave: "produtos", rotulo: "Produtos", icone: "produtos", tem: v.itens.length > 0 },
     { chave: "servicos", rotulo: "Serviços", icone: "servicos", tem: v.servicos.length > 0 }, { chave: "pagamento", rotulo: "Pagamento", icone: "dinheiro", tem: true },
-    { chave: "entrega", rotulo: "Entrega", icone: "frete", tem: !!(v.transportadoraId || Number(v.frete) || v.mostrarEntrega || v.prazoEntrega) },
+    { chave: "entrega", rotulo: "Entrega", icone: "frete", tem: !!(v.transportadoraId || Number(v.frete) || v.mostrarEntrega || v.prazoEntrega || envios || (comFrete && v.itens.length && !balcao)) },
     { chave: "comissao", rotulo: "Comissão", icone: "percentual", tem: !!v.vendedor }, { chave: "notas", rotulo: "Notas fiscais", icone: "notas", tem: true },
     { chave: "devolucoes", rotulo: "Trocas e devoluções", icone: "atualizar", tem: v.devolucoes.length > 0 },
     { chave: "campos", rotulo: "Campos extras", icone: "ajustes", tem: campos.length > 0 }, { chave: "envios", rotulo: "Envios", icone: "envios", tem: true },
@@ -238,9 +240,11 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
               <div><b>Previsão de entrega:</b> {dia(v.prazoEntrega)}</div>
               <div><b>Transportadora:</b> {v.transportadora?.nome ?? "—"}</div>
               <div><b>Valor do frete:</b> {brl(v.frete)}</div>
+              {v.freteServicoNome && <div><b>Serviço de frete:</b> {v.freteServicoNome}{v.fretePrazoDias ? ` · até ${v.fretePrazoDias} dias úteis` : ""}</div>}
               {endEntrega && <div><b>Endereço de entrega:</b> {endEntrega.logradouro}, {endEntrega.numero} · {endEntrega.bairro} · {endEntrega.cidade}/{endEntrega.uf}</div>}
             </div>
           )}
+          {aba === "entrega" && <EnviosDaVenda vendaId={id} temProdutos={v.itens.length > 0} escolhido={v.freteServicoId} freteNome={v.freteServicoNome} />}
 
           {aba === "comissao" && (
             <div className="cartao p-4 text-[13px]">

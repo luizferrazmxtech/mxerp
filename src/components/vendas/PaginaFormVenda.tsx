@@ -5,6 +5,7 @@ import { colunasVisiveis } from "@/lib/ui/colunas";
 import { proximoNumeroVenda, situacaoPadraoVenda } from "@/lib/vendas/pedidos";
 import { configVenda } from "@/lib/vendas/config";
 import { Pagina } from "@/components/ui/Pagina";
+import { freteAtivo } from "@/lib/frete/melhorEnvio";
 import FormOrcamento, { type InicialOrcamento } from "@/components/orcamentos/FormOrcamento";
 import { canalLista } from "@/components/orcamentos/PaginaFormOrcamento";
 import { CAMPOS_VENDA, COLUNAS_ITENS } from "@/lib/orcamentos/tipos";
@@ -63,6 +64,7 @@ export default async function PaginaFormVenda({ tipo, id, clienteId }: { tipo?: 
       servicos: v.servicos.map((l) => ({ id: l.id, servicoId: l.servicoId, nome: l.servico.nome, codigo: l.servico.codigo, detalhes: l.detalhes ?? "",
         quantidade: qt(l.quantidade), valorUnit: n2(l.valorUnit), desconto: Number(l.desconto) ? n2(l.desconto) : "", descontoPct: false })),
       transportadoraId: v.transportadoraId ?? "", transportadoraNome: v.transportadora?.nome ?? "", frete: n2(v.frete), mostrarEntrega: v.mostrarEntrega, enderecoEntregaId: v.enderecoEntregaId ?? "",
+      freteServicoId: v.freteServicoId ? String(v.freteServicoId) : "", freteServicoNome: v.freteServicoNome ?? "", fretePrazoDias: v.fretePrazoDias ? String(v.fretePrazoDias) : "",
       desconto: pct ? qt(v.descontoPercentual) : Number(v.desconto) ? n2(v.desconto) : "", descontoPct: pct, exibirTotal: true,
       gerarCondicoes: true, condicao: v.condicao === "PARCELADO" ? "PARCELADO" : "AVISTA", formaPagamentoId: v.formaPagamentoId ?? "",
       vencimento: iso(v.parcelas[0]?.vencimento) || isoSP(v.data), intervaloDias: String(v.intervaloDias), numParcelas: String(Math.max(2, v.parcelas.length)),
@@ -77,7 +79,7 @@ export default async function PaginaFormVenda({ tipo, id, clienteId }: { tipo?: 
   return (
     <Pagina titulo={`${acao} venda`} trilha={[{ rotulo: tituloVendas(tl), href: baseVendas(tl) }, { rotulo: acao }]}>
       <FormOrcamento inicial={inicial} modo="venda"
-        op={{ vendedores, situacoes: situacoes.map((s) => ({ id: s.id, nome: `${s.nome} (${avisoSituacao(s)})` })), formas, tiposValor, campos, centros: centros.map((c) => c.centroCusto!), canais: canalLista(canais.map((c) => c.nome), inicial.canal) }}
+        op={{ vendedores, situacoes: situacoes.map((s) => ({ id: s.id, nome: `${s.nome} (${avisoSituacao(s)})` })), formas, tiposValor, campos, centros: centros.map((c) => c.centroCusto!), canais: canalLista(canais.map((c) => c.nome), inicial.canal), freteMelhorEnvio: await freteAtivo() }}
         vis={{
           dados: colunasVisiveis(u?.preferencias, "venda-campos", CAMPOS_VENDA, CAMPOS_VENDA.map((c) => c.chave)),
           itens: colunasVisiveis(u?.preferencias, "venda-itens", COLUNAS_ITENS, COLUNAS_ITENS.map((c) => c.chave)),

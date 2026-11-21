@@ -15,9 +15,15 @@ export type DadosOs = DadosOrcamento & {
   tecnicoIds: string[];
   /** equipe de técnicos (opcional): todos os membros podem lançar itens pela tela do técnico */
   equipeId?: string;
+  /** agendamento da visita (YYYY-MM-DDTHH:mm, Brasília) e duração em minutos: Agenda das equipes e Google Agenda */
+  agendaInicio?: string;
+  agendaDuracao?: string;
   equipamentos: EquipamentoForm[];
   outros: string;
 };
+
+/** Durações do agendamento da OS (minutos). */
+export const DURACOES_AGENDA: [number, string][] = [[30, "30 min"], [60, "1 hora"], [90, "1h30"], [120, "2 horas"], [180, "3 horas"], [240, "4 horas"], [360, "6 horas"], [480, "Dia todo (8h)"]];
 
 export const PRIORIDADES: [string, string][] = [["BAIXA", "Baixa"], ["MEDIA", "Média"], ["ALTA", "Alta"], ["URGENTE", "Urgente"], ["MUITO_URGENTE", "Muito urgente"]];
 export const rotuloPrioridade = (p?: string | null) => PRIORIDADES.find(([v]) => v === p)?.[1] ?? "";

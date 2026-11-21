@@ -144,6 +144,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
     tipo: produtos.length ? ("PEDIDO" as const) : ("SERVICO" as const), clienteId: d.clienteId, vendedorId: t(d.vendedorId),
     data: new Date(`${d.data}T12:00:00-03:00`), prazoEntrega: dia(d.prazoEntrega), canal: d.canal, centroCusto: t(d.centroCusto),
     transportadoraId: t(d.transportadoraId), frete: D(tot.frete), mostrarEntrega: d.mostrarEntrega, enderecoEntregaId: d.mostrarEntrega ? t(d.enderecoEntregaId) : null,
+    freteServicoId: Math.trunc(n(d.freteServicoId ?? "")) || null, freteServicoNome: t(d.freteServicoNome), fretePrazoDias: Math.trunc(n(d.fretePrazoDias ?? "")) || null,
     totalProdutos: D(tot.produtos), totalServicos: D(tot.servicos), desconto: D(tot.desconto), descontoPercentual: d.descontoPct ? new Prisma.Decimal(n(d.desconto)) : null,
     total: D(tot.total), condicao: d.condicao, formaPagamentoId: t(d.formaPagamentoId), intervaloDias: Math.trunc(n(d.intervaloDias)) || 30,
     observacoes: t(d.observacoes), observacaoInterna: t(d.observacaoInterna), camposExtras: (d.camposExtras ?? {}) as Prisma.InputJsonValue,

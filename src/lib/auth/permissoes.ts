@@ -51,6 +51,17 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/fiscal/", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   { prefixo: "/fiscal", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/api/notas", papeis: ["ADMIN", "GERENTE"] },
+  // frete: configurar o Melhor Envio é da gerência; a lista de envios é de quem vende
+  // contador: arquivos fiscais e manifestação automática
+  { prefixo: "/contador", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/api/contador", papeis: ["ADMIN", "GERENTE"] },
+  // PagSeguro: configuração e conciliação (taxas, repasses) são da gerência
+  { prefixo: "/pagseguro", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/openfinance", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/google-agenda", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/frete/configuracoes", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/frete", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
+  { prefixo: "/api/frete", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   { prefixo: "/pdv", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   { prefixo: "/vendas", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   // a exportação segue a mesma regra da tela de vendas

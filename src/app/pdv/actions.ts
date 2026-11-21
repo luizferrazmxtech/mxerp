@@ -8,6 +8,8 @@ import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { pode } from "@/lib/auth/permissoesAcao";
 import { lerNumero } from "@/lib/itens/tipos";
 import { abrirCaixa, caixaAberto, fecharCaixa, movimentarCaixa } from "@/lib/pdv/caixa";
+import { prisma } from "@/lib/db";
+import { conferirPixDaVenda, pixPagSeguroAtivo } from "@/lib/pagseguro/pagseguro";
 
 const num = (x: FormDataEntryValue | null) => lerNumero(String(x ?? "")) ?? NaN;
 const msg = (e: unknown, padrao: string) => (e instanceof Error && !(e as { code?: string }).code ? e.message : padrao);
@@ -20,13 +22,24 @@ export async function fecharBalcao(dados: {
   itens: { produtoId: string; quantidade: number; valorUnit: number }[];
   pagamentos: Pagamento[];
   desconto?: number;
+  /** PIX do PagSeguro já pago (QR mostrado no caixa) */
+  cobrancaPixId?: string;
 }): Promise<ResultadoSimples> {
   const u = await exigirUsuario();
   try {
     const caixa = await caixaAberto(u.id);
     if (!caixa) return { ok: false, mensagem: "Abra o caixa antes de vender" };
+    const { cobrancaPixId, ...venda0 } = dados;
+    // PIX do PagSeguro: a venda só fecha com a cobrança paga, no mesmo valor
+    const formasPix = (await prisma.formaPagamento.findMany({ where: { pagseguro: true, tPag: "17", id: { in: dados.pagamentos.map((p) => p.formaPagamentoId) } }, select: { id: true } })).map((f) => f.id);
+    const valorPix = dados.pagamentos.filter((p) => formasPix.includes(p.formaPagamentoId)).reduce((s, p) => s + p.valor, 0);
+    if (valorPix > 0 && (await pixPagSeguroAtivo())) {
+      if (!cobrancaPixId) return { ok: false, mensagem: "Mostre o QR do PIX ao cliente e espere o pagamento" };
+      await conferirPixDaVenda(cobrancaPixId, valorPix);
+    }
     if ((dados.desconto ?? 0) > 0 && !(await pode(u.papel, "pdv.desconto"))) return { ok: false, mensagem: "Sem permissão para dar desconto no PDV. Fale com o gerente." };
-    const venda = await v.vendaBalcao({ ...dados, usuarioId: u.id, caixaId: caixa.id });
+    const venda = await v.vendaBalcao({ ...venda0, usuarioId: u.id, caixaId: caixa.id });
+    if (cobrancaPixId && valorPix > 0) await prisma.cobrancaPix.update({ where: { id: cobrancaPixId }, data: { vendaId: venda.id } });
     revalidatePath("/vendas");
     return { ok: true, mensagem: `Venda ${venda.numero} concluída.`, vendaId: venda.id, numero: venda.numero };
   } catch (e) {

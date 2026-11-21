@@ -80,6 +80,11 @@ services:
             curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/inter/sincronizar; echo
             curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/contratos/processar; echo
             curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/dfe/sincronizar; echo
+            curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/frete/sincronizar; echo
+            curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/pagseguro/sincronizar; echo
+            curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/openfinance/sincronizar; echo
+            curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/agenda/sincronizar; echo
+            curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/contador/processar; echo
             curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" http://app:3000/api/mercadolivre/sincronizar; echo
           fi
           sleep 3600

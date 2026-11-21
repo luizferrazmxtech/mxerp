@@ -47,6 +47,7 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link href="/financeiro" className="btn-sec">Voltar ao financeiro</Link>
+        <Link href="/openfinance" className="btn-sec">Outros bancos (Open Finance)</Link>
       </div>
       <p className="max-w-3xl text-sm text-slate-600">
         Cada saída do extrato é casada com uma conta a pagar em aberto de mesmo valor e data próxima. O que casa sem dúvida

@@ -55,6 +55,7 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Gerenciar vendas", href: "/vendas", icone: "gerenciar" },
       { rotulo: "Balcão", href: "/vendas/balcao", icone: "balcao" },
       { rotulo: "Trocas e devoluções", href: "/vendas/devolucoes", icone: "atualizar" },
+      { rotulo: "Envios (Melhor Envio)", href: "/frete", icone: "frete" },
       {
         rotulo: "Marketplaces", href: "/marketplaces", icone: "lojas", filhos: [
           { rotulo: "Pedidos", href: "/marketplaces", icone: "gerenciar" },
@@ -84,6 +85,7 @@ export const MENU: ItemMenu[] = [
     rotulo: "Ordens de serviços", icone: "os", filhos: [
       { rotulo: "Gerenciar O.S.", href: "/os", icone: "gerenciar" },
       { rotulo: "Painel", href: "/os/painel", icone: "painel" },
+      { rotulo: "Agenda das equipes", href: "/os/agenda", icone: "calendario" },
       { rotulo: "Tela do técnico", href: "/tecnico", icone: "celular" },
       {
         rotulo: "Opções auxiliares", href: "/os/situacoes", icone: "auxiliares", filhos: [
@@ -140,6 +142,7 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Fluxo de caixa", href: "/financeiro/fluxo", icone: "grafico" },
       { rotulo: "Conciliação bancária", href: "/financeiro/conciliacao", icone: "conciliacao" },
       { rotulo: "Boletos pagos sem conta", href: "/financeiro/avisos-boletos", icone: "alerta" },
+      { rotulo: "Conciliação PagSeguro", href: "/pagseguro", icone: "cartao" },
       { rotulo: "DRE", href: "/financeiro/dre", icone: "dre" },
       {
         rotulo: "Opções auxiliares", href: "/financeiro/contas", icone: "auxiliares", filhos: [
@@ -168,6 +171,7 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Todas as notas", href: "/fiscal", icone: "lista" },
       { rotulo: "Imposto aproximado", href: "/fiscal/impostos", icone: "percentual" },
       { rotulo: "Inutilizar numeração", href: "/fiscal/inutilizacao", icone: "excluir" },
+      { rotulo: "Envio ao contador", href: "/contador", icone: "email" },
       { rotulo: "Configurações fiscais", href: "/empresas", icone: "configuracoes" },
     ],
   },
@@ -176,8 +180,17 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Empresas (lojas)", href: "/empresas", icone: "lojas" },
       { rotulo: "Usuários e permissões", href: "/usuarios", icone: "funcionarios" },
       { rotulo: "Registro de auditoria", href: "/auditoria", icone: "lista" },
-      { rotulo: "Banco Inter (API)", href: "/financeiro/conciliacao/inter", icone: "conciliacao" },
-      { rotulo: "WhatsApp (MXChat)", href: "/whatsapp", icone: "whatsapp" },
+      {
+        rotulo: "Integrações", href: "/frete/configuracoes", icone: "conciliacao", filhos: [
+          { rotulo: "Banco Inter (API)", href: "/financeiro/conciliacao/inter", icone: "conciliacao" },
+          { rotulo: "WhatsApp (MXChat)", href: "/whatsapp", icone: "whatsapp" },
+          { rotulo: "Frete (Melhor Envio)", href: "/frete/configuracoes", icone: "frete" },
+          { rotulo: "PagSeguro", href: "/pagseguro/configuracoes", icone: "cartao" },
+          { rotulo: "Open Finance", href: "/openfinance", icone: "conciliacao" },
+          { rotulo: "Google Agenda", href: "/google-agenda", icone: "calendario" },
+          { rotulo: "Contador", href: "/contador", icone: "email" },
+        ],
+      },
       { rotulo: "Migração", href: "/migracao", icone: "migracao" },
       { rotulo: "Minha senha", href: "/conta", icone: "senha" },
     ],
@@ -193,6 +206,13 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/vendas", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/marketplaces", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/contratos", rotulo: "Contratos", cor: "#0e7490", icone: "contratos" },
+  { prefixo: "/contador", rotulo: "Fiscal", cor: "#7a4fd1", icone: "fiscal" },
+  { prefixo: "/pagseguro/configuracoes", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
+  { prefixo: "/pagseguro", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
+  { prefixo: "/openfinance", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
+  { prefixo: "/google-agenda", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
+  { prefixo: "/frete/configuracoes", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
+  { prefixo: "/frete", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/pdv", rotulo: "PDV", cor: "#2e9d4f", icone: "balcao" },
   { prefixo: "/financeiro", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
   { prefixo: "/relatorios", rotulo: "Relatórios", cor: "#5b6573", icone: "grafico" },
