@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-export type Forma = { id: string; nome: string; diasPrazo: number };
+export type Forma = { id: string; nome: string; diasPrazo: number; /** PIX do PagSeguro: mostra o QR antes de fechar */ pix?: boolean };
 export type LinhaPag = { formaPagamentoId: string; valor: number; parcelas: number };
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });

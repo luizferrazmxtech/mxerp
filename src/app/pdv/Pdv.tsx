@@ -8,6 +8,7 @@ import LinhaItemBusca, { fundoEstoque } from "@/components/itens/LinhaItemBusca"
 import Pagamentos, { type Forma, type LinhaPag } from "@/components/Pagamentos";
 import Icone from "@/components/Icone";
 import { fecharBalcao, type ResultadoSimples } from "./actions";
+import PixPdv from "@/components/pagseguro/PixPdv";
 
 type Item = { produtoId: string; codigo: string; nome: string; locais: string | null; quantidade: number; valorUnit: number };
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -27,6 +28,7 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
   const [resultado, setResultado] = useState<ResultadoSimples>(null);
   const [chave, setChave] = useState(0); // recria o editor de pagamentos depois de cada venda
   const [pendente, startTransition] = useTransition();
+  const [pixValor, setPixValor] = useState<number | null>(null); // PIX do PagSeguro: QR aberto
   const busca = useRef<HTMLInputElement>(null);
   const campoDesconto = useRef<HTMLInputElement>(null);
 
@@ -68,14 +70,17 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
     busca.current?.focus();
   }
 
-  function fechar() {
+  function fechar(cobrancaPixId?: string) {
     if (!itens.length || pendente || total <= 0) return;
+    const valorPix = Math.round(pagamentos.filter((p) => p.valor > 0 && formas.find((f) => f.id === p.formaPagamentoId)?.pix).reduce((s, p) => s + p.valor, 0) * 100) / 100;
+    if (valorPix > 0 && !cobrancaPixId) { setPixValor(valorPix); return; }
     startTransition(async () => {
       const r = await fecharBalcao({
         itens: itens.map((i) => ({ produtoId: i.produtoId, quantidade: i.quantidade, valorUnit: i.valorUnit })),
         pagamentos: pagamentos.filter((p) => p.valor > 0),
-        desconto,
+        desconto, cobrancaPixId,
       });
+      setPixValor(null);
       setResultado(r);
       if (r?.ok) { setItens([]); setDesconto(0); setChave((k) => k + 1); router.refresh(); busca.current?.focus(); }
     });
@@ -151,7 +156,7 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
             <span className="text-[34px] font-semibold leading-none">{brl(total)}</span>
           </div>
           <Pagamentos key={chave} formas={formas} total={total} onChange={setPagamentos} />
-          <button className="btn w-full py-3 text-[16px]" disabled={!itens.length || pendente || total <= 0} onClick={fechar}>
+          <button className="btn w-full py-3 text-[16px]" disabled={!itens.length || pendente || total <= 0} onClick={() => fechar()}>
             {pendente ? "Finalizando…" : "Finalizar venda (F8)"}
           </button>
           {resultado && (
@@ -163,6 +168,7 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
         </aside>
       </div>
 
+      {pixValor != null && <PixPdv valor={pixValor} onPago={(id) => fechar(id)} onFechar={() => setPixValor(null)} />}
       <div className="mt-4 flex flex-wrap justify-center gap-x-6 gap-y-1 rounded-md border bg-white py-2 text-[12px] text-slate-600">
         <Tecla k="F2">Buscar produto</Tecla><Tecla k="F4">Desconto</Tecla><Tecla k="F8">Finalizar venda</Tecla>
         <Tecla k="F10">Fechar caixa</Tecla><Tecla k="Esc">Limpar busca</Tecla>

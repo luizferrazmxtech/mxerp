@@ -49,6 +49,8 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/fiscal", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/api/notas", papeis: ["ADMIN", "GERENTE"] },
   // frete: configurar o Melhor Envio é da gerência; a lista de envios é de quem vende
+  // PagSeguro: configuração e conciliação (taxas, repasses) são da gerência
+  { prefixo: "/pagseguro", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/frete/configuracoes", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/frete", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
   { prefixo: "/api/frete", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },

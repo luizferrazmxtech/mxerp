@@ -7,6 +7,7 @@ import { pode } from "@/lib/auth/permissoesAcao";
 import { brl, dataSP, horaSP } from "@/lib/ui/format";
 import Icone from "@/components/Icone";
 import Pdv from "./Pdv";
+import { pixPagSeguroAtivo } from "@/lib/pagseguro/pagseguro";
 import AbrirCaixa from "./AbrirCaixa";
 import FecharCaixa from "./FecharCaixa";
 import MovimentoCaixa from "./MovimentoCaixa";
@@ -21,9 +22,10 @@ export default async function PdvPage({ searchParams }: { searchParams: Promise<
   const { acao } = await searchParams;
   await prisma.$transaction((tx) => garantirPadroes(tx));
   const formas = await prisma.formaPagamento.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } });
-  const ordem = ["Dinheiro", "PIX", "Cartão de débito", "Cartão de crédito"];
+  const ordem = ["Dinheiro", "PIX", "PIX (PagSeguro)", "Cartão de débito", "Cartão de débito (PagSeguro)", "Cartão de crédito", "Cartão de crédito (PagSeguro)"];
   formas.sort((a, b) => (ordem.indexOf(a.nome) + 1 || 99) - (ordem.indexOf(b.nome) + 1 || 99));
   const resumo = await resumoCaixa(caixa.id);
+  const pixAtivo = await pixPagSeguroAtivo();
   const contas = acao === "sangria" || acao === "suprimento"
     ? await prisma.contaBancaria.findMany({ where: { ativa: true, NOT: { nome: "Caixa" } }, orderBy: { nome: "asc" }, select: { id: true, nome: true } })
     : [];
@@ -39,7 +41,7 @@ export default async function PdvPage({ searchParams }: { searchParams: Promise<
   );
   return (
     <>
-      <Pdv formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo }))} podeDesconto={await pode(u.papel, "pdv.desconto")} podeSangria={await pode(u.papel, "pdv.sangria")}
+      <Pdv formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo, pix: pixAtivo && f.pagseguro && f.tPag === "17" }))} podeDesconto={await pode(u.papel, "pdv.desconto")} podeSangria={await pode(u.papel, "pdv.sangria")}
         caixa={{ abertoEm: `${dataSP(caixa.abertoEm)} ${horaSP(caixa.abertoEm)}`, vendas: resumo.vendas, total: resumo.total }} />
       {acao === "fechar" && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-20">

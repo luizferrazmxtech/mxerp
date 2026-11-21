@@ -1584,24 +1584,26 @@ model Boleto {
 }
 
 model FormaPagamento {
-  id             String             @id @default(cuid())
-  nome           String             @unique
-  tPag           String // código do meio de pagamento na NF-e (01 dinheiro, 03 crédito, 17 PIX...)
-  taxa           Decimal            @default(0) @db.Decimal(7, 4)
-  diasPrazo      Int                @default(0)
-  ativa          Boolean            @default(true)
-  boletoInter    Boolean            @default(false) // parcelas desta forma viram boleto registrado no Banco Inter
-  pagamentos     VendaPagamento[]
-  lancamentos    Lancamento[]
-  orcamentos     Orcamento[]
-  parcelasOrc    OrcamentoParcela[]
-  vendas         Venda[]            @relation("VendaForma")
-  parcelasVen    VendaParcela[]
-  ordens         OrdemServico[]     @relation("OsForma")
-  parcelasOs     OsParcela[]
-  compras        Compra[]           @relation("CompraForma")
-  parcelasCompra CompraParcela[]
-  contratos      Contrato[]
+  id              String             @id @default(cuid())
+  nome            String             @unique
+  tPag            String // código do meio de pagamento na NF-e (01 dinheiro, 03 crédito, 17 PIX...)
+  taxa            Decimal            @default(0) @db.Decimal(7, 4)
+  diasPrazo       Int                @default(0)
+  ativa           Boolean            @default(true)
+  boletoInter     Boolean            @default(false) // parcelas desta forma viram boleto registrado no Banco Inter
+  pagseguro       Boolean            @default(false) // recebida pelo PagSeguro (maquininha/PIX): conciliada pelo EDI com a taxa real
+  contaBancariaId String? // conta onde cai o recebimento à vista (vazio = Caixa)
+  pagamentos      VendaPagamento[]
+  lancamentos     Lancamento[]
+  orcamentos      Orcamento[]
+  parcelasOrc     OrcamentoParcela[]
+  vendas          Venda[]            @relation("VendaForma")
+  parcelasVen     VendaParcela[]
+  ordens          OrdemServico[]     @relation("OsForma")
+  parcelasOs      OsParcela[]
+  compras         Compra[]           @relation("CompraForma")
+  parcelasCompra  CompraParcela[]
+  contratos       Contrato[]
 }
 
 /// Grupo da DRE gerencial para onde a categoria soma.
@@ -2300,4 +2302,48 @@ model EnvioFrete {
 
   @@index([vendaId])
   @@index([situacao])
+}
+
+/// PIX dinâmico gerado no PDV pelo PagSeguro (API de pedidos). A venda só fecha depois de PAGA.
+model CobrancaPix {
+  id        String    @id @default(cuid())
+  pedidoId  String    @unique // ORDE_… no PagSeguro
+  qrId      String?
+  texto     String // PIX copia e cola
+  valor     Decimal   @db.Decimal(14, 2)
+  situacao  String    @default("PENDENTE") // PENDENTE | PAGA | CANCELADA | EXPIRADA
+  vendaId   String?   @unique
+  caixaId   String?
+  usuarioId String?
+  expiraEm  DateTime
+  pagaEm    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+/// Linha do extrato EDI do PagSeguro (uma por parcela de cada venda na maquininha ou PIX), ligada à conta a receber.
+model TransacaoPagSeguro {
+  id               String    @id @default(cuid())
+  codigo           String // codigo_transacao
+  parcela          Int       @default(1)
+  totalParcelas    Int       @default(1)
+  dataVenda        DateTime
+  meio             String // CREDITO | DEBITO | PIX | OUTRO
+  valorBruto       Decimal   @db.Decimal(14, 2) // valor da parcela
+  taxa             Decimal   @default(0) @db.Decimal(14, 2)
+  valorLiquido     Decimal   @db.Decimal(14, 2)
+  dataPrevista     DateTime? @db.Date
+  pagaEm           DateTime? @db.Date
+  nsu              String?
+  cartao           String? // bandeira/final
+  situacao         String    @default("SEM_CONTA") // SEM_CONTA | CONCILIADA | RECEBIDA | IGNORADA
+  lancamentoId     String?   @unique
+  taxaLancamentoId String?
+  dados            Json      @default("{}")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([codigo, parcela])
+  @@index([situacao])
+  @@index([dataVenda])
 }

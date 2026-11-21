@@ -134,6 +134,7 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Fluxo de caixa", href: "/financeiro/fluxo", icone: "grafico" },
       { rotulo: "Conciliação bancária", href: "/financeiro/conciliacao", icone: "conciliacao" },
       { rotulo: "Boletos pagos sem conta", href: "/financeiro/avisos-boletos", icone: "alerta" },
+      { rotulo: "Conciliação PagSeguro", href: "/pagseguro", icone: "cartao" },
       { rotulo: "DRE", href: "/financeiro/dre", icone: "dre" },
       {
         rotulo: "Opções auxiliares", href: "/financeiro/contas", icone: "auxiliares", filhos: [
@@ -175,6 +176,7 @@ export const MENU: ItemMenu[] = [
           { rotulo: "Banco Inter (API)", href: "/financeiro/conciliacao/inter", icone: "conciliacao" },
           { rotulo: "WhatsApp (MXChat)", href: "/whatsapp", icone: "whatsapp" },
           { rotulo: "Frete (Melhor Envio)", href: "/frete/configuracoes", icone: "frete" },
+          { rotulo: "PagSeguro", href: "/pagseguro/configuracoes", icone: "cartao" },
         ],
       },
       { rotulo: "Migração", href: "/migracao", icone: "migracao" },
@@ -191,6 +193,8 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/tecnico", rotulo: "Técnico", cor: "#e8730c", icone: "os" },
   { prefixo: "/vendas", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/contratos", rotulo: "Contratos", cor: "#0e7490", icone: "contratos" },
+  { prefixo: "/pagseguro/configuracoes", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
+  { prefixo: "/pagseguro", rotulo: "Financeiro", cor: "#2f6fd6", icone: "financeiro" },
   { prefixo: "/frete/configuracoes", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/frete", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/pdv", rotulo: "PDV", cor: "#2e9d4f", icone: "balcao" },
