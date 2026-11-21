@@ -143,6 +143,19 @@ model Sessao {
   @@index([usuarioId])
 }
 
+/// Sessão do cliente na Área do Cliente (separada da sessão dos funcionários).
+model SessaoCliente {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  pessoaId  String
+  pessoa    Pessoa   @relation(fields: [pessoaId], references: [id], onDelete: Cascade)
+  expira    DateTime
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([pessoaId])
+}
+
 enum PapelUsuario {
   ADMIN
   GERENTE
@@ -198,6 +211,11 @@ model Pessoa {
   limiteCredito        Decimal?         @db.Decimal(14, 2) // vazio = sem limite
   excederLimite        Boolean          @default(false)
   areaCliente          Boolean          @default(false)
+  // Área do Cliente (portal /area-cliente): senha própria do cliente e link de convite/troca de senha (só o hash)
+  portalSenhaHash      String?
+  portalConviteHash    String?          @unique
+  portalConviteExpira  DateTime?
+  portalUltimoAcesso   DateTime?
   foto                 Bytes?
   fotoTipo             String?
   camposExtras         Json? // { [CampoExtra.id]: valor }
@@ -223,6 +241,7 @@ model Pessoa {
   compras         Compra[]
   contratos       Contrato[]
   chamados        Chamado[]
+  sessoesPortal   SessaoCliente[]
 
   @@index([nome])
 }

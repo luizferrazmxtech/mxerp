@@ -4,7 +4,7 @@ import { extensaoLoja } from "@/lib/empresa/loja";
 
 const GRAVACOES = new Set(["create", "createMany", "createManyAndReturn", "update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
 // login (sessão) e a licença guardada continuam gravando no modo só leitura
-const LIVRES_SO_LEITURA = new Set(["Sessao", "Configuracao"]);
+const LIVRES_SO_LEITURA = new Set(["Sessao", "SessaoCliente", "Configuracao"]);
 
 /** Mensalidade da revenda muito atrasada (licença "só leitura" vinda da Central): nada grava. */
 const extensaoLicenca = Prisma.defineExtension({

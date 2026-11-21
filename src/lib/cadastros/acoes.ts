@@ -111,16 +111,6 @@ export async function excluirAnotacaoAcao(id: string) {
   return { ok: true, mensagem: "Anotação excluída" };
 }
 
-/** Botão verde "Habilitar Área do Cliente" (o portal do cliente ainda não existe; fica marcado no cadastro). */
-export async function areaClienteAcao(id: string) {
-  await exigirUsuario(["ADMIN", "GERENTE", "OPERADOR"]);
-  const p = await prisma.pessoa.findUniqueOrThrow({ where: { id }, select: { areaCliente: true, email: true } });
-  if (!p.areaCliente && !p.email) return { ok: false, mensagem: "Cadastre o e-mail do cliente antes de habilitar a Área do Cliente." };
-  await prisma.pessoa.update({ where: { id }, data: { areaCliente: !p.areaCliente } });
-  revalidatePath(`/clientes/${id}`);
-  return { ok: true, mensagem: p.areaCliente ? "Área do Cliente desabilitada" : "Área do Cliente habilitada" };
-}
-
 const PODE_FUNC = ["ADMIN", "GERENTE"] as const;
 
 export async function salvarFuncionarioForm(_: Resultado, form: FormData): Promise<Resultado> {

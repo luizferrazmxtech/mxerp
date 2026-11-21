@@ -1,9 +1,8 @@
 "use client";
 
-import { useActionState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useActionState } from "react";
 import Icone from "@/components/Icone";
-import { anexarAcao, anotarAcao, areaClienteAcao, type Resultado } from "@/lib/cadastros/acoes";
+import { anexarAcao, anotarAcao, type Resultado } from "@/lib/cadastros/acoes";
 
 function Aviso({ r }: { r: Resultado }) {
   if (!r) return null;
@@ -37,13 +36,3 @@ export function FormAnotacao({ pessoaId, caminho }: { pessoaId: string; caminho:
   );
 }
 
-export function BotaoAreaCliente({ id, habilitada }: { id: string; habilitada: boolean }) {
-  const [pendente, start] = useTransition();
-  const router = useRouter();
-  return (
-    <button type="button" className="btn-verde" disabled={pendente}
-      onClick={() => start(async () => { const r = await areaClienteAcao(id); if (!r.ok) window.alert(r.mensagem); router.refresh(); })}>
-      <Icone nome="pessoa" size={15} /> {habilitada ? "Desabilitar Área do Cliente" : "Habilitar Área do Cliente"}
-    </button>
-  );
-}

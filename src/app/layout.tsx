@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import { usuarioAtual } from "@/lib/auth/atual";
 import AppShell from "@/components/shell/AppShell";
@@ -18,7 +19,9 @@ const PAPEL: Record<string, string> = { ADMIN: "Administrador", GERENTE: "Gerent
 const cnpjFmt = (c: string) => c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const usuario = await usuarioAtual();
+  // Área do Cliente: o cliente vê só o portal, mesmo que um funcionário esteja logado no mesmo navegador
+  const portal = (await headers()).get("x-mx-portal") === "1";
+  const usuario = portal ? null : await usuarioAtual();
   const [empresa, lojas] = usuario ? await Promise.all([lojaAtual(), lojasDoUsuario()]) : [null, []];
   const licenca = usuario ? await licencaAtual() : null;
   return (

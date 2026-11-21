@@ -47,10 +47,11 @@ export function Anel({ pct, cor }: { pct: number; cor: CorResumo }) {
  * Cartões de resumo do topo das listas (Total do período, Vencidos, Vencem hoje, A vencer, Recebidos…),
  * no mesmo desenho do Gestão Click. Com `href`, clicar no cartão filtra a lista por aquela situação.
  */
-export default function Resumo({ cartoes }: { cartoes: Cartao[] }) {
+/** `compacto`: duas colunas já no celular (Área do Cliente). */
+export default function Resumo({ cartoes, compacto }: { cartoes: Cartao[]; compacto?: boolean }) {
   const cols = cartoes.length >= 5 ? "xl:grid-cols-5" : cartoes.length === 4 ? "xl:grid-cols-4" : "xl:grid-cols-3";
   return (
-    <div className={`no-print mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 ${cols}`}>
+    <div className={`no-print mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 ${compacto ? "grid-cols-2" : "grid-cols-1"} ${cols}`}>
       {cartoes.map((k) => {
         const c = COR[k.cor];
         const corpo = (
@@ -58,13 +59,13 @@ export default function Resumo({ cartoes }: { cartoes: Cartao[] }) {
             <div className="flex min-h-[42px] items-start gap-3">
               <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded ${c.fundo} ${c.texto}`}><Icone nome={k.icone} size={16} strokeWidth={2.2} /></span>
               <span className="flex-1 pt-1.5 text-[13px] font-semibold text-[#495057]">{k.rotulo}</span>
-              {k.pct !== undefined && <Anel pct={k.pct} cor={k.cor} />}
+              {k.pct !== undefined && <span className={compacto ? "hidden sm:block" : undefined}><Anel pct={k.pct} cor={k.cor} /></span>}
             </div>
-            <div className="mt-1.5 text-[24px] font-bold leading-7 text-[#212529]">{k.valor}</div>
+            <div className={`mt-1.5 font-bold leading-7 text-[#212529] ${compacto ? "text-[19px] sm:text-[24px]" : "text-[24px]"}`}>{k.valor}</div>
             {k.legenda && <div className="mt-0.5 text-[12px] text-[#6c757d]">{k.legenda}</div>}
           </>
         );
-        const cls = `block rounded-lg border bg-white p-4 ${k.ativo ? "border-[#0c1b25] ring-1 ring-[#0c1b25]" : "border-[#dee2e6]"}`;
+        const cls = `block rounded-lg border bg-white ${compacto ? "p-3 sm:p-4" : "p-4"} ${k.ativo ? "border-[#0c1b25] ring-1 ring-[#0c1b25]" : "border-[#dee2e6]"}`;
         return k.href
           ? <Link key={k.rotulo} href={k.href} className={`${cls} transition hover:shadow-sm`} title={k.ativo ? "Clique para mostrar todos" : `Mostrar só: ${k.rotulo.toLowerCase()}`}>{corpo}</Link>
           : <div key={k.rotulo} className={cls}>{corpo}</div>;
