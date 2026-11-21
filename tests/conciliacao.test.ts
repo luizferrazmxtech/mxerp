@@ -39,11 +39,60 @@ describe("análise (sem banco)", () => {
     expect(r[1].lancamentoId).toBeNull(); // a conta já foi para a linha certa
   });
 
-  it("conta a receber sem o nome do pagador fica com confiança baixa", () => {
-    const [r] = conc.analisar([t("t1", "2026-11-10", 99, "Pix recebido - Erika Tejima")], [a("l1", "RECEBER", 99, "2026-11-10", "Venda 8258", "Luiz Ferraz ME")], vazio, cats, dia("2026-11-12"));
-    expect(r.confianca).toBeLessThan(60);
-    expect(r.nivel).toBe("baixa");
-    expect(r.motivos.join(" ")).toContain("pagador não identificado");
+  it("não sugere conta de outro cliente só pelo valor (caso FCRJ)", () => {
+    const r = conc.analisar(
+      [t("t1", "2026-09-15", 3999, "Boleto de cobrança recebido - FCRJ ORGANIZACAO CONTABIL LTDA."), t("t2", "2026-09-15", 1779, "Boleto de cobrança recebido - FCRJ ORGANIZACAO CONTABIL LTDA.")],
+      [a("l1", "RECEBER", 4000, "2026-08-10", "Ordem de serviço de nº 6961", "GUSTAVO MORETTI"), a("l2", "RECEBER", 1813.3, "2026-07-14", "Ordem de serviço de nº 6764", "ZPL CONTAINERS")],
+      vazio, cats, dia("2026-11-21"),
+    );
+    for (const x of r) {
+      expect(x.acao).toBe("REVISAR");
+      expect(x.lancamentoId).toBeNull();
+      // continua na lista para escolha manual, com confiança baixa e o aviso
+      expect(x.candidatos[0].confianca).toBeLessThanOrEqual(30);
+      expect(x.candidatos[0].motivos.join(" ")).toContain("pagador não confere");
+    }
+  });
+
+  it("mesmo valor e data, mas nome diferente, não vira sugestão; nem conta a pagar", () => {
+    const [rec, pag] = conc.analisar(
+      [t("t1", "2026-11-10", 99, "Pix recebido - Erika Tejima"), t("t2", "2026-11-10", -100, "Pix enviado - Joao Pereira")],
+      [a("l1", "RECEBER", 99, "2026-11-10", "Venda 8258", "Luiz Ferraz ME"), a("l2", "PAGAR", 100, "2026-11-10", "Frete", "TRANSPORTES RAPIDO LTDA")],
+      vazio, cats, dia("2026-11-12"),
+    );
+    expect(rec.acao).toBe("REVISAR");
+    expect(pag.acao).toBe("REVISAR");
+  });
+
+  it("identifica pelo nosso número do boleto e pelo CNPJ na descrição", () => {
+    const [bol, doc] = conc.analisar(
+      [{ ...t("t1", "2026-11-10", 150, "Boleto de cobrança recebido - FCRJ ORGANIZACAO CONTABIL"), documento: "00012345" }, t("t2", "2026-11-11", 80, "PIX RECEBIDO 12.345.678/0001-95")],
+      [a("l1", "RECEBER", 150, "2026-11-10", "OS 7000", "GUSTAVO MORETTI", { boletos: ["00012345"] }), a("l2", "RECEBER", 80, "2026-11-11", "Venda 1", "ZPL CONTAINERS", { pessoaDocumento: "12345678000195" })],
+      vazio, cats, dia("2026-11-12"),
+    );
+    expect([bol.acao, bol.lancamentoId, bol.nivel]).toEqual(["BAIXAR", "l1", "alta"]);
+    expect(bol.motivos[0]).toBe("nosso número do boleto");
+    expect([doc.acao, doc.lancamentoId]).toEqual(["BAIXAR", "l2"]);
+  });
+
+  it("nome: sobrenome comum e palavras de razão social não bastam", () => {
+    expect(conc.nomeConfere("Pix recebido - Gustavo Silva", "GUSTAVO MORETTI")).toBe(false);
+    expect(conc.nomeConfere("Boleto - FCRJ ORGANIZACAO CONTABIL LTDA", "ORGANIZACAO CONTABIL ALFA LTDA")).toBe(false);
+    expect(conc.nomeConfere("Pix recebido - Tay Motos Ltda", "TAY MOTOS LTDA")).toBe(true);
+    expect(conc.nomeConfere("BOLETO PASSALACQUA", "PASSALACQUA TECH LTDA")).toBe(true);
+  });
+
+  it("despesa sem histórico: categoria pelo ramo de atividade (CNAE)", () => {
+    const cs = [...cats, { id: "terc", nome: "Serviços de terceiros", tipo: "PAGAR" as const }, { id: "comb", nome: "Combustível e veículos", tipo: "PAGAR" as const }];
+    const ramos = new Map([["fcrj organizacao contabil ltda", { cnae: "6920601", documento: "11222333000181" }], ["auto posto ipiranga", { cnae: "4731800", documento: null }]]);
+    const [cont, posto] = conc.analisar(
+      [t("t1", "2026-11-10", -500, "Pagamento efetuado - FCRJ ORGANIZACAO CONTABIL LTDA"), t("t2", "2026-11-10", -200, "Compra no debito - AUTO POSTO IPIRANGA")],
+      [], vazio, cs, dia("2026-11-12"), ramos,
+    );
+    expect([cont.acao, cont.categoriaId]).toEqual(["LANCAR", "terc"]);
+    expect(cont.motivos[0]).toContain("contabilidade");
+    expect(cont.ramo).toContain("6920-6/01");
+    expect([posto.acao, posto.categoriaId]).toEqual(["LANCAR", "comb"]);
   });
 
   it("aprende com o histórico: pessoa, categoria e centro de custo do favorecido", () => {
@@ -134,5 +183,21 @@ describe("análise com banco", () => {
     const lanc = await prisma.lancamento.findFirstOrThrow({ where: { transacaoId: l.transacaoId } });
     expect(lanc.centroCustoId).toBe(cc);
     expect(Number(lanc.valorPago)).toBe(9.9);
+  });
+
+  it("busca o ramo pelo CNPJ do cadastro e sugere a categoria da despesa", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "FavorecidoExtrato"`);
+    await prisma.pessoa.create({ data: { nome: "FCRJ ORGANIZACAO CONTABIL LTDA", documento: "11222333000181" } });
+    await ext.importarExtrato(conta, [{ data: dia("2026-11-10"), valor: -500, descricao: "Pagamento efetuado - FCRJ ORGANIZACAO CONTABIL LTDA.", chave: "f1" }], { baixarAutomatico: false });
+    const consultados: string[] = [];
+    const r = await conc.buscarRamos({ consultar: async (cnpj) => { consultados.push(cnpj); return { cnae: "6920601", razaoSocial: "FCRJ" }; } });
+    expect(consultados).toEqual(["11222333000181"]);
+    expect(r).toMatchObject({ consultados: 1, achados: 1 });
+    const [l] = await conc.analisarExtrato();
+    const terc = await prisma.categoriaFinanceira.findFirstOrThrow({ where: { nome: "Serviços de terceiros" } });
+    expect([l.acao, l.categoriaId]).toEqual(["LANCAR", terc.id]);
+    // segunda vez não consulta de novo
+    await conc.buscarRamos({ consultar: async (c) => { consultados.push(c); return { cnae: "", razaoSocial: "" }; } });
+    expect(consultados).toHaveLength(1);
   });
 });

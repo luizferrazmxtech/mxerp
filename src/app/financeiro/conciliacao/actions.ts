@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { conciliarTx, desfazerTx, importarExtrato, lancarAvulsoTx, lerExtrato } from "@/lib/financeiro/extrato";
 import { sincronizarInter } from "@/lib/financeiro/inter";
+import { buscarRamos } from "@/lib/financeiro/conciliacao";
 import { sincronizarBoletos } from "@/lib/financeiro/boletos";
 
 export type Estado = { ok: boolean; mensagem: string } | null;
@@ -23,7 +24,9 @@ export async function enviarExtrato(_: Estado, form: FormData): Promise<Estado> 
   if (!contaId) return { ok: false, mensagem: "Escolha a conta bancária do extrato" };
   try {
     const ts = await lerExtrato(arquivo.name, Buffer.from(await arquivo.arrayBuffer()));
-    return feito(resumo(await importarExtrato(contaId, ts)));
+    const r = await importarExtrato(contaId, ts);
+    await buscarRamos({ limite: 10 }).catch(() => null);
+    return feito(resumo(r));
   } catch (e) { return falha(e); }
 }
 
@@ -33,6 +36,7 @@ export async function puxarInter(_: Estado, form: FormData): Promise<Estado> {
     const dias = Number(form.get("dias") || 7);
     const b = await sincronizarBoletos({ dias });
     const r = await sincronizarInter({ dias });
+    await buscarRamos({ limite: 10 }).catch(() => null);
     return feito(`Inter (${r.conta}): ${resumo(r)}${b ? ` Boletos: ${b.baixados} pago(s) baixado(s)${b.erros.length ? ` · ${b.erros[0]}` : ""}.` : ""}`);
   } catch (e) { return falha(e); }
 }
@@ -79,4 +83,24 @@ export async function desfazer(form: FormData) {
   await exigirUsuario(["ADMIN", "GERENTE"]);
   await prisma.$transaction((tx) => desfazerTx(tx, str(form.get("transacaoId"))));
   feito("");
+}
+
+/** Consulta o CNPJ dos favorecidos de despesas para achar o ramo de atividade (CNAE) e sugerir a categoria. */
+export async function buscarRamosAcao(): Promise<Estado> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
+  try {
+    const r = await buscarRamos({ limite: 20 });
+    if (!r.consultados) return feito("Nenhum favorecido novo com CNPJ conhecido. Abra a linha (⋮) e informe o CNPJ de quem recebeu.");
+    return feito(`${r.consultados} CNPJ consultado(s), ${r.achados} com ramo de atividade.${r.erros.length ? ` Falhas: ${[...new Set(r.erros)].slice(0, 2).join("; ")}` : ""}`);
+  } catch (e) { return falha(e); }
+}
+
+/** Grava o CNPJ que a pessoa digitou para um favorecido do extrato e consulta o ramo dele. */
+export async function informarCnpjFavorecido(chave: string, documento: string): Promise<Estado> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
+  try {
+    const r = await buscarRamos({ chave: String(chave), documento: String(documento) });
+    if (r.erros.length) return { ok: false, mensagem: `CNPJ gravado, mas a consulta falhou: ${r.erros[0]}` };
+    return feito(r.achados ? "Ramo de atividade encontrado." : "CNPJ gravado, sem CNAE na consulta.");
+  } catch (e) { return falha(e); }
 }

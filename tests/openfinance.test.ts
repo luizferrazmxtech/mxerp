@@ -82,7 +82,9 @@ describe("open finance (Pluggy)", () => {
     await expect(of.vincularConta(outra.id, erp.id)).rejects.toThrow(/já recebe o extrato/);
 
     const cat = await prisma.categoriaFinanceira.findFirstOrThrow({ where: { tipo: "PAGAR" } });
-    const luz = await prisma.lancamento.create({ data: { tipo: "PAGAR", descricao: "Conta de energia", categoriaId: cat.id, valor: 350.4, vencimento: new Date("2026-11-18T00:00:00Z"), competencia: new Date("2026-11-01T00:00:00Z") } });
+    // só baixa sozinho quando o fornecedor confere com o extrato (valor e data não bastam)
+    const energia = await prisma.pessoa.create({ data: { nome: "ENERGIA SA" } });
+    const luz = await prisma.lancamento.create({ data: { tipo: "PAGAR", descricao: "Conta de energia", pessoaId: energia.id, categoriaId: cat.id, valor: 350.4, vencimento: new Date("2026-11-18T00:00:00Z"), competencia: new Date("2026-11-01T00:00:00Z") } });
 
     const r = await of.sincronizarOpenFinance({ fetch: p.f, hoje });
     expect(r.bancos?.["Itaú Empresas"]).toBe("ITAÚ MXTECH: 3 novas, 1 baixadas");
