@@ -29,7 +29,7 @@ type Opcoes = {
   carros?: { equipeId: string; localId: string; nome: string }[];
 };
 
-type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; situacao?: SituacaoEstoque; minimo?: number; valores: { tipoValorId: string; valor: number }[] };
+type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; fisicoCarros?: number | null; situacao?: SituacaoEstoque; minimo?: number; valores: { tipoValorId: string; valor: number }[] };
 type ServicoBusca = { id: string; codigo: string; nome: string; preco: number };
 
 const n2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -92,7 +92,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                 <td>
                   {l.produtoId ? (
                     <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}
-                      {l.disponivel != null && <span className={`block text-[11px] ${l.disponivel < (lerNumero(l.quantidade) ?? 0) ? "text-red-600" : "text-slate-500"}`}>Disponível: {l.disponivel.toLocaleString("pt-BR")} {l.unidade}</span>}
+                      {l.disponivel != null && <span className={`block text-[11px] ${l.disponivel < (lerNumero(l.quantidade) ?? 0) ? "text-red-600" : "text-slate-500"}`}>Disponível: {l.disponivel.toLocaleString("pt-BR")} {l.unidade}{l.nosCarros ? <span className="text-sky-700"> · {l.nosCarros.toLocaleString("pt-BR")} nos carros</span> : null}</span>}
                       {os && (op.carros ?? []).length > 0 && (
                         <label className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">Sai de
                           <select className={`rounded border px-1 py-0.5 text-[11px] ${l.localOrigemId ? "border-marca bg-teal-50 text-marca-escura" : "border-slate-300"}`} value={l.localOrigemId ?? ""} onChange={(e) => setProd(i, { localOrigemId: e.target.value })}>
@@ -104,8 +104,8 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                       )}</div>
                   ) : (
                     <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus larguraMin={560} classeLinha={(p) => fundoEstoque(p.situacao)}
-                      linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} unidade={p.unidade} valor={p.valores.find((v) => v.tipoValorId === padrao)?.valor ?? p.preco} disponivel={p.disponivel} situacao={p.situacao} minimo={p.minimo} />}
-                      onEscolher={(p) => p && setProd(i, { produtoId: p.id, nome: p.nome, codigo: p.codigo, unidade: p.unidade, valores: p.valores, disponivel: p.disponivel, tipoValorId: padrao,
+                      linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} unidade={p.unidade} valor={p.valores.find((v) => v.tipoValorId === padrao)?.valor ?? p.preco} disponivel={p.disponivel} situacao={p.situacao} minimo={p.minimo} nosCarros={p.fisicoCarros} />}
+                      onEscolher={(p) => p && setProd(i, { produtoId: p.id, nome: p.nome, codigo: p.codigo, unidade: p.unidade, valores: p.valores, disponivel: p.disponivel, nosCarros: p.fisicoCarros, tipoValorId: padrao,
                         valorUnit: n2(p.valores.find((v) => v.tipoValorId === padrao)?.valor ?? p.preco) })} />
                   )}
                 </td>

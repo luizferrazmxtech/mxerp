@@ -21,7 +21,7 @@ export async function whereProdutos(sp: ParamsLista): Promise<Prisma.ProdutoWher
   if (sp.q?.trim()) and.push({ id: { in: await idsPorPalavras("Produto", sp.q, ["nome", "codigo", "gtin"], "gtin") } });
   if (sp.nome?.trim()) and.push({ id: { in: await idsPorPalavras("Produto", sp.nome, ["nome"]) } });
   if (sp.codigo) and.push({ OR: [{ codigo: cont(sp.codigo) }, { gtin: sp.codigo.trim() }] });
-  if (sp.loja) and.push({ lojas: { has: sp.loja } });
+  if (sp.loja) and.push({ OR: [{ lojas: { has: sp.loja } }, { lojas: { isEmpty: true } }] }); // sem loja marcada = todas
   if (sp.grupo) {
     const filhos = await prisma.grupoProduto.findMany({ where: { paiId: sp.grupo }, select: { id: true } });
     and.push({ grupoId: { in: [sp.grupo, ...filhos.map((f) => f.id)] } });
@@ -66,7 +66,7 @@ export async function whereServicos(sp: ParamsLista): Promise<Prisma.ServicoWher
   if (sp.q?.trim()) and.push({ id: { in: await idsPorPalavras("Servico", sp.q, ["nome", "codigo"]) } });
   if (sp.nome?.trim()) and.push({ id: { in: await idsPorPalavras("Servico", sp.nome, ["nome"]) } });
   if (sp.codigo) and.push({ codigo: cont(sp.codigo) });
-  if (sp.loja) and.push({ lojas: { has: sp.loja } });
+  if (sp.loja) and.push({ OR: [{ lojas: { has: sp.loja } }, { lojas: { isEmpty: true } }] }); // sem loja marcada = todas
   if (sp.ativo === "sim") and.push({ ativo: true });
   if (sp.ativo === "nao") and.push({ ativo: false });
   if (sp.forn) and.push({ fornecedores: { some: { fornecedorId: sp.forn } } });

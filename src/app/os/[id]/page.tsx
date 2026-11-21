@@ -22,6 +22,7 @@ import FormSituacao from "@/components/orcamentos/FormSituacao";
 import FormItensCarro from "@/components/os/FormItensCarro";
 import DicaSaldo from "@/components/estoque/DicaSaldo";
 import { carrosDasEquipes, livreNosCarros } from "@/lib/estoque/carro";
+import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
 import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import BoletoParcela from "@/components/BoletoParcela";
@@ -53,7 +54,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
     },
   });
   if (!o) notFound();
-  const [situacoes, criador, empresa, anexos, anotacoes, campos, modelo, lancamentos, reservas, orcamento, tecnicos, carros] = await Promise.all([
+  const [situacoes, criador, empresa, anexos, anotacoes, campos, modelo, lancamentos, reservas, orcamento, tecnicos, carros, trabalho] = await Promise.all([
     prisma.situacaoOsConfig.findMany({ orderBy: { ordem: "asc" } }),
     o.criadoPorId ? prisma.usuario.findUnique({ where: { id: o.criadoPorId }, select: { nome: true } }) : null,
     empresaDoDocumento(o.empresaId),
@@ -66,6 +67,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
     prisma.orcamento.findFirst({ where: { osId: id }, select: { id: true, numero: true } }),
     prisma.usuario.findMany({ where: { id: { in: o.tecnicoIds } }, select: { id: true, nome: true } }),
     carrosDasEquipes(),
+    resumoTrabalho(id),
   ]);
   const livreCarro = sp.carro ? await livreNosCarros(o.produtos.map((p) => p.produtoId), carros.map((c) => c.localId)) : new Map<string, number>();
   const h = await headers();
@@ -170,6 +172,24 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             </dl>
             <div className="mt-2 border-t pt-2 text-[11px] text-slate-500">Atualizado em {dataSP(o.updatedAt)} {horaSP(o.updatedAt)}</div>
           </div>
+          {trabalho.estado !== "NAO_INICIADO" && (
+            <div className="cartao p-4 text-[13px]">
+              <div className="mb-1 flex items-center font-semibold">Mão de obra
+                <span className={`ml-auto text-[12px] ${{ TRABALHANDO: "text-emerald-700", PAUSADO: "text-amber-700", FINALIZADO: "text-sky-700", NAO_INICIADO: "" }[trabalho.estado]}`}>
+                  {{ TRABALHANDO: "Trabalhando agora", PAUSADO: "Pausado", FINALIZADO: "Finalizado", NAO_INICIADO: "" }[trabalho.estado]}
+                </span>
+              </div>
+              <div className="text-[22px] font-semibold tabular-nums">{duracao(trabalho.fechadoMs + (trabalho.abertoDesde ? Date.now() - new Date(trabalho.abertoDesde).getTime() : 0))}</div>
+              <ul className="mt-2 space-y-1 border-t pt-2 text-[12px] text-slate-600">
+                {trabalho.trechos.map((t, i) => (
+                  <li key={i} className="flex justify-between gap-2">
+                    <span>{dataSP(new Date(t.inicio))} {horaSP(new Date(t.inicio))}–{t.fim ? horaSP(new Date(t.fim)) : "agora"} <span className="text-slate-400">{t.iniciadoPor}{t.motivo ? ` · ${t.motivo}` : ""}</span></span>
+                    <b className="whitespace-nowrap">{duracao((t.fim ? new Date(t.fim).getTime() : Date.now()) - new Date(t.inicio).getTime())}</b>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {o.situacaoCfg?.exibirCobranca !== false && (
             <div className="cartao p-4 text-[13px]">
               <div className="mb-2 font-semibold">Link de cobrança</div>

@@ -10,9 +10,11 @@ export const fundoEstoque = (s?: SituacaoEstoque | null) => (s ? ROTULO_ESTOQUE[
  * Linha da lista "Digite para buscar" de produtos e serviços: código e nome à esquerda;
  * valor e estoque em destaque à direita, com a cor da situação (em falta, abaixo do mínimo, em estoque…).
  */
-export default function LinhaItemBusca({ codigo, nome, unidade, valor, rotuloValor = "Preço", disponivel, situacao, minimo, extra }: {
+export default function LinhaItemBusca({ codigo, nome, unidade, valor, rotuloValor = "Preço", disponivel, situacao, minimo, extra, nosCarros }: {
   codigo?: string | null; nome: string; unidade?: string | null; valor?: number | null; rotuloValor?: string;
   disponivel?: number | null; situacao?: SituacaoEstoque | null; minimo?: number | null; extra?: React.ReactNode;
+  /** físico nos carros das equipes (fora do disponível da loja) */
+  nosCarros?: number | null;
 }) {
   const est = situacao ? ROTULO_ESTOQUE[situacao] : null;
   return (
@@ -38,6 +40,7 @@ export default function LinhaItemBusca({ codigo, nome, unidade, valor, rotuloVal
               <span className={`mt-0.5 block text-[10px] font-semibold ${est.cor.split(" ")[0]}`}>
                 {est.rotulo}{situacao === "ABAIXO" && minimo ? ` (mín. ${qtd(minimo)})` : ""}
               </span>
+              {!!nosCarros && <span className="mt-0.5 block text-[11px] font-semibold text-sky-700">+{qtd(nosCarros)} nos carros</span>}
             </>
           )}
         </span>

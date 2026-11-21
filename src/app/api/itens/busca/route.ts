@@ -46,6 +46,8 @@ export async function GET(req: Request) {
     return {
       id: p.id, codigo: p.codigo, nome: p.nome, unidade: p.unidade, unidadeCompra: p.unidadeCompra, fatorConversao: Number(p.fatorConversao),
       preco: Number(p.precoVenda), custo: Number(p.custo), fisico: p.controlaEstoque ? e.fisico : null, disponivel,
+      // livre nos carros das equipes (fora do disponível da loja)
+      carros: p.controlaEstoque ? e.carros : null, fisicoCarros: p.controlaEstoque ? e.fisicoCarros : null,
       minimo, maximo, situacao: situacaoEstoque(disponivel, minimo, maximo),
       valores: p.valores.map((v) => ({ tipoValorId: v.tipoValorId, valor: Number(v.valor) })),
     };

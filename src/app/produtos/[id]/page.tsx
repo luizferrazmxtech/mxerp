@@ -194,7 +194,17 @@ export default async function VerProduto({ params, searchParams }: { params: Pro
 
           {aba === "lojas" && (
             <div className="grid gap-3 sm:grid-cols-2">
-              {empresas.map((e) => <div key={e.id} className={`cartao p-3 text-[13px] ${p.lojas.includes(e.id) ? "" : "opacity-50"}`}><b className="uppercase">{e.nomeFantasia || e.razaoSocial}</b><div className="text-[11px]">{p.lojas.includes(e.id) ? "Disponível nesta loja" : "Indisponível"}</div></div>)}
+              {/* sem loja marcada = o produto vale para todas as lojas */}
+              {empresas.map((e) => {
+                const ativa = !p.lojas.length || p.lojas.includes(e.id);
+                const est = saldos.filter((s) => s.local.deposito.empresaId === e.id || (!s.local.deposito.empresaId && empresas.length === 1)).reduce((a, s) => a + Number(s.quantidade), 0);
+                return (
+                  <div key={e.id} className={`cartao p-3 text-[13px] ${ativa ? "" : "opacity-50"}`}>
+                    <b className="uppercase">{e.nomeFantasia || e.razaoSocial}</b>
+                    <div className="text-[11px]">{ativa ? <>Disponível nesta loja{p.controlaEstoque ? <> · estoque {qtd(est)} {p.unidade}</> : null}</> : "Indisponível nesta loja"}</div>
+                  </div>
+                );
+              })}
             </div>
           )}
 

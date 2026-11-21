@@ -7,6 +7,8 @@ import { configOs } from "./config";
 import { definirOrigemItens } from "./itensCarro";
 import { carroDoTecnico } from "@/lib/estoque/carro";
 import { alterarSituacaoOrdem } from "./ordens";
+import { duracao, iniciarTrabalho, pararTrabalho } from "./trabalho";
+import { pode } from "@/lib/auth/permissoesAcao";
 import { anexarFoto, anotarTecnico, excluirFoto, lancarItemTecnico, marcarInstalado, podeMexerNaOs, removerItemTecnico } from "./tecnico";
 
 /** Ações da tela do técnico (/tecnico). Cada uma confere login, a permissão por ação e se o usuário é técnico/equipe da OS. */
@@ -81,5 +83,48 @@ export async function situacaoTecnicoAcao(osId: string, situacaoId: string): Pro
     const r = await alterarSituacaoOrdem(osId, situacaoId, u, { permitirNegativo: (await configOs()).estoqueNegativo });
     atualizar(osId);
     return { ok: true, mensagem: `Situação: ${r.para.nome}.` };
+  } catch (e) { return erro(e); }
+}
+
+// ---------- tempo de mão de obra
+
+const SIT_ANDAMENTO = /andamento|execu[cç][aã]o|executando/i;
+
+/** Iniciar/Retomar. No primeiro início, se a OS está na situação inicial e existe "Em andamento", já passa para ela. */
+export async function iniciarTrabalhoAcao(osId: string): Promise<RespostaTecnico> {
+  const u = await exigirAcao("os.tecnicoItens");
+  try {
+    const { primeiro } = await iniciarTrabalho(u, osId);
+    let extra = "";
+    if (primeiro) {
+      const os = await prisma.ordemServico.findUnique({ where: { id: osId }, select: { situacaoCfg: { select: { padrao: true } } } });
+      const andamento = (await prisma.situacaoOsConfig.findMany({ where: { padrao: false }, orderBy: { ordem: "asc" } })).find((s) => SIT_ANDAMENTO.test(s.nome));
+      if (os?.situacaoCfg?.padrao && andamento && (await pode(u.papel, "os.situacao"))) {
+        try {
+          await alterarSituacaoOrdem(osId, andamento.id, u, { permitirNegativo: (await configOs()).estoqueNegativo });
+          extra = ` OS em ${andamento.nome}.`;
+        } catch { /* a situação não pôde mudar (ex.: estoque): o tempo já está correndo */ }
+      }
+    }
+    atualizar(osId);
+    return { ok: true, mensagem: `${primeiro ? "Trabalho iniciado" : "Trabalho retomado"}: o tempo está contando.${extra}` };
+  } catch (e) { return erro(e); }
+}
+
+export async function pausarTrabalhoAcao(osId: string, motivo: string): Promise<RespostaTecnico> {
+  const u = await exigirAcao("os.tecnicoItens");
+  try {
+    const r = await pararTrabalho(u, osId, { motivo });
+    atualizar(osId);
+    return { ok: true, mensagem: `Pausado. Até agora: ${duracao(r.fechadoMs)} de trabalho.` };
+  } catch (e) { return erro(e); }
+}
+
+export async function finalizarTrabalhoAcao(osId: string): Promise<RespostaTecnico> {
+  const u = await exigirAcao("os.tecnicoItens");
+  try {
+    const r = await pararTrabalho(u, osId, { finalizar: true });
+    atualizar(osId);
+    return { ok: true, mensagem: `Trabalho finalizado: ${duracao(r.fechadoMs)} de mão de obra. Agora mude a situação da OS.` };
   } catch (e) { return erro(e); }
 }
