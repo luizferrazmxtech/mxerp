@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { salvarConfigContratosAcao, salvarEmailAcao, type Resultado } from "@/lib/contratos/acoes";
 import type { ConfigContratos } from "@/lib/contratos/config";
 import type { ConfigEmailTela } from "@/lib/email/email";
@@ -12,9 +12,9 @@ function Msg({ e }: { e: Resultado }) {
 }
 
 export function FormConfigContratos({ c, situacoes }: { c: ConfigContratos; situacoes: { id: string; nome: string }[] }) {
-  const [e, act, p] = useActionState<Resultado, FormData>(salvarConfigContratosAcao, null);
+  const [e, , p, formAct] = useFormAcao<Resultado>(salvarConfigContratosAcao, null);
   return (
-    <form action={act}>
+    <form {...formAct}>
       <Bloco icone="configuracoes" titulo={<>Venda gerada e <b>padrões</b></>} subtitulo="Como a venda de cada cobrança é lançada e os valores que o formulário sugere.">
         <div className="grid gap-3 md:grid-cols-3">
           <Campo rotulo="Situação da venda gerada">
@@ -52,9 +52,9 @@ export function FormConfigContratos({ c, situacoes }: { c: ConfigContratos; situ
 }
 
 export function FormEmail({ c, admin }: { c: ConfigEmailTela | null; admin: boolean }) {
-  const [e, act, p] = useActionState<Resultado, FormData>(salvarEmailAcao, null);
+  const [e, , p, formAct] = useFormAcao<Resultado>(salvarEmailAcao, null);
   return (
-    <form action={act}>
+    <form {...formAct}>
       <Bloco icone="envios" titulo={<>E-mail de <b>envio</b> (SMTP)</>} subtitulo="Conta usada para mandar as cobranças e os lembretes. Gmail/Google Workspace: smtp.gmail.com, porta 465 (SSL) e uma senha de app.">
         <fieldset disabled={!admin} className="grid gap-3 md:grid-cols-4">
           <Campo rotulo="Servidor SMTP" obrigatorio className="md:col-span-2"><input name="host" defaultValue={c?.host ?? ""} placeholder="smtp.gmail.com" className="campo" /></Campo>

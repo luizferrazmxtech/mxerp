@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
+import { useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco } from "@/components/ui/Pagina";
 import { salvarConfigEstoqueAcao, salvarSituacaoCompraAcao, type Resultado } from "@/lib/compras/acoes";
@@ -18,14 +19,14 @@ const SimNao = ({ name, valor, rotulo, dica }: { name: string; valor: boolean; r
 
 /** Situação de compra (Gestão Click): o que ela lança — estoque e/ou financeiro. */
 export function FormSituacaoCompra({ s, usada }: { s?: SituacaoCompraForm; usada: number }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarSituacaoCompraAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarSituacaoCompraAcao, null);
   const [corSel, setCor] = useState(s?.cor ?? "cinza");
   const [lanc, setLanc] = useState(s?.lancamento ?? "NAO");
   const [bloq, setBloq] = useState<string[]>(s?.bloqueados ?? []);
   const livres = PAPEIS.filter(([p]) => !bloq.includes(p));
   const travado = usada > 0;
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       {s && <input type="hidden" name="id" value={s.id} />}
       <Bloco icone="editar" titulo={<>Informe a <b>situação</b> da compra</>} subtitulo="Nome, cor, se é a padrão das compras novas e se aparece na listagem.">
         <div className="grid gap-3 md:grid-cols-[1fr_auto]">
@@ -73,7 +74,7 @@ const DOCS: [string, string][] = [["numeroItem", "Número do item"], ["codigoPro
 
 /** Configurações › Estoque (Gestão Click ?modulo=estoque). */
 export function FormConfigEstoque({ c, ultimos }: { c: ConfigEstoque; ultimos: Record<"cotacao" | "compra" | "ajuste" | "transferencia", number> }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarConfigEstoqueAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarConfigEstoqueAcao, null);
   const [nums, setNums] = useState(Object.fromEntries(Object.entries(ultimos).map(([k, v]) => [k, String(v)])) as Record<string, string>);
   const [lote, setLote] = useState(c.controleLote);
   const [aba, setAba] = useState<"compras" | "cotacoes">("compras");
@@ -83,7 +84,7 @@ export function FormConfigEstoque({ c, ultimos }: { c: ConfigEstoque; ultimos: R
   );
   const LOTE: [string, string][] = [["VENCER", "Primeiro a vencer sai primeiro"], ["ENTRAR", "Primeiro a entrar sai primeiro"], ["MANUAL", "Seleção manual pelo operador"]];
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <Bloco icone="dinheiro" titulo={<>Defina o <b>valor de custo</b> nas compras</>} subtitulo="Como o custo do produto muda quando uma compra lança o estoque.">
         <div className="max-w-md">{sel("custoCompra", c.custoCompra, [["MEDIA", "Média de todas as compras"], ["ULTIMA", "Valor da última compra"], ["NAO", "Não atualizar"]])}</div>
       </Bloco>

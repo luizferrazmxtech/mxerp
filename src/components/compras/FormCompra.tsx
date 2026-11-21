@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
@@ -37,7 +38,7 @@ function Desconto({ valor, pct, onValor, onPct }: { valor: string; pct: boolean;
 export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op: Opcoes }) {
   const [d, setD] = useState(inicial);
   const [editNumero, setEditNumero] = useState(false);
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(salvarCompraForm, null);
+  const [estado, , pendente, formAcao] = useFormAcao<Resultado>(salvarCompraForm, null);
   const set = <K extends keyof InicialCompra>(k: K, v: InicialCompra[K]) => setD((x) => ({ ...x, [k]: v }));
   const tot = totaisCompra(d);
   const servico = d.tipo === "SERVICO";
@@ -128,7 +129,7 @@ export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op
   );
 
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="dados" value={JSON.stringify({ ...d, anexos: undefined, proximoNumero: undefined })} />
 
       <Bloco icone="editar" titulo={<>Informe os <b>dados</b> da compra</>} subtitulo="Número, fornecedor, data de emissão, situação e nota fiscal.">

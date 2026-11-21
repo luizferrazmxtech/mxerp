@@ -1,12 +1,12 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { trocarSenhaCliente, type Estado } from "../../acoes";
 
 export default function FormTrocarSenha() {
-  const [estado, act, pendente] = useActionState<Estado, FormData>(trocarSenhaCliente, null);
+  const [estado, , pendente, formAct] = useFormAcao<Estado>(trocarSenhaCliente, null);
   return (
-    <form action={act} className="max-w-sm space-y-3" key={estado?.ok ? "ok" : "form"}>
+    <form {...formAct} className="max-w-sm space-y-3" key={estado?.ok ? "ok" : "form"}>
       <label className="block"><span className="rotulo">Senha atual</span><input name="atual" type="password" autoComplete="current-password" className="campo h-10" required /></label>
       <label className="block"><span className="rotulo">Nova senha (mínimo 8 caracteres)</span><input name="nova" type="password" minLength={8} autoComplete="new-password" className="campo h-10" required /></label>
       <label className="block"><span className="rotulo">Repita a nova senha</span><input name="confirma" type="password" minLength={8} autoComplete="new-password" className="campo h-10" required /></label>

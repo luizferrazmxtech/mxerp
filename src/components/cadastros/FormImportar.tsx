@@ -1,15 +1,15 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState } from "react";
 import { importarPessoasAcao, type EstadoImportacao } from "@/lib/cadastros/importacao";
 import type { PapelPessoa } from "@/lib/cadastros/tipos";
 
 export default function FormImportar({ papel, nfe, voltar }: { papel: PapelPessoa; nfe: boolean; voltar: string }) {
-  const [r, acao, pendente] = useActionState<EstadoImportacao, FormData>(importarPessoasAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<EstadoImportacao>(importarPessoasAcao, null);
   const res = r?.resultado;
   return (
-    <form action={acao} className="space-y-3">
+    <form {...formAcao} className="space-y-3">
       <input type="hidden" name="papel" value={papel} />
       {nfe && <input type="hidden" name="nfe" value="1" />}
       <input type="file" name="arquivo" multiple={nfe} accept={nfe ? ".xml" : ".xlsx,.csv,.txt"} className="block text-[13px]" />

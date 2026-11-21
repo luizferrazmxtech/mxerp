@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
@@ -35,7 +36,7 @@ const n2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, 
 export default function FormProduto({ inicial, op }: { inicial: InicialProduto; op: Opcoes }) {
   const [d, setD] = useState(inicial);
   const [aba, setAba] = useState("dados");
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(salvarProdutoForm, null);
+  const [estado, , pendente, formAcao] = useFormAcao<Resultado>(salvarProdutoForm, null);
   const [removidas, setRemovidas] = useState<string[]>([]);
   const set = <K extends keyof InicialProduto>(k: K, v: InicialProduto[K]) => setD((x) => ({ ...x, [k]: v }));
   const custoFinal = (lerNumero(d.custo) ?? 0) + (lerNumero(d.despesasAcessorias) ?? 0) + (lerNumero(d.outrasDespesas) ?? 0);
@@ -43,7 +44,7 @@ export default function FormProduto({ inicial, op }: { inicial: InicialProduto; 
   const un = d.unidade || "UN";
 
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="dados" value={JSON.stringify(d)} />
       <input type="hidden" name="ordemFotos" value={d.fotos.join(",")} />
       {removidas.map((r) => <input key={r} type="hidden" name="removerFoto" value={r} />)}

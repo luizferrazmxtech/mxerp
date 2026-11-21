@@ -1,14 +1,14 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { importar, type EstadoMigracao } from "./actions";
 
 export default function Importador() {
-  const [estado, act, pendente] = useActionState<EstadoMigracao, FormData>(importar, null);
+  const [estado, , pendente, formAct] = useFormAcao<EstadoMigracao>(importar, null);
   const r = estado?.resultado;
   return (
     <div className="space-y-4">
-      <form action={act} className="cartao grid gap-3 sm:grid-cols-2">
+      <form {...formAct} className="cartao grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-sm">
           <span>O que é a planilha</span>
           <select name="tipo" className="campo w-full" defaultValue="produtos">

@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
+import { useState } from "react";
 import Icone from "@/components/Icone";
 import { comprarEtiquetaAcao, type Resultado } from "@/lib/frete/acoes";
 import type { CotacaoFrete } from "@/lib/frete/tipos";
@@ -12,7 +13,7 @@ export default function ComprarEtiqueta({ vendaId, escolhido }: { vendaId: strin
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
   const [servico, setServico] = useState<CotacaoFrete | null>(null);
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(comprarEtiquetaAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(comprarEtiquetaAcao, null);
 
   async function cotar() {
     setCarregando(true); setErro("");
@@ -33,7 +34,7 @@ export default function ComprarEtiqueta({ vendaId, escolhido }: { vendaId: strin
       {lista && (
         <div className="cartao overflow-x-auto">
           <TabelaCotacao cotacoes={lista} escolhido={servico?.servicoId ?? null} onEscolher={setServico} rotuloBotao="Escolher" custo />
-          <form action={acao} className="flex flex-wrap items-center gap-3 border-t px-4 py-3">
+          <form {...formAcao} className="flex flex-wrap items-center gap-3 border-t px-4 py-3">
             <input type="hidden" name="vendaId" value={vendaId} />
             <input type="hidden" name="servicoId" value={servico?.servicoId ?? ""} />
             <button className="btn-verde" disabled={!servico || pendente}

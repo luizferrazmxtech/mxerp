@@ -1,13 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { movimentarCaixaAcao, type ResultadoSimples } from "./actions";
 
 export default function MovimentoCaixa({ tipo, contas, disponivel }: { tipo: "SANGRIA" | "SUPRIMENTO"; contas: { id: string; nome: string }[]; disponivel: number }) {
-  const [r, acao, pendente] = useActionState<ResultadoSimples, FormData>(movimentarCaixaAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<ResultadoSimples>(movimentarCaixaAcao, null);
   const sangria = tipo === "SANGRIA";
   return (
-    <form action={acao} className="space-y-3">
+    <form {...formAcao} className="space-y-3">
       <input type="hidden" name="tipo" value={tipo} />
       <label className="block"><span className="rotulo">Valor (R$)</span>
         <input name="valor" className="campo text-right" inputMode="decimal" required autoFocus /></label>

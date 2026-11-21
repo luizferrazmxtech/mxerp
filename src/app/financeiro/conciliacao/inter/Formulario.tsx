@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { removerInter, salvarInter, testarConexao, type Estado } from "./actions";
 
 function Msg({ e }: { e: Estado }) {
@@ -14,10 +14,10 @@ type Atual = {
 type Forma = { id: string; nome: string; boletoInter: boolean };
 
 export function FormInter({ atual, contas, formas }: { atual: Atual; contas: { id: string; nome: string }[]; formas: Forma[] }) {
-  const [e, act, p] = useActionState<Estado, FormData>(salvarInter, null);
+  const [e, , p, formAct] = useFormAcao<Estado>(salvarInter, null);
   const rot = "text-xs text-slate-500";
   return (
-    <form action={act} className="cartao grid gap-3 p-4 md:grid-cols-2">
+    <form {...formAct} className="cartao grid gap-3 p-4 md:grid-cols-2">
       <h2 className="font-semibold md:col-span-2">Credenciais da integração</h2>
       <label className={rot}>Client ID
         <input name="clientId" defaultValue={atual?.clientId ?? ""} required autoComplete="off" className="campo mt-1 font-mono" />
@@ -89,14 +89,14 @@ export function FormInter({ atual, contas, formas }: { atual: Atual; contas: { i
 }
 
 export function TestarRemover({ admin }: { admin: boolean }) {
-  const [e, testar, p] = useActionState<Estado, FormData>(testarConexao, null);
-  const [er, remover, pr] = useActionState<Estado, FormData>(removerInter, null);
+  const [e, , p, formTestar] = useFormAcao<Estado>(testarConexao, null);
+  const [er, , pr, formRemover] = useFormAcao<Estado>(removerInter, null);
   return (
     <div className="space-y-2 pt-2">
       <div className="flex flex-wrap gap-2">
-        <form action={testar}><button className="btn-sec" disabled={p}>{p ? "Testando…" : "Testar conexão"}</button></form>
+        <form {...formTestar}><button className="btn-sec" disabled={p}>{p ? "Testando…" : "Testar conexão"}</button></form>
         {admin && (
-          <form action={remover} onSubmit={(ev) => { if (!window.confirm("Remover a integração com o Banco Inter?")) ev.preventDefault(); }}>
+          <form {...formRemover} onSubmit={(ev) => { if (!window.confirm("Remover a integração com o Banco Inter?")) ev.preventDefault(); }}>
             <button className="btn-sec text-red-700" disabled={pr}>Remover integração</button>
           </form>
         )}

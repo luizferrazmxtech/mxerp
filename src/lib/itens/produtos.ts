@@ -25,7 +25,8 @@ export async function salvarProduto(d: DadosProduto, usuarioId: string | null, i
   if (!d.nome.trim()) throw new Error("Informe o nome do produto");
   if (!d.codigo.trim()) throw new Error("Informe o código interno");
   if (!d.unidade.trim()) throw new Error("Informe a unidade de medida");
-  if (!d.lojas.length) throw new Error("Selecione ao menos uma loja");
+  // sem empresa cadastrada (instalação nova) não há loja para marcar: vazio = todas as lojas
+  if (!d.lojas.length && (await prisma.empresa.count())) throw new Error("Selecione ao menos uma loja");
   const fator = d.converte ? lerNumero(d.fatorConversao) : 1;
   if (d.converte && (!t(d.unidadeCompra) || !fator || fator <= 0)) throw new Error("Informe a unidade de compra e quantas unidades de venda ela tem");
   if (d.possuiComposicao && !d.componentes.some((c) => c.componenteId)) throw new Error("Adicione os componentes do produto");

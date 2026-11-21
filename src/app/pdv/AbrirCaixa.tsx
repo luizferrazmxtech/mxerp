@@ -1,16 +1,16 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Icone from "@/components/Icone";
 import { abrirCaixaAcao, type ResultadoSimples } from "./actions";
 
 /** Tela de abertura do caixa, como no Gestão Click: valor inicial e opção de lançar no financeiro. */
 export default function AbrirCaixa() {
-  const [r, acao, pendente] = useActionState<ResultadoSimples, FormData>(abrirCaixaAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<ResultadoSimples>(abrirCaixaAcao, null);
   const [valor, setValor] = useState("0,00");
   const ref = useRef<HTMLInputElement>(null);
-  const form = useRef<HTMLFormElement>(null);
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => {
       if (e.key === "F2") { e.preventDefault(); ref.current?.focus(); ref.current?.select(); }
@@ -20,7 +20,7 @@ export default function AbrirCaixa() {
   }, []);
   return (
     <div className="flex min-h-[calc(100vh-50px)] flex-col items-center px-4 pt-6">
-      <form ref={form} action={acao} className="w-full max-w-[475px]">
+      <form {...formAcao} className="w-full max-w-[475px]">
         <section className="cartao">
           <div className="rounded-t-md border-b bg-[#f7f7f7] px-4 py-3">
             <h1 className="flex items-center gap-1.5 text-[17px] font-light"><Icone nome="pdv" size={15} /> Abra o <b className="font-semibold">caixa</b> para começar a vender</h1>

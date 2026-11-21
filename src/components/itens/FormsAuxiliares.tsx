@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import { salvarEtiquetaAcao, salvarGradeAcao, salvarGrupoAcao, salvarTipoValorAcao, salvarUnidadeAcao, type Resultado } from "@/lib/itens/auxiliares";
@@ -18,9 +19,9 @@ function Rodape({ r, pendente, voltar, editando }: { r: Resultado; pendente: boo
 }
 
 export function FormGrupo({ g, grupos }: { g?: { id: string; nome: string; paiId: string | null }; grupos: { id: string; nome: string }[] }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarGrupoAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarGrupoAcao, null);
   return (
-    <form action={acao} className="cartao mb-3 flex flex-wrap items-end gap-3 p-4">
+    <form {...formAcao} className="cartao mb-3 flex flex-wrap items-end gap-3 p-4">
       {g && <input type="hidden" name="id" value={g.id} />}
       <label className="min-w-64 flex-1"><span className="rotulo obrig">Nome</span><input name="nome" defaultValue={g?.nome} required autoFocus className="campo" /></label>
       <label className="min-w-64 flex-1"><span className="rotulo">Grupo pai</span>
@@ -32,9 +33,9 @@ export function FormGrupo({ g, grupos }: { g?: { id: string; nome: string; paiId
 }
 
 export function FormUnidade({ u }: { u?: { id: string; nome: string; sigla: string; padrao: boolean } }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarUnidadeAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarUnidadeAcao, null);
   return (
-    <form action={acao} className="cartao mb-3 flex flex-wrap items-end gap-3 p-4">
+    <form {...formAcao} className="cartao mb-3 flex flex-wrap items-end gap-3 p-4">
       {u && <input type="hidden" name="id" value={u.id} />}
       <label className="min-w-64 flex-1"><span className="rotulo obrig">Nome</span><input name="nome" defaultValue={u?.nome} required autoFocus className="campo" placeholder="Ex.: Metro" /></label>
       <label className="w-32"><span className="rotulo obrig">Sigla</span><input name="sigla" defaultValue={u?.sigla} required maxLength={6} className="campo uppercase" placeholder="MT" /></label>
@@ -45,10 +46,10 @@ export function FormUnidade({ u }: { u?: { id: string; nome: string; sigla: stri
 }
 
 export function FormTipoValor({ t, lojas }: { t?: { id: string; nome: string; lucro: number; porRegras: boolean; padrao: boolean; lojas: string[] }; lojas: { id: string; nome: string }[] }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarTipoValorAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarTipoValorAcao, null);
   const marcadas = t?.lojas.length ? t.lojas : lojas.map((l) => l.id);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       {t && <input type="hidden" name="id" value={t.id} />}
       <Bloco icone="valor" titulo={<>Informe os <b>dados</b> do valor de venda</>}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -73,10 +74,10 @@ export function FormTipoValor({ t, lojas }: { t?: { id: string; nome: string; lu
 }
 
 export function FormGrade({ g }: { g?: { id: string; nome: string; variacoes: string[] } }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarGradeAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarGradeAcao, null);
   const [vs, setVs] = useState(g?.variacoes.length ? g.variacoes : [""]);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       {g && <input type="hidden" name="id" value={g.id} />}
       <Bloco icone="editar" titulo={<>Informe o <b>nome</b> da grade</>}>
         <input name="nome" defaultValue={g?.nome} required autoFocus className="campo max-w-md" placeholder="Ex.: Tamanho" />
@@ -118,7 +119,7 @@ export function PreviaFolha({ m, escala = 12 }: { m: MedidasEtiqueta; escala?: n
 }
 
 export function FormEtiqueta({ e }: { e?: Etiqueta }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarEtiquetaAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarEtiquetaAcao, null);
   const [d, setD] = useState<Etiqueta>(e ? { ...e, pagina: paginaDe(e.pagina).chave } : { nome: "", padrao: "Personalizado", ...PADROES_ETIQUETA[0].medidas, mostrarNome: true, mostrarPreco: true, mostrarCodigo: true, mostrarBarras: true });
   const [txt, setTxt] = useState<Record<string, string>>(() => Object.fromEntries((["altura", "largura", "colunas", "linhas", "margemSuperior", "margemLateral", "distVertical", "distHorizontal"] as const).map((k) => [k, fmt(d[k])])));
   const med = (k: keyof MedidasEtiqueta) => ({
@@ -135,7 +136,7 @@ export function FormEtiqueta({ e }: { e?: Etiqueta }) {
     <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={d[k]} onChange={(ev) => setD({ ...d, [k]: ev.target.checked })} /> {rot}<input type="hidden" name={k} value={d[k] ? "1" : "0"} /></label>
   );
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       {e?.id && <input type="hidden" name="id" value={e.id} />}
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
         <div>

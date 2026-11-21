@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
@@ -16,7 +17,7 @@ type ItemBusca = { id: string; codigo: string; nome: string; unidade?: string; d
 
 /** Adicionar/editar cotação: fornecedores (cada um recebe um link), itens a cotar, observações e anexos. */
 export default function FormCotacao({ inicial, anexos = [] }: { inicial: DadosCotacao & { id?: string }; anexos?: { id: string; nome: string }[] }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarCotacaoForm, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarCotacaoForm, null);
   const [d, setD] = useState(inicial);
   const [carregando, start] = useTransition();
   const setF = (i: number, m: Partial<FornecedorCotacaoForm>) => setD((x) => ({ ...x, fornecedores: x.fornecedores.map((f, j) => (j === i ? { ...f, ...m } : f)) }));
@@ -31,7 +32,7 @@ export default function FormCotacao({ inicial, anexos = [] }: { inicial: DadosCo
     });
   });
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="dados" value={JSON.stringify(d)} />
       <Bloco icone="editar" titulo={<>Informe os <b>dados</b> da cotação</>}>
         <div className="grid gap-3 sm:grid-cols-3">

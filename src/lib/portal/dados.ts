@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { diaSP } from "@/lib/datas";
 import { ATIVOS } from "@/lib/financeiro/boletos";
 import { URL_DANFSE } from "@/lib/fiscal/nfse";
 
@@ -219,7 +220,7 @@ export async function contasDe(pessoaId: string, so?: FiltroOrigem) {
       boletos: { orderBy: { createdAt: "desc" }, select: { token: true, situacao: true, linhaDigitavel: true, pixCopiaECola: true, vencimento: true, valor: true } },
     },
   });
-  const hoje = new Date(); hoje.setUTCHours(0, 0, 0, 0);
+  const hoje = diaSP(); // dia de Brasília
   return ls.map((l) => {
     const b = l.boletos.find((x) => ATIVOS.includes(x.situacao));
     return {

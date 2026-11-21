@@ -1,7 +1,7 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState } from "react";
 import { enviarWhatsappOsAcao, type Resultado } from "@/lib/whatsapp/acoes";
 import Icone from "@/components/Icone";
 
@@ -9,10 +9,10 @@ import Icone from "@/components/Icone";
 export default function EnviarWhatsappOs({ id, numeroOs, fone, texto, temSenha, voltar }: {
   id: string; numeroOs: number; fone: string; texto: string; temSenha: boolean; voltar: string;
 }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(enviarWhatsappOsAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(enviarWhatsappOsAcao, null);
   return (
     <div className="cartao mb-3 p-4">
-      <form action={acao} className="space-y-3">
+      <form {...formAcao} className="space-y-3">
         <input type="hidden" name="id" value={id} />
         <div className="flex items-center gap-2 font-semibold"><Icone nome="whatsapp" size={16} /> Enviar a OS nº {numeroOs} pelo WhatsApp (MXChat)</div>
         <div className="grid gap-3 md:grid-cols-[220px_1fr]">

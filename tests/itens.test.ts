@@ -92,6 +92,20 @@ describe("produtos", () => {
     expect(Number(at.valor)).toBe(3); // custo final 2,50 + 20%
   });
 
+  it("sem empresa cadastrada (instalação nova) salva sem loja marcada; com empresa exige a loja", async () => {
+    const outras = await prisma.empresa.findMany({ select: { id: true } });
+    if (!outras.length) {
+      const p = await prod.salvarProduto(dados({ codigo: "35", lojas: [] }), null);
+      expect(p.lojas).toEqual([]);
+    }
+    const e = await prisma.empresa.create({ data: { razaoSocial: "LOJA TESTE ITENS", cnpj: "98765432000198" } });
+    try {
+      await expect(prod.salvarProduto(dados({ codigo: "36", lojas: [] }), null)).rejects.toThrow(/ao menos uma loja/);
+    } finally {
+      await prisma.empresa.delete({ where: { id: e.id } });
+    }
+  });
+
   it("composição não controla estoque próprio e exige componentes", async () => {
     const comp = await prod.salvarProduto(dados({ codigo: "40", quantidadeInicial: "" }), null);
     await expect(prod.salvarProduto(dados({ codigo: "41", possuiComposicao: true, quantidadeInicial: "" }), null)).rejects.toThrow(/componentes/);

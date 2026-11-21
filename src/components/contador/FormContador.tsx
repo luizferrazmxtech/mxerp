@@ -1,15 +1,15 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { enviarContadorAcao, salvarContadorAcao, type Resultado } from "@/lib/contador/acoes";
 import type { ConfigContador } from "@/lib/contador/contador";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 
 /** Configurações → Integrações → Contador. */
 export default function FormContador({ c }: { c: ConfigContador }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarContadorAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarContadorAcao, null);
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <Bloco icone="email" titulo={<>Envio mensal ao <b>contador</b></>} subtitulo="Todo mês, a partir do dia escolhido, o sistema manda ao contador um .zip com os XMLs do mês anterior de cada CNPJ e um resumo em planilha.">
         <div className="grid gap-3 md:grid-cols-4">
           <label className="flex items-center gap-2 text-[13px] md:col-span-4"><input type="checkbox" name="ativo" defaultChecked={c.ativo} /> <b>Mandar sozinho todo mês</b></label>
@@ -36,9 +36,9 @@ export default function FormContador({ c }: { c: ConfigContador }) {
 
 /** Botão "Enviar agora" de uma empresa e mês. */
 export function EnviarAgora({ empresaId, mes }: { empresaId: string; mes: string }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(enviarContadorAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(enviarContadorAcao, null);
   return (
-    <form action={acao} className="inline-flex items-center gap-2">
+    <form {...formAcao} className="inline-flex items-center gap-2">
       <input type="hidden" name="empresaId" value={empresaId} /><input type="hidden" name="mes" value={mes} />
       <button className="btn-sec py-1 text-[12px]" disabled={pendente}>{pendente ? "Enviando…" : "Enviar agora"}</button>
       {r && <span className={`text-[12px] ${r.ok ? "text-emerald-700" : "text-red-700"}`}>{r.mensagem}</span>}

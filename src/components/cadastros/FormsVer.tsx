@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Icone from "@/components/Icone";
 import { anexarAcao, anotarAcao, type Resultado } from "@/lib/cadastros/acoes";
 
@@ -10,9 +10,9 @@ function Aviso({ r }: { r: Resultado }) {
 }
 
 export function FormAnexo({ entidade, entidadeId, caminho }: { entidade: string; entidadeId: string; caminho: string }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(anexarAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(anexarAcao, null);
   return (
-    <form action={acao} className="mb-3 flex flex-wrap items-center gap-2">
+    <form {...formAcao} className="mb-3 flex flex-wrap items-center gap-2">
       <input type="hidden" name="entidade" value={entidade} />
       <input type="hidden" name="entidadeId" value={entidadeId} />
       <input type="hidden" name="caminho" value={caminho} />
@@ -25,9 +25,9 @@ export function FormAnexo({ entidade, entidadeId, caminho }: { entidade: string;
 }
 
 export function FormAnotacao({ pessoaId, caminho }: { pessoaId: string; caminho: string }) {
-  const [r, acao, pendente] = useActionState<Resultado, FormData>(anotarAcao, null);
+  const [r, , pendente, formAcao] = useFormAcao<Resultado>(anotarAcao, null);
   return (
-    <form action={acao} className="mb-4">
+    <form {...formAcao} className="mb-4">
       <input type="hidden" name="pessoaId" value={pessoaId} />
       <input type="hidden" name="caminho" value={caminho} />
       <textarea name="texto" rows={3} className="campo" placeholder="Escreva uma anotação sobre o cliente" key={r?.ok ? Math.random() : "t"} />

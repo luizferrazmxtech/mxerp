@@ -77,7 +77,7 @@ export async function salvarTipoValorAcao(_: Resultado, f: FormData): Promise<Re
   const id = txt(f, "id"), nome = txt(f, "nome"), lucro = lerNumero(txt(f, "lucro")) ?? 0;
   const padrao = f.get("padrao") === "1", porRegras = f.get("porRegras") === "1", lojas = f.getAll("lojas").map(String);
   if (!nome) return { ok: false, mensagem: "Informe o nome" };
-  if (!lojas.length) return { ok: false, mensagem: "Selecione ao menos uma loja" };
+  if (!lojas.length && (await prisma.empresa.count())) return { ok: false, mensagem: "Selecione ao menos uma loja" }; // sem empresa: vazio = todas
   if (!padrao && !(await prisma.tipoValor.count({ where: { padrao: true, NOT: id ? { id } : undefined } })))
     return { ok: false, mensagem: "Deixe ao menos um valor de venda como padrão" };
   try {

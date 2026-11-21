@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import { gerarCodigoServicoAcao, salvarServicoForm, type Resultado } from "@/lib/itens/acoes";
@@ -24,13 +25,13 @@ const ABAS = [
 export default function FormServico({ inicial, op }: { inicial: InicialServico; op: Opcoes }) {
   const [d, setD] = useState(inicial);
   const [aba, setAba] = useState("dados");
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(salvarServicoForm, null);
+  const [estado, , pendente, formAcao] = useFormAcao<Resultado>(salvarServicoForm, null);
   const [removidas, setRemovidas] = useState<string[]>([]);
   const set = <K extends keyof InicialServico>(k: K, v: InicialServico[K]) => setD((x) => ({ ...x, [k]: v }));
   const txt = (k: keyof DadosServico, extra = "") => ({ className: `campo ${extra}`, value: String(d[k] ?? ""), onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(k, e.target.value as never) });
 
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="dados" value={JSON.stringify(d)} />
       <input type="hidden" name="ordemFotos" value={d.fotos.join(",")} />
       {removidas.map((r) => <input key={r} type="hidden" name="removerFoto" value={r} />)}

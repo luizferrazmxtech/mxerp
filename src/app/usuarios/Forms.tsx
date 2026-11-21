@@ -1,14 +1,14 @@
 "use client";
 
-import { useActionState } from "react";
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import { criarUsuario, redefinirSenha, type Estado } from "./actions";
 
 const Msg = ({ e }: { e: Estado }) => (e ? <p className={`text-sm ${e.ok ? "text-emerald-700" : "text-red-700"}`}>{e.mensagem}</p> : null);
 
 export function NovoUsuario({ papeis }: { papeis: [string, string][] }) {
-  const [e, act, p] = useActionState<Estado, FormData>(criarUsuario, null);
+  const [e, , p, formAct] = useFormAcao<Estado>(criarUsuario, null);
   return (
-    <form action={act} className="cartao grid gap-3 p-4 sm:grid-cols-2">
+    <form {...formAct} className="cartao grid gap-3 p-4 sm:grid-cols-2">
       <div className="font-medium sm:col-span-2">Novo usuário</div>
       <input name="nome" placeholder="Nome" className="campo" required />
       <input name="email" type="email" placeholder="E-mail (é o login)" className="campo" required />
@@ -29,9 +29,9 @@ export function NovoUsuario({ papeis }: { papeis: [string, string][] }) {
 }
 
 export function RedefinirSenha({ id }: { id: string }) {
-  const [e, act, p] = useActionState<Estado, FormData>(redefinirSenha, null);
+  const [e, , p, formAct] = useFormAcao<Estado>(redefinirSenha, null);
   return (
-    <form action={act} className="flex flex-wrap items-center gap-2">
+    <form {...formAct} className="flex flex-wrap items-center gap-2">
       <input type="hidden" name="id" value={id} />
       <input name="senha" type="password" placeholder="Nova senha" minLength={8} className="campo w-36" required autoComplete="new-password" />
       <button className="btn-sec" disabled={p}>Redefinir</button>

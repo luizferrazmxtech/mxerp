@@ -3,6 +3,7 @@ import DicaSaldo from "@/components/estoque/DicaSaldo";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { diaSP } from "@/lib/datas";
 import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { cor, aplicarTags } from "@/lib/orcamentos/tipos";
 import { excluirAnotacaoAcao } from "@/lib/orcamentos/acoes";
@@ -213,7 +214,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
                 <div className="grid gap-2 sm:grid-cols-2">
                   {lancamentos.map((l) => {
                     const recebida = !!l.pagoEm;
-                    const atrasada = !recebida && l.vencimento < new Date(new Date().toISOString().slice(0, 10));
+                    const atrasada = !recebida && l.vencimento < diaSP();
                     return (
                       <div key={l.id} className="cartao p-3 text-[13px]">
                         <div className="flex items-center gap-2"><b>{l.formaPagamento?.nome ?? "A combinar"}</b>

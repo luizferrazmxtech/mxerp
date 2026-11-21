@@ -1,7 +1,8 @@
 "use client";
 
+import { useFormAcao } from "@/components/ui/useFormAcao";
 import Link from "next/link";
-import { useActionState, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { ContribuinteIcms, TipoCampoExtra, TipoPessoa } from "@prisma/client";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
@@ -42,7 +43,7 @@ export default function FormPessoa({ papel, inicial, vendedores, tiposEndereco, 
   tiposEndereco: string[]; tiposContato: string[]; camposExtras: CampoExtraForm[];
 }) {
   const [d, setD] = useState(inicial);
-  const [estado, acao, pendente] = useActionState<Resultado, FormData>(salvarPessoaForm, null);
+  const [estado, , pendente, formAcao] = useFormAcao<Resultado>(salvarPessoaForm, null);
   const [removerFoto, setRemoverFoto] = useState(false);
   const [anexos, setAnexos] = useState(1);
   const set = <K extends keyof InicialPessoa>(k: K, v: InicialPessoa[K]) => setD((x) => ({ ...x, [k]: v }));
@@ -106,7 +107,7 @@ export default function FormPessoa({ papel, inicial, vendedores, tiposEndereco, 
   }
 
   return (
-    <form action={acao}>
+    <form {...formAcao}>
       <input type="hidden" name="papel" value={papel} />
       <input type="hidden" name="dados" value={JSON.stringify(d)} />
       {removerFoto && <input type="hidden" name="removerFoto" value="1" />}

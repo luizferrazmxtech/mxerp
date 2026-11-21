@@ -101,7 +101,7 @@ describe("boletos do Inter", () => {
     expect(r).toEqual({ emitidos: 2, erros: [] });
     expect(f.escopos).toEqual(["boleto-cobranca.read boleto-cobranca.write"]);
 
-    const post = f.chamadas.find((c) => c.metodo === "POST")!.corpo as Record<string, any>;
+    const post = f.chamadas.find((c) => c.metodo === "POST")!.corpo as Record<string, unknown>;
     expect(post).toMatchObject({
       seuNumero: "1", valorNominal: 100, dataVencimento: iso(venc), numDiasAgenda: 30,
       multa: { codigo: "PERCENTUAL", taxa: 2 }, mora: { codigo: "TAXAMENSAL", taxa: 1 },
