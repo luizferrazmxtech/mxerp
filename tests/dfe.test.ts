@@ -111,3 +111,28 @@ describe("manifestação", () => {
     await expect(dfe.manifestar(n.id, "DESCONHECIDA", undefined, { cert, transporte: t })).rejects.toThrow(/conclusiva/);
   });
 });
+
+describe("XML depois da ciência", () => {
+  it("o agendador pede de novo o XML de hora em hora, até a SEFAZ liberar", async () => {
+    const agora = new Date("2026-11-19T13:00:00Z");
+    const n = await prisma.notaRecebida.create({ data: { chave: CHAVE, emitenteDocumento: "98765432000110", emitenteNome: "DIST", emissao: new Date("2026-11-10T12:00:00Z"), valor: 1500, manifestacao: "CIENCIA", manifestadaEm: agora } });
+    await prisma.notaRecebida.create({ data: { chave: CHAVE2, emitenteDocumento: "98765432000110", emitenteNome: "DIST", emissao: new Date("2026-11-10T12:00:00Z"), valor: 10 } });
+    let liberado = false, pedidos = 0;
+    const t: Transporte = async (_url, _acao, corpo) => {
+      pedidos++;
+      expect(corpo).toContain(`<chNFe>${CHAVE}</chNFe>`);
+      return liberado ? ret("138", "0", "0", [["000000000000009", "procNFe_v4.00.xsd", procNFe(CHAVE)]]) : ret("138", "0", "0", [["000000000000008", "resNFe_v1.01.xsd", resNFe(CHAVE)]]);
+    };
+    expect(await dfe.baixarXmlsPendentes({ cert, transporte: t, agora })).toEqual({ baixados: 0, aguardando: 1 });
+    // dentro da mesma hora não pede de novo
+    expect(await dfe.baixarXmlsPendentes({ cert, transporte: t, agora: new Date(agora.getTime() + 600_000) })).toEqual({ baixados: 0, aguardando: 0 });
+    liberado = true;
+    expect(await dfe.baixarXmlsPendentes({ cert, transporte: t, agora: new Date(agora.getTime() + 3600_000) })).toEqual({ baixados: 1, aguardando: 0 });
+    expect(pedidos).toBe(2);
+    expect(await prisma.notaRecebida.findUniqueOrThrow({ where: { id: n.id } })).toMatchObject({ xmlTentativas: 2 });
+    expect((await prisma.notaRecebida.findUniqueOrThrow({ where: { id: n.id } })).xml).toContain("<nfeProc");
+    // prazo de 180 dias da emissão
+    expect(dfe.diasParaManifestar(new Date("2026-11-10T12:00:00Z"), agora)).toBe(170);
+    expect(dfe.diasParaManifestar(new Date("2026-05-01T12:00:00Z"), agora)).toBeLessThan(0);
+  });
+});

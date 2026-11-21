@@ -215,12 +215,54 @@ export async function manifestar(id: string, tipo: TipoManifestacao, justificati
   if (!r.ok) throw new FiscalError(`SEFAZ recusou a manifestação: ${r.cStat} - ${r.xMotivo}`);
   const atual = await prisma.notaRecebida.update({
     where: { id },
-    data: { manifestacao: tipo, manifestadaEm: deps.agora ?? new Date(), protocoloManifesto: r.protocolo, justificativa: justificativa?.trim() || null },
+    data: { manifestacao: tipo, manifestadaEm: deps.agora ?? new Date(), protocoloManifesto: r.protocolo, justificativa: justificativa?.trim() || null, xmlTentativas: 0, xmlTentadoEm: null },
   });
   if (tipo === "CIENCIA" || tipo === "CONFIRMADA") {
     try { return await baixarXmlCompleto(id, deps); } catch { return atual; }
   }
   return atual;
+}
+
+/** Prazo da manifestação do destinatário: 180 dias da emissão. */
+export const PRAZO_MANIFESTACAO_DIAS = 180;
+const DIA = 86400_000;
+/** Dias que faltam para manifestar (negativo: prazo vencido). */
+export const diasParaManifestar = (emissao: Date, agora = new Date()) => Math.floor((emissao.getTime() + PRAZO_MANIFESTACAO_DIAS * DIA - agora.getTime()) / DIA);
+/** Nota que ainda precisa de manifestação conclusiva (sem nada ou só com ciência). */
+export const semConclusiva = { situacao: "AUTORIZADA", OR: [{ manifestacao: null }, { manifestacao: "CIENCIA" }] } satisfies Prisma.NotaRecebidaWhereInput;
+/** Nota com ciência/confirmação cujo XML completo ainda não veio. */
+export const aguardandoXml = { xml: null, situacao: "AUTORIZADA", manifestacao: { in: ["CIENCIA", "CONFIRMADA"] } } satisfies Prisma.NotaRecebidaWhereInput;
+
+export const MAX_TENTATIVAS_XML = 24;
+
+/**
+ * Depois da ciência, a SEFAZ demora de minutos a horas para liberar o XML completo: o agendador pede de novo,
+ * no máximo uma vez por hora por nota e até 24 vezes (depois disso, só no botão "Baixar XML").
+ * Para no primeiro "consumo indevido" (656), que bloqueia o CNPJ por 1 hora.
+ */
+export async function baixarXmlsPendentes(deps: Deps & { empresaId?: string | null; limite?: number } = {}) {
+  const agora = deps.agora ?? new Date();
+  const notas = await prisma.notaRecebida.findMany({
+    where: {
+      ...aguardandoXml, xmlTentativas: { lt: MAX_TENTATIVAS_XML },
+      emissao: { gte: new Date(agora.getTime() - PRAZO_MANIFESTACAO_DIAS * DIA) },
+      OR: [{ xmlTentadoEm: null }, { xmlTentadoEm: { lte: new Date(agora.getTime() - 3600_000 + 60_000) } }],
+      ...(deps.empresaId !== undefined ? { empresaId: deps.empresaId } : {}),
+    },
+    orderBy: { manifestadaEm: "desc" }, take: deps.limite ?? 10,
+  });
+  let baixados = 0, falhas = 0;
+  for (const n of notas) {
+    await prisma.notaRecebida.update({ where: { id: n.id }, data: { xmlTentativas: { increment: 1 }, xmlTentadoEm: agora } });
+    try {
+      await baixarXmlCompleto(n.id, deps);
+      baixados++;
+    } catch (e) {
+      falhas++;
+      if (/\b656\b/.test((e as Error).message)) break;
+    }
+  }
+  return { baixados, aguardando: falhas };
 }
 
 /** Agendador: busca as notas recebidas de cada empresa que tem certificado (a SEFAZ responde por CNPJ). */
@@ -239,6 +281,22 @@ export async function sincronizarDfeTodas() {
     } catch (err) {
       out[e.cnpj] = `erro: ${(err as Error).message}`;
     }
+  }
+  return out;
+}
+
+/** Agendador: novo pedido do XML completo das notas com ciência, em cada empresa com certificado. */
+export async function baixarXmlsPendentesTodas() {
+  const empresas = await prisma.empresa.findMany({ where: { ativa: true }, orderBy: { createdAt: "asc" } });
+  const primeira = empresas[0]?.id;
+  const out: Record<string, string> = {};
+  for (const e of empresas) {
+    try { certificadoDaEmpresa(e); } catch { continue; }
+    // notas antigas sem loja contam como da primeira empresa
+    const r = await baixarXmlsPendentes({ empresaId: e.id });
+    const r0 = e.id === primeira ? await baixarXmlsPendentes({ empresaId: null }) : { baixados: 0, aguardando: 0 };
+    const b = r.baixados + r0.baixados, a = r.aguardando + r0.aguardando;
+    if (b || a) out[e.cnpj] = `${b} XML(s) baixado(s), ${a} ainda aguardando a SEFAZ`;
   }
   return out;
 }

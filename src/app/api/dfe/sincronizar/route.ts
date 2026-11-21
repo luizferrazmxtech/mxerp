@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { sincronizarDfeTodas } from "@/lib/fiscal/dfe";
+import { baixarXmlsPendentesTodas, sincronizarDfeTodas } from "@/lib/fiscal/dfe";
 import { manifestacaoAutomatica } from "@/lib/contador/contador";
 
 /**
@@ -16,7 +16,9 @@ export async function POST(req: Request) {
     const busca = await sincronizarDfeTodas();
     // ciência automática das notas novas e confirmação das que já viraram compra (Configurações → Integrações → Contador)
     const manifestacao = await manifestacaoAutomatica().catch((e: unknown) => ({ erro: e instanceof Error ? e.message : String(e) }));
-    return NextResponse.json({ busca, manifestacao });
+    // XML completo das notas com ciência que a SEFAZ ainda não tinha liberado
+    const xmls = await baixarXmlsPendentesTodas().catch((e: unknown) => ({ erro: e instanceof Error ? e.message : String(e) }));
+    return NextResponse.json({ busca, manifestacao, xmls });
   } catch (e) {
     return NextResponse.json({ erro: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }

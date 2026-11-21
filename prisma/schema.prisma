@@ -1791,6 +1791,8 @@ model NotaRecebida {
   protocoloManifesto String?
   justificativa      String?
   compraId           String? // compra lançada a partir desta nota
+  xmlTentativas      Int       @default(0) // pedidos automáticos do XML completo depois da ciência (o agendador desiste depois de 24)
+  xmlTentadoEm       DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
