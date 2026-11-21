@@ -2,11 +2,12 @@ import Link from "next/link";
 import { Bloco, Campo, Pagina } from "@/components/ui/Pagina";
 import Icone from "@/components/Icone";
 import { prisma } from "@/lib/db";
-import { criarEstoqueEquipeAcao, criarLocal } from "../actions";
+import { criarEstoqueEquipeAcao, criarLocal, renomearDepositoAcao } from "../actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function LocaisPage() {
+export default async function LocaisPage({ searchParams }: { searchParams: Promise<{ renomear?: string; erro?: string }> }) {
+  const sp = await searchParams;
   const [locais, semCarro, usuarios, temEquipes] = await Promise.all([
     prisma.local.findMany({
       include: { deposito: { include: { equipe: { select: { nome: true, membros: true } } } }, _count: { select: { saldos: { where: { quantidade: { not: 0 } } } } } },
@@ -17,6 +18,11 @@ export default async function LocaisPage() {
     prisma.equipe.count({ where: { ativo: true } }),
   ]);
   const doCarro = locais.filter((l) => l.deposito.equipeId);
+  const renomear = sp.renomear ? locais.find((l) => l.depositoId === sp.renomear)?.deposito : undefined;
+  const lojaPadrao = locais.find((l) => !l.deposito.equipeId)?.deposito.nome ?? "Loja";
+  const editarNome = (depositoId: string) => (
+    <Link href={`/estoque/locais?renomear=${depositoId}`} className="ml-1 inline-flex align-middle text-slate-400 hover:text-marca" title="Editar o nome do estoque"><Icone nome="editar" size={13} /></Link>
+  );
   const nome = new Map(usuarios.map((x) => [x.id, x.nome]));
   return (
     <Pagina titulo="Locais de estoque" icone="locais" trilha={[{ rotulo: "Estoque", href: "/estoque" }, { rotulo: "Locais" }]}>
@@ -24,9 +30,20 @@ export default async function LocaisPage() {
       <Link href="/estoque" className="btn-sec"><Icone nome="direita" size={14} className="rotate-180" /> Voltar ao estoque</Link>
       <span className="ml-auto text-[13px] text-slate-500">{locais.length} local(is) cadastrado(s)</span>
     </div>
+    {renomear && (
+      <Bloco icone="editar" titulo={<>Editar o nome do <b>estoque</b></>} subtitulo="Vale para todos os locais (prateleiras) deste estoque. O histórico e as transferências passam a mostrar o nome novo.">
+        <form action={renomearDepositoAcao} className="flex flex-wrap items-end gap-2">
+          <input type="hidden" name="id" value={renomear.id} />
+          <Campo rotulo="Nome" obrigatorio><input name="nome" className="campo min-w-72" defaultValue={renomear.nome} required maxLength={80} autoFocus /></Campo>
+          <button className="btn">Salvar</button>
+          <Link href="/estoque/locais" className="btn-sec">Cancelar</Link>
+        </form>
+        {sp.erro && <p className="mt-2 text-[13px] text-red-600">{sp.erro}</p>}
+      </Bloco>
+    )}
     <Bloco icone="mais" titulo={<>Adicionar <b>local</b></>} subtitulo="O código é montado sozinho (ex.: LOJA-A-03-2) se ficar em branco.">
       <form action={criarLocal} className="grid items-end gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        <Campo rotulo="Depósito"><input name="deposito" className="campo" defaultValue="Loja" /></Campo>
+        <Campo rotulo="Depósito"><input name="deposito" className="campo" defaultValue={lojaPadrao} /></Campo>
         <Campo rotulo="Corredor"><input name="corredor" className="campo" placeholder="A" /></Campo>
         <Campo rotulo="Prateleira"><input name="prateleira" className="campo" placeholder="03" /></Campo>
         <Campo rotulo="Nível"><input name="nivel" className="campo" placeholder="2" /></Campo>
@@ -35,7 +52,7 @@ export default async function LocaisPage() {
       </form>
     </Bloco>
     <Bloco icone="frete" titulo={<>Estoque dos <b>carros</b></>} subtitulo="Cada equipe é um carro (sempre os mesmos técnicos) com estoque à parte: fica fora do disponível da loja e a peça que a equipe lança na OS sai dele." corpo="p-0">
-      <ol className="grid gap-2 border-b bg-slate-50 p-3 text-[13px] text-slate-700 sm:grid-cols-3">
+      <ol className="space-y-1 border-b bg-slate-50 p-3 text-[13px] text-slate-700">
         <li><b>1. Crie a equipe</b> em <Link href="/os/equipes" className="text-sky-700 underline">Ordens de serviço › Equipes</Link>, com os técnicos que andam no carro.</li>
         <li><b>2. Crie o carro</b> da equipe aqui embaixo.</li>
         <li><b>3. Abasteça</b> o carro com uma transferência (botão Abastecer na lista). Não gera venda.</li>
@@ -66,7 +83,7 @@ export default async function LocaisPage() {
         <tbody>
           {doCarro.map((l) => (
             <tr key={l.id}>
-              <td className="font-semibold">{l.deposito.nome}</td>
+              <td className="font-semibold">{l.deposito.nome}{editarNome(l.depositoId)}</td>
               <td className="text-[13px]">{(l.deposito.equipe?.membros ?? []).map((m) => nome.get(m)).filter(Boolean).join(", ") || "—"}</td>
               <td className="font-mono text-[12px]">{l.codigo}</td>
               <td className="text-right">{l._count.saldos}</td>
@@ -90,7 +107,7 @@ export default async function LocaisPage() {
           {locais.map((l) => (
             <tr key={l.id}>
               <td className="font-semibold">{l.codigo}</td>
-              <td>{l.deposito.nome}</td>
+              <td>{l.deposito.nome}{editarNome(l.depositoId)}</td>
               <td>{l.corredor ?? "—"}</td>
               <td>{l.prateleira ?? "—"}</td>
               <td>{l.nivel ?? "—"}</td>

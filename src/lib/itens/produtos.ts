@@ -173,16 +173,18 @@ export async function ajustarValoresEmMassa(where: Prisma.ProdutoWhereInput, op:
  * `carros` é o que está livre nos carros, que não serve para venda/OS da loja: disponível = físico − reservado − carros.
  */
 export async function estoquesDe(ids: string[]) {
-  if (!ids.length) return new Map<string, { fisico: number; reservado: number; carros: number }>();
-  const [s, r, t] = await Promise.all([
+  if (!ids.length) return new Map<string, { fisico: number; reservado: number; carros: number; fisicoCarros: number }>();
+  const [s, r, t, fc] = await Promise.all([
     prisma.saldo.groupBy({ by: ["produtoId"], where: { produtoId: { in: ids } }, _sum: { quantidade: true } }),
     prisma.reserva.groupBy({ by: ["produtoId"], where: { produtoId: { in: ids }, status: "ATIVA", localId: { not: null } }, _sum: { quantidade: true } }),
     livreNosCarrosPorProduto(ids),
+    prisma.saldo.groupBy({ by: ["produtoId"], where: { produtoId: { in: ids }, local: { deposito: { equipeId: { not: null } } } }, _sum: { quantidade: true } }),
   ]);
-  const m = new Map(ids.map((i) => [i, { fisico: 0, reservado: 0, carros: 0 }]));
+  const m = new Map(ids.map((i) => [i, { fisico: 0, reservado: 0, carros: 0, fisicoCarros: 0 }]));
   for (const x of s) m.get(x.produtoId)!.fisico = Number(x._sum.quantidade ?? 0);
   for (const x of r) m.get(x.produtoId)!.reservado = Number(x._sum.quantidade ?? 0);
   for (const [id, q] of t) m.get(id)!.carros = q;
+  for (const x of fc) m.get(x.produtoId)!.fisicoCarros = Number(x._sum.quantidade ?? 0);
   return m;
 }
 

@@ -38,7 +38,7 @@ export default async function VerProduto({ params, searchParams }: { params: Pro
   });
   if (!p) notFound();
   const aba = ABAS.some((a) => a.chave === sp.aba) ? sp.aba! : "valores";
-  const [foto, criador, campos, saldos, reservado, empresas, depositos] = await Promise.all([
+  const [foto, criador, campos, saldos, reservado, empresas, depositos, reservadoCarros] = await Promise.all([
     prisma.anexo.findFirst({ where: { entidade: "FOTO_PRODUTO", entidadeId: id }, orderBy: [{ ordem: "asc" }, { createdAt: "asc" }], select: { id: true } }),
     p.criadoPorId ? prisma.usuario.findUnique({ where: { id: p.criadoPorId }, select: { nome: true } }) : null,
     prisma.campoExtra.findMany({ where: { entidade: "PRODUTO" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
@@ -46,11 +46,16 @@ export default async function VerProduto({ params, searchParams }: { params: Pro
     prisma.reserva.aggregate({ where: { produtoId: id, status: "ATIVA", localId: { not: null } }, _sum: { quantidade: true } }),
     prisma.empresa.findMany({ select: { id: true, nomeFantasia: true, razaoSocial: true } }),
     todasAsLojas(() => prisma.deposito.findMany({ where: { ativo: true }, orderBy: { nome: "asc" } })),
+    prisma.reserva.aggregate({ where: { produtoId: id, status: "ATIVA", local: { deposito: { equipeId: { not: null } } } }, _sum: { quantidade: true } }),
   ]);
   const custoFinal = Number(p.custo) + Number(p.despesasAcessorias) + Number(p.outrasDespesas);
   const base = `/produtos/${id}`;
   const ce = (p.camposExtras ?? {}) as Record<string, string>;
   const fisico = saldos.reduce((s, x) => s + Number(x.quantidade), 0);
+  // carros das equipes ficam à parte: o disponível é o da loja
+  const fisicoCarros = saldos.filter((x) => x.local.deposito.equipeId).reduce((s, x) => s + Number(x.quantidade), 0);
+  const resCarros = Number(reservadoCarros._sum.quantidade ?? 0);
+  const resLoja = Number(reservado._sum.quantidade ?? 0) - resCarros;
 
   return (
     <Pagina voltar="/produtos" titulo="Visualizar produto" trilha={[{ rotulo: "Produtos", href: "/produtos" }, { rotulo: "Visualizar" }]}>
@@ -141,7 +146,10 @@ export default async function VerProduto({ params, searchParams }: { params: Pro
               <div className="cartao p-4 text-[13px]">
                 <h3 className="mb-2 font-semibold">Onde está (prateleiras)</h3>
                 {saldos.filter((s) => Number(s.quantidade) !== 0).map((s) => <div key={s.localId}>{s.local.deposito.nome} · {s.local.codigo}: <b>{qtd(s.quantidade)}</b></div>)}
-                <div className="mt-2 text-slate-600">Físico {qtd(fisico)} · Reservado {qtd(reservado._sum.quantidade ?? 0)} · Disponível {qtd(fisico - Number(reservado._sum.quantidade ?? 0))}</div>
+                <div className="mt-2 text-slate-600">
+                  {fisicoCarros !== 0 && <>Físico total {qtd(fisico)} · </>}Físico{fisicoCarros !== 0 ? " - Loja" : ""} {qtd(fisico - fisicoCarros)} · Reservado {qtd(resLoja)} · Disponível{fisicoCarros !== 0 ? " na loja" : ""} {qtd(fisico - fisicoCarros - resLoja)}
+                  {fisicoCarros !== 0 && <> · Nos carros {qtd(fisicoCarros)} ({qtd(fisicoCarros - resCarros)} livre)</>}
+                </div>
                 <Link href={`/estoque/produto/${id}`} className="mt-2 inline-block text-marca hover:underline">Ajustar ou transferir estoque</Link>
               </div>
               {sp.ok && <div className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800">Conversão gravada. {sp.ok}</div>}

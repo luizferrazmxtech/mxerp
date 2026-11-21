@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { entrada, saida, transferir } from "@/lib/estoque/estoque";
 import { exigirUsuario } from "@/lib/auth/atual";
@@ -108,4 +109,17 @@ export async function criarEstoqueEquipeAcao(form: FormData) {
   if (!equipeId) return;
   await criarEstoqueEquipe(equipeId, String(form.get("nome") || "") || undefined);
   revalidatePath("/estoque/locais");
+}
+
+/** Renomeia o estoque (depósito): a loja, um depósito ou o carro de uma equipe. */
+export async function renomearDepositoAcao(form: FormData) {
+  await exigirUsuario([...ESTOQUE]);
+  const id = String(form.get("id") || "");
+  const nome = String(form.get("nome") || "").trim().slice(0, 80);
+  if (!id || !nome) return;
+  const outro = await prisma.deposito.findFirst({ where: { nome: { equals: nome, mode: "insensitive" }, id: { not: id } }, select: { id: true } });
+  if (outro) redirect(`/estoque/locais?renomear=${id}&erro=${encodeURIComponent(`Já existe um estoque chamado ${nome}`)}`);
+  await prisma.deposito.update({ where: { id }, data: { nome } });
+  revalidatePath("/estoque/locais");
+  redirect("/estoque/locais");
 }
