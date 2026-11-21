@@ -56,6 +56,29 @@ export async function itensVendidos(p: Periodo, f: FiltroVendas = {}): Promise<I
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
+/** Faturamento e lucro ao longo do período: por dia até 62 dias, senão por mês. */
+export function evolucao(p: Periodo, itens: { data: Date; receita: number; custo: number }[]) {
+  const dias = Math.round((p.ate.getTime() - p.de.getTime()) / 86400000) + 1;
+  const porDia = dias <= 62;
+  const chaves: string[] = [];
+  if (porDia) for (let d = 0; d < dias; d++) chaves.push(new Date(p.de.getTime() + d * 86400000).toISOString().slice(0, 10));
+  else {
+    // só os meses com movimento no começo (para "todo o período" não abrir 5 anos vazios)
+    const primeiro = itens.length ? itens.reduce((m, i) => (new Date(i.data) < m ? new Date(i.data) : m), new Date(p.ate)) : p.de;
+    const ini = new Date(Date.UTC(primeiro.getUTCFullYear(), primeiro.getUTCMonth(), 1));
+    const agora = new Date();
+    const fim = p.ate < agora ? p.ate : agora; // não abre meses futuros vazios
+    for (let d = ini; d <= fim; d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))) chaves.push(d.toISOString().slice(0, 7));
+  }
+  const m = new Map(chaves.map((c) => [c, { receita: 0, lucro: 0 }]));
+  for (const i of itens) {
+    const c = new Date(i.data).toISOString().slice(0, porDia ? 10 : 7);
+    const g = m.get(c);
+    if (g) { g.receita += i.receita; g.lucro += i.receita - i.custo; }
+  }
+  return { porDia, pontos: chaves.map((c) => ({ chave: c, receita: r2(m.get(c)!.receita), lucro: r2(m.get(c)!.lucro) })) };
+}
+
 export type LinhaLucro = { chave: string; rotulo: string; detalhe?: string; href?: string; quantidade: number; receita: number; custo: number; lucro: number; margem: number; documentos: number };
 
 export type AgruparLucro = "documento" | "cliente" | "vendedor" | "produto" | "servico";
@@ -90,6 +113,7 @@ export async function relatorioLucro(p: Periodo, por: AgruparLucro = "documento"
   const produtos = r2(itens.filter((i) => i.tipo === "PRODUTO").reduce((s, i) => s + i.receita, 0));
   return {
     linhas,
+    evolucao: evolucao(p, itens),
     totais: { documentos: docs.size, receita, custo, lucro: r2(receita - custo), margem: receita > 0 ? (receita - custo) / receita : 0, ticket: docs.size ? r2(receita / docs.size) : 0, produtos, servicos: r2(receita - produtos) },
   };
 }

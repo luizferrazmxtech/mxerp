@@ -21,6 +21,8 @@ export function GraficoColunas({ rotulos, series, empilhar = false, formatar, ti
   const { baixo, alto, valores: marcas } = escalaEixo(Math.min(0, ...todos), Math.max(0, ...todos));
   const y = (v: number) => TOPO + ((alto - v) / (alto - baixo)) * (A - TOPO - BASE);
   const larg = (L - ESQ - DIR) / n;
+  // muitos rótulos (ex.: 31 dias, 36 meses): mostra um a cada `passo` para não encavalar; o mouse mostra todos
+  const passo = Math.max(1, Math.ceil(n / Math.floor((L - ESQ - DIR) / Math.max(...rotulos.map((r) => r.length * 6.5 + 6), 1))));
   const cx = (i: number) => ESQ + larg * i + larg / 2;
   const grupo = Math.min(larg * 0.55, 56);
   const lb = empilhar ? grupo : Math.max((grupo - (barras.length - 1) * 2) / barras.length, 4);
@@ -47,7 +49,7 @@ export function GraficoColunas({ rotulos, series, empilhar = false, formatar, ti
                 const top = Math.min(y0, y1), h = Math.max(Math.abs(y0 - y1) - (empilhar && j > 0 ? 2 : 0), 1);
                 return <rect key={b.nome} x={x} y={top} width={lb} height={h} rx={empilhar && j < barras.length - 1 ? 0 : 3} fill={b.cor} />;
               })}
-              <text x={cx(i)} y={A - 8} textAnchor="middle" fontSize="11" fill="#64748b">{r}</text>
+              {i % passo === 0 && <text x={cx(i)} y={A - 8} textAnchor="middle" fontSize="11" fill="#64748b">{r}</text>}
             </g>
           );
         })}
