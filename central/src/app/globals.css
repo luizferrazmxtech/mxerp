@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+@theme {
+  --color-marca: #018e83;
+  --color-marca-escura: #016b63;
+  --color-topo: #1b1e22;
+  --color-lateral: #f3f3f3;
+  --color-fundo: #f9f9f9;
+  --color-tinta: #1b1e22;
+  --font-sans: "Source Sans 3", "Source Sans Pro", ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+@layer base {
+  *, ::before, ::after { border-color: #e3e3e3; }
+}
+
+body {
+  @apply bg-fundo text-[14px] text-[#212529] antialiased;
+}
+
+@layer components {
+/* campos no padrão do Gestão Click: rótulo pequeno em cima, borda cinza, sem sombra */
+.campo {
+  @apply w-full rounded border border-slate-300 bg-white px-2.5 py-[7px] text-[14px] outline-none placeholder:text-slate-400 focus:border-marca focus:ring-2 focus:ring-marca/15 disabled:bg-slate-100 read-only:bg-slate-50;
+}
+.rotulo {
+  @apply mb-1 block text-[12px] text-slate-600;
+}
+.obrig::after { content: " *"; color: #dc2626; }
+
+/* botões: escuro (principal), borda (secundário), laranja (editar), verde (compartilhar) */
+.btn {
+  @apply inline-flex items-center justify-center gap-1.5 rounded bg-tinta px-3 py-[7px] text-[14px] font-medium text-white hover:bg-black disabled:opacity-50;
+}
+.btn-marca {
+  @apply inline-flex items-center justify-center gap-1.5 rounded bg-marca px-3 py-[7px] text-[14px] font-medium text-white hover:bg-marca-escura disabled:opacity-50;
+}
+.btn-sec {
+  @apply inline-flex items-center justify-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-[7px] text-[14px] text-slate-700 hover:bg-slate-50 disabled:opacity-50;
+}
+.btn-laranja {
+  @apply inline-flex items-center justify-center gap-1.5 rounded bg-[#f0a20b] px-3 py-[7px] text-[14px] font-medium text-white hover:bg-[#d98f00];
+}
+.btn-verde {
+  @apply inline-flex items-center justify-center gap-1.5 rounded bg-[#1fa855] px-3 py-[7px] text-[14px] font-medium text-white hover:bg-[#178c46];
+}
+/* botões de ação das linhas (🔍 ✎ ⋮): 28x28, fundo cinza claro, borda e sombra interna embaixo, como no Gestão Click */
+.btn-icone {
+  @apply inline-flex h-[28px] w-[28px] items-center justify-center rounded border border-[#dee2e6] bg-[#f8f9fa] text-[#212529] hover:bg-[#e9ecef];
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.09);
+}
+
+.cartao {
+  @apply rounded-lg border border-[#dee2e6] bg-white;
+}
+
+/* tabela das listagens (medida no Gestão Click): fonte 14px, cabeçalho cinza em negrito,
+   divisórias verticais entre colunas, linhas zebradas e altas (padding 12px) */
+.tabela {
+  @apply w-full border-separate border-spacing-0 text-[14px] text-[#212529];
+}
+.tabela th {
+  @apply border-b border-r border-[#dee2e6] bg-[#f7f7f7] px-3 py-3 text-left align-middle font-bold text-[#212529];
+}
+.tabela td {
+  @apply border-b border-r border-[#dee2e6] px-3 py-3 align-top;
+}
+.tabela tr > :last-child { border-right: 0; }
+.tabela tbody tr:last-child td { border-bottom: 0; }
+.tabela tfoot td { @apply border-t border-b-0 border-[#dee2e6] bg-white py-2.5 align-middle; }
+.tabela tbody tr:nth-child(even) td { background: rgba(0, 0, 0, 0.024); }
+.tabela tbody tr:hover td { background: #eef7f6; }
+/* nomes de cliente/fornecedor sublinhados em tinta escura */
+.tabela td a.sublinhado, .sublinhado { @apply text-[#0c1b25] underline decoration-[#0c1b25]/70 underline-offset-2 hover:decoration-[#0c1b25]; }
+/* tabelas dentro de formulários (itens, parcelas) continuam compactas */
+.tabela.compacta { @apply text-[13px]; }
+.tabela.compacta th, .tabela.compacta td { @apply px-2 py-1.5 align-middle; }
+
+/* situação em badge: borda e texto na mesma cor, fundo claro, bolinha antes (como no Gestão Click) */
+.pilula {
+  @apply inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-[2px] text-[10.5px] font-semibold leading-[14px];
+  border-color: currentColor !important;
+}
+.pilula::before { content: ""; width: 5px; height: 5px; border-radius: 9999px; background: currentColor; }
+
+/* etiqueta de cadastro (CPF/CNPJ, PF/PJ, IE, cidade…): mesma borda da pílula, sem a bolinha */
+.etiqueta {
+  @apply inline-flex items-center whitespace-nowrap rounded border px-1.5 py-px text-[10.5px] font-semibold leading-[14px];
+  border-color: currentColor !important;
+}
+
+.aba {
+  @apply inline-flex items-center gap-1.5 rounded px-3 py-[7px] text-[14px] text-slate-700 hover:bg-slate-100;
+}
+.aba-ativa {
+  @apply bg-tinta text-white hover:bg-tinta;
+}
+}

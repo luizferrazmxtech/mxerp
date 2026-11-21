@@ -101,7 +101,39 @@ Entre em `https://erp.mxtech.inf.br` com o mesmo usuário e senha do PC.
   ```
   Em `vps/.env`, preencha `DESTINO_BACKUP=b2:nome-do-bucket` e ligue com `./vps/mxerp.sh copia-externa ligar`. A cópia sobe de hora em hora.
 
-## 10. Clientes da revenda (manual, até a Central ficar pronta)
+## 10. Central de revenda
+
+A Central é um sistema à parte, só da MXTECH, com banco próprio (`central`). Ela cuida dos clientes da revenda: cria o sistema de cada um, cobra a mensalidade pelo Inter, bloqueia quem atrasa e mostra os backups.
+
+**Ligar:** no DNS, crie `central` (em mxtech.inf.br) apontando para o IP da VPS. Em `vps/.env`, preencha `DOMINIO_CENTRAL=central.mxtech.inf.br` e rode `./vps/mxerp.sh atualizar`. Na instalação nova o `instalar` já pergunta. Abra `https://central.mxtech.inf.br`: a primeira tela cria o administrador.
+
+**Configurar (tela Configurações):**
+1. Endereço público (`https://central.mxtech.inf.br`), multa, juros e régua (aviso 5 dias, só leitura 10, bloqueio 30).
+2. Banco Inter: crie no Inter Empresas **uma integração nova só para a Central**, com permissão de boletos (leitura e escrita). Não use a do MXERP: o Inter guarda um webhook por integração e um apagaria o do outro.
+3. E-mail de envio (SMTP).
+4. Em **Planos**, cadastre os planos (valor, CNPJs e usuários).
+
+**Novo cliente:** *Clientes → Novo cliente*. Ao salvar, a VPS cria banco, sistema e HTTPS em uns 2 minutos (acompanhe em *Tarefas da VPS*). Com um registro curinga no DNS (`*.mxerp.com.br`), qualquer subdomínio já funciona.
+
+**Como a cobrança anda sozinha (de hora em hora, 8h às 20h):** gera a mensalidade 10 dias antes do vencimento, emite o BolePix, manda por e-mail com o PDF, manda lembrete no vencimento e a cada 5 dias de atraso, e baixa quando o Inter avisa o pagamento. O sistema do cliente consulta a Central pela rede interna da VPS:
+
+| Atraso | O que o cliente vê |
+|---|---|
+| até 4 dias | nada |
+| 5 dias | faixa amarela no topo com o boleto |
+| 10 dias | faixa vermelha; o sistema não grava nada (só consulta) |
+| 30 dias | só a tela de pagamento |
+| pagou | libera sozinho em até 5 minutos |
+
+Se a Central sair do ar, o sistema do cliente segue com a última situação conhecida. O plano também limita quantas lojas (CNPJs) e usuários o cliente cadastra.
+
+**O sistema da MXTECH na Central:** aparece sozinho na lista de clientes como *sistema da casa*, sem plano, mensalidade nem bloqueio. Serve para acompanhar se está no ar e os backups dele no mesmo painel (no PC, mostra as cópias da pasta `C:\mxerp\backups`).
+
+**Backups por cliente:** na ficha do cliente, aba *Backups*: horários, *Fazer backup agora*, *Baixar* e *Restaurar* (pede para digitar o nome do cliente e guarda o estado atual antes).
+
+**Versão nova:** depois de testar no PC, *Tarefas da VPS → Atualizar todos para a versão nova* faz o mesmo que `./vps/mxerp.sh atualizar`.
+
+## 11. Clientes da revenda pela linha de comando
 
 ```bash
 ./vps/mxerp.sh novo-cliente jtecobio jtecobio.mxerp.com.br

@@ -309,6 +309,8 @@ model Anexo {
   tamanho    Int
   dados      Bytes
   usuarioId  String?
+  /// item da OS a que a foto se refere (fotos de instalação: entidade OS_FOTO)
+  referencia String?
   createdAt  DateTime @default(now())
 
   @@index([entidade, entidadeId])
@@ -806,6 +808,9 @@ model OrdemServico {
   camposExtras       Json              @default("{}")
   token              String            @unique @default(cuid()) // link de cobrança
   criadoPorId        String?
+  // equipe de técnicos: todos os membros veem a OS na tela do técnico e podem lançar itens
+  equipeId           String?
+  equipe             Equipe?           @relation(fields: [equipeId], references: [id], onDelete: SetNull)
 
   equipamentos OsEquipamento[]
   produtos     OsItemProduto[]
@@ -817,38 +822,59 @@ model OrdemServico {
   @@index([situacao])
   @@index([clienteId])
   @@index([empresaId])
+  @@index([equipeId])
+}
+
+/// Equipe de técnicos (Cadastros › Equipes). A OS da equipe aparece para todos os membros na tela do técnico.
+model Equipe {
+  id        String         @id @default(cuid())
+  nome      String         @unique
+  ativo     Boolean        @default(true)
+  membros   String[] // ids de Usuario
+  createdAt DateTime       @default(now())
+  ordens    OrdemServico[]
 }
 
 model OsItemProduto {
-  id          String       @id @default(cuid())
-  osId        String
-  os          OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
-  produtoId   String
-  produto     Produto      @relation(fields: [produtoId], references: [id])
-  quantidade  Decimal      @db.Decimal(14, 4)
-  valorUnit   Decimal      @db.Decimal(14, 2)
-  custoUnit   Decimal      @default(0) @db.Decimal(14, 4)
-  desconto    Decimal      @default(0) @db.Decimal(14, 2)
-  subtotal    Decimal      @db.Decimal(14, 2)
-  createdAt   DateTime     @default(now())
-  ordem       Int          @default(0)
-  detalhes    String?
-  tipoValorId String?
+  id             String       @id @default(cuid())
+  osId           String
+  os             OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
+  produtoId      String
+  produto        Produto      @relation(fields: [produtoId], references: [id])
+  quantidade     Decimal      @db.Decimal(14, 4)
+  valorUnit      Decimal      @db.Decimal(14, 2)
+  custoUnit      Decimal      @default(0) @db.Decimal(14, 4)
+  desconto       Decimal      @default(0) @db.Decimal(14, 2)
+  subtotal       Decimal      @db.Decimal(14, 2)
+  createdAt      DateTime     @default(now())
+  ordem          Int          @default(0)
+  detalhes       String?
+  tipoValorId    String?
+  // tela do técnico: quem lançou o item e se já foi instalado/feito
+  criadoPorId    String?
+  instalado      Boolean      @default(false)
+  instaladoEm    DateTime?
+  instaladoPorId String?
 }
 
 model OsItemServico {
-  id         String       @id @default(cuid())
-  osId       String
-  os         OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
-  servicoId  String
-  servico    Servico      @relation(fields: [servicoId], references: [id])
-  quantidade Decimal      @default(1) @db.Decimal(14, 4)
-  valorUnit  Decimal      @db.Decimal(14, 2)
-  desconto   Decimal      @default(0) @db.Decimal(14, 2)
-  subtotal   Decimal      @db.Decimal(14, 2)
-  createdAt  DateTime     @default(now())
-  ordem      Int          @default(0)
-  detalhes   String?
+  id             String       @id @default(cuid())
+  osId           String
+  os             OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
+  servicoId      String
+  servico        Servico      @relation(fields: [servicoId], references: [id])
+  quantidade     Decimal      @default(1) @db.Decimal(14, 4)
+  valorUnit      Decimal      @db.Decimal(14, 2)
+  desconto       Decimal      @default(0) @db.Decimal(14, 2)
+  subtotal       Decimal      @db.Decimal(14, 2)
+  createdAt      DateTime     @default(now())
+  ordem          Int          @default(0)
+  detalhes       String?
+  // tela do técnico: quem lançou o item e se já foi instalado/feito
+  criadoPorId    String?
+  instalado      Boolean      @default(false)
+  instaladoEm    DateTime?
+  instaladoPorId String?
 }
 
 /// Situação de OS configurável (Opções auxiliares › Situações), como no Gestão Click.
@@ -1665,26 +1691,26 @@ enum StatusNota {
 }
 
 model NotaFiscal {
-  id         String           @id @default(cuid())
-  cnae      String? // atividade da nota (para o imposto do Simples por CNAE): comércio = CNAE da empresa; NFS-e = CNAE do serviço
+  id           String           @id @default(cuid())
+  cnae         String? // atividade da nota (para o imposto do Simples por CNAE): comércio = CNAE da empresa; NFS-e = CNAE do serviço
   consultadaEm DateTime? // última consulta da situação na SEFAZ
-  empresaId  String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  modelo     ModeloNota
-  serie      Int
-  numero     Int
-  chave      String?          @unique
-  status     StatusNota       @default(RASCUNHO)
-  ambiente   AmbienteFiscal
-  origemTipo OrigemDocumento?
-  origemId   String?
-  valorTotal Decimal          @db.Decimal(14, 2)
-  xml        String? // XML assinado / autorizado (procNFe)
-  protocolo  String?
-  motivo     String? // cStat + xMotivo da última resposta
-  emitidaEm  DateTime?
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
-  eventos    NotaEvento[]
+  empresaId    String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
+  modelo       ModeloNota
+  serie        Int
+  numero       Int
+  chave        String?          @unique
+  status       StatusNota       @default(RASCUNHO)
+  ambiente     AmbienteFiscal
+  origemTipo   OrigemDocumento?
+  origemId     String?
+  valorTotal   Decimal          @db.Decimal(14, 2)
+  xml          String? // XML assinado / autorizado (procNFe)
+  protocolo    String?
+  motivo       String? // cStat + xMotivo da última resposta
+  emitidaEm    DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  eventos      NotaEvento[]
 
   @@unique([modelo, serie, numero, ambiente])
   @@index([origemTipo, origemId])

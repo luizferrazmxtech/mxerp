@@ -7,6 +7,8 @@ import { menuDoPapel } from "@/components/shell/menu";
 import { sair } from "./login/actions";
 import { lojasDoUsuario, lojaAtual, nomeLoja } from "@/lib/empresa/atual";
 import { trocarLoja } from "./empresas/actions";
+import { licencaAtual } from "@/lib/licenca/licenca";
+import FaixaLicenca from "@/components/licenca/FaixaLicenca";
 
 export const metadata: Metadata = {
   title: { default: "MXTECH · Gestão", template: "%s · MXTECH" },
@@ -21,6 +23,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const portal = (await headers()).get("x-mx-portal") === "1";
   const usuario = portal ? null : await usuarioAtual();
   const [empresa, lojas] = usuario ? await Promise.all([lojaAtual(), lojasDoUsuario()]) : [null, []];
+  const licenca = usuario ? await licencaAtual() : null;
   return (
     <html lang="pt-BR">
       <head>
@@ -41,6 +44,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             trocarLoja={trocarLoja}
             sair={sair}
           >
+            {licenca && <FaixaLicenca l={licenca} />}
             {children}
           </AppShell>
         )}

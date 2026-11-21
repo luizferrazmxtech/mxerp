@@ -89,3 +89,7 @@ A senha fica só nesse arquivo, no seu computador. Ela não vai para o banco de 
 - **Outro computador não acessa**: rode o instalador como administrador (libera a porta 3000 no firewall) e confira se a rede do Windows está como *Privada*.
 - **Esqueci a senha do administrador**: outro administrador redefine em Usuários. Se não houver outro: `docker compose exec app npm run usuario:admin -- seu@email.com.br "Seu Nome"` e digite a senha nova.
 - **Mudar a porta**: troque `PORTA=3000` no `.env` e rode `docker compose up -d`.
+
+## Central de revenda (teste no PC)
+
+`powershell -ExecutionPolicy Bypass -File windows\central.ps1` liga a Central em `http://localhost:3100`, com banco próprio. Dá para testar cadastro de planos e clientes, mensalidades, boletos (com o Inter em sandbox) e e-mails. Criar o sistema do cliente, backup e restaurar só acontecem na VPS: no PC essas tarefas ficam como "pendentes". Depois de ligada, o `atualizar.ps1` atualiza a Central junto.

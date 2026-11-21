@@ -18,6 +18,8 @@ export const ACOES = {
   "pdv.sangria": { grupo: "PDV", rotulo: "Fazer sangria e suprimento", padrao: VENDE },
   "os.situacao": { grupo: "Ordens de serviço", rotulo: "Mudar a situação de OS", padrao: TODOS },
   "os.excluir": { grupo: "Ordens de serviço", rotulo: "Excluir OS", padrao: GER },
+  "os.tecnicoItens": { grupo: "Ordens de serviço", rotulo: "Lançar itens e marcar instalados pela tela do técnico", padrao: TODOS },
+  "os.tecnicoFotos": { grupo: "Ordens de serviço", rotulo: "Anexar fotos da instalação pela tela do técnico", padrao: TODOS },
   "orcamento.excluir": { grupo: "Orçamentos", rotulo: "Excluir orçamentos", padrao: GER },
   "compra.excluir": { grupo: "Compras e estoque", rotulo: "Excluir compras", padrao: GER },
   "estoque.ajuste": { grupo: "Compras e estoque", rotulo: "Lançar ajuste de estoque", padrao: ["ADMIN", "GERENTE", "OPERADOR"] as PapelUsuario[] },

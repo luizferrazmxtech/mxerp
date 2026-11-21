@@ -18,7 +18,7 @@ const hoje = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/S
 /** Formulário "Adicionar/Editar OS" no padrão do Gestão Click (o mesmo pedido, com equipamentos e responsáveis). */
 export default async function PaginaFormOs({ id, clienteId }: { id?: string; clienteId?: string }) {
   const u = await usuarioAtual();
-  const [usuarios, situacoes, formas, tiposValor, campos, centros, proximo, cfg, canais, padrao] = await Promise.all([
+  const [usuarios, situacoes, formas, tiposValor, campos, centros, proximo, cfg, canais, padrao, equipes] = await Promise.all([
     prisma.usuario.findMany({ where: { ativo: true }, select: { id: true, nome: true, papel: true, tecnico: true }, orderBy: { nome: "asc" } }),
     prisma.situacaoOsConfig.findMany({ orderBy: { ordem: "asc" } }),
     prisma.formaPagamento.findMany({ where: { ativa: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
@@ -29,6 +29,7 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
     configOs(),
     prisma.canalVenda.findMany({ orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
     situacaoPadraoOs(),
+    prisma.equipe.findMany({ where: { ativo: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
   ]);
   const agora = isoLocalSP(new Date());
   let inicial: InicialOrcamento = {
@@ -73,7 +74,7 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
       parcelas: o.parcelas.map((p) => ({ vencimento: iso(p.vencimento), valor: n2(p.valor), formaPagamentoId: p.formaPagamentoId ?? "", observacao: p.observacao ?? "" })),
       observacoes: o.observacoes ?? "", observacaoInterna: o.observacaoInterna ?? "", camposExtras: (o.camposExtras ?? {}) as Record<string, string>,
       proximoNumero: proximo, anexos,
-      entrada: isoLocalSP(o.entrada), saida: isoLocalSP(o.saida), prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds.length ? o.tecnicoIds : [o.tecnicoId ?? ""], outros: n2(o.outros),
+      entrada: isoLocalSP(o.entrada), saida: isoLocalSP(o.saida), prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds.length ? o.tecnicoIds : [o.tecnicoId ?? ""], equipeId: o.equipeId ?? "", outros: n2(o.outros),
       equipamentos: o.equipamentos.map((e) => ({ equipamento: e.equipamento, marca: s(e.marca), modelo: s(e.modelo), serie: s(e.serie), condicoes: s(e.condicoes), defeitos: s(e.defeitos), acessorios: s(e.acessorios), solucao: s(e.solucao), laudo: s(e.laudo), garantia: s(e.garantia) })),
     };
   }
@@ -82,7 +83,7 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
   return (
     <Pagina titulo={`${acao} OS`} trilha={[{ rotulo: "Ordens de serviços", href: "/os" }, { rotulo: acao }]}>
       <FormOrcamento inicial={inicial} modo="os"
-        op={{ vendedores: usuarios, tecnicos: tecnicos.length ? tecnicos : usuarios, situacoes: situacoes.map((s) => ({ id: s.id, nome: `${s.nome} (${avisoSituacaoOs(s)})` })), formas, tiposValor, campos,
+        op={{ vendedores: usuarios, tecnicos: tecnicos.length ? tecnicos : usuarios, equipes, situacoes: situacoes.map((s) => ({ id: s.id, nome: `${s.nome} (${avisoSituacaoOs(s)})` })), formas, tiposValor, campos,
           centros: centros.map((c) => c.centroCusto!), canais: canalLista(canais.map((c) => c.nome), inicial.canal) }}
         vis={{
           dados: colunasVisiveis(u?.preferencias, "os-campos", CAMPOS_OS, CAMPOS_OS.map((c) => c.chave)),

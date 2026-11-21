@@ -41,7 +41,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
     where: { id },
     include: {
       cliente: { include: { enderecos: { orderBy: { ordem: "asc" } } } }, vendedor: { select: { nome: true, comissao: true } }, tecnico: { select: { nome: true } },
-      situacaoCfg: true, transportadora: { select: { nome: true } }, formaPagamento: true,
+      situacaoCfg: true, transportadora: { select: { nome: true } }, formaPagamento: true, equipe: { select: { nome: true } },
       parcelas: { orderBy: { numero: "asc" }, include: { formaPagamento: { select: { nome: true } } } },
       equipamentos: { orderBy: { ordem: "asc" } },
       produtos: { orderBy: [{ ordem: "asc" }, { createdAt: "asc" }], include: { produto: { select: { id: true, codigo: true, nome: true, unidade: true } } } },
@@ -54,7 +54,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
     prisma.situacaoOsConfig.findMany({ orderBy: { ordem: "asc" } }),
     o.criadoPorId ? prisma.usuario.findUnique({ where: { id: o.criadoPorId }, select: { nome: true } }) : null,
     empresaDoDocumento(o.empresaId),
-    prisma.anexo.findMany({ where: { entidade: "OS", entidadeId: id }, select: { id: true, nome: true, tamanho: true, createdAt: true } }),
+    prisma.anexo.findMany({ where: { entidade: { in: ["OS", "OS_FOTO"] }, entidadeId: id }, select: { id: true, nome: true, tamanho: true, createdAt: true, entidade: true, referencia: true }, orderBy: { createdAt: "asc" } }),
     prisma.anotacao.findMany({ where: { entidade: "OS", entidadeId: id }, orderBy: { createdAt: "desc" } }),
     prisma.campoExtra.findMany({ where: { entidade: "OS" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
     prisma.modeloMensagem.findFirst({ where: { tipo: "OS" }, orderBy: { padrao: "desc" } }),
@@ -78,6 +78,8 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   const ce = (o.camposExtras ?? {}) as Record<string, string>;
   const c = cor(o.situacaoCfg?.cor ?? "cinza");
   const base = `/os/${id}`;
+  const fotosInstalacao = anexos.filter((a) => a.entidade === "OS_FOTO");
+  const fotosDoItem = (itemId: string) => fotosInstalacao.filter((a) => a.referencia === itemId).map((a) => a.id);
   const nomesTecnicos = (tecnicos.length ? o.tecnicoIds.map((t) => tecnicos.find((x) => x.id === t)?.nome) : [o.tecnico?.nome]).filter(Boolean).join(", ");
   const ABAS = [
     { chave: "cliente", rotulo: "Cliente", icone: "pessoa", tem: true }, { chave: "produtos", rotulo: "Produtos/Peças", icone: "produtos", tem: o.produtos.length > 0 },
@@ -147,6 +149,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
               <div><b>Cliente:</b> <Link href={`/clientes/${o.clienteId}`} className="text-marca hover:underline">{o.cliente.nome}</Link></div>
               <div><b>Vendedor:</b> {o.vendedor?.nome ?? "—"}</div>
               <div><b>Técnico:</b> {nomesTecnicos || "—"}</div>
+              {o.equipe && <div><b>Equipe:</b> {o.equipe.nome}</div>}
               <div><b>Saída:</b> {quando(o.saida)}</div>
               {o.prioridade && <div><b>Prioridade:</b> {rotuloPrioridade(o.prioridade)}</div>}
               <div><b>Canal de venda:</b> {o.canal}</div>
@@ -188,6 +191,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                 <div key={l.id} className="cartao p-3 text-[13px]">
                   <div className="flex flex-wrap items-center gap-2"><Link href={`/produtos/${l.produto.id}`} className="font-semibold hover:underline">{l.produto.nome}</Link><span className="pilula border-slate-300 bg-slate-50 text-slate-600">Varejo</span><span className="font-mono text-[11px] text-slate-500">{l.produto.codigo}</span></div>
                   {l.detalhes && <div className="text-[12px] text-slate-500">{l.detalhes}</div>}
+                  <Instalado i={l} fotos={fotosDoItem(l.id)} />
                   <div className="mt-1 grid gap-2 text-[12px] sm:grid-cols-5">
                     <div><span className="text-slate-500">Valor</span><br />{brl(l.valorUnit)}</div>
                     <div><span className="text-slate-500">Quantidade</span><br />{qtd(l.quantidade)} {l.produto.unidade}</div>
@@ -205,7 +209,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             <div className="cartao overflow-x-auto">
               <table className="tabela">
                 <thead><tr><th>Serviço</th><th className="text-right">Quant.</th><th className="text-right">Valor</th><th className="text-right">Desconto</th><th className="text-right">Subtotal</th></tr></thead>
-                <tbody>{o.servicos.map((l) => <tr key={l.id}><td><Link href={`/servicos/${l.servico.id}`} className="hover:underline"><span className="font-mono text-[11px] text-slate-500">{l.servico.codigo}</span> {l.servico.nome}</Link>{l.detalhes && <div className="text-[11px] text-slate-500">{l.detalhes}</div>}</td>
+                <tbody>{o.servicos.map((l) => <tr key={l.id}><td><Link href={`/servicos/${l.servico.id}`} className="hover:underline"><span className="font-mono text-[11px] text-slate-500">{l.servico.codigo}</span> {l.servico.nome}</Link>{l.detalhes && <div className="text-[11px] text-slate-500">{l.detalhes}</div>}<Instalado i={l} fotos={fotosDoItem(l.id)} servico /></td>
                   <td className="text-right">{qtd(l.quantidade)}</td><td className="text-right">{num2(l.valorUnit)}</td><td className="text-right">{Number(l.desconto) ? num2(l.desconto) : ""}</td><td className="text-right font-semibold">{num2(l.subtotal)}</td></tr>)}</tbody>
                 <tfoot><tr><td colSpan={4} className="text-right">Total de serviços</td><td className="text-right font-semibold">{num2(o.totalServicos)}</td></tr></tfoot>
               </table>
@@ -302,8 +306,19 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
           {aba === "anexos" && (
             <div className="cartao p-4">
               <FormAnexo entidade="OS" entidadeId={id} caminho={`${base}?aba=anexos`} />
+              {fotosInstalacao.length > 0 && (
+                <div className="mb-3">
+                  <div className="mb-1 text-[12px] font-semibold uppercase text-slate-500">Fotos da instalação (tela do técnico)</div>
+                  <div className="flex flex-wrap gap-2">
+                    {fotosInstalacao.map((a) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <a key={a.id} href={`/api/cadastros/anexo/${a.id}`} target="_blank" title={a.nome}><img src={`/api/cadastros/anexo/${a.id}`} alt={a.nome} loading="lazy" className="h-24 w-24 rounded border object-cover" /></a>
+                    ))}
+                  </div>
+                </div>
+              )}
               {anexos.length ? (
-                <table className="tabela"><tbody>{anexos.map((a) => <tr key={a.id}><td><a href={`/api/cadastros/anexo/${a.id}`} className="text-marca hover:underline">{a.nome}</a></td><td className="w-36">{dataSP(a.createdAt)}</td>
+                <table className="tabela"><tbody>{anexos.map((a) => <tr key={a.id}><td><a href={`/api/cadastros/anexo/${a.id}`} className="text-marca hover:underline">{a.nome}</a>{a.entidade === "OS_FOTO" && <span className="ml-2 rounded bg-slate-100 px-1.5 text-[10px]">Foto do técnico</span>}</td><td className="w-36">{dataSP(a.createdAt)}</td>
                   <td className="w-12 text-right"><BotaoExcluir acao={excluirAnexoAcao.bind(null, a.id)} pergunta={`Excluir o anexo ${a.nome}?`} /></td></tr>)}</tbody></table>
               ) : <p className="text-[13px] text-slate-500">Nenhum anexo.</p>}
             </div>
@@ -327,5 +342,19 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
         </section>
       </div>
     </Pagina>
+  );
+}
+
+/** Selo "instalado/feito" (marcado na tela do técnico) com as miniaturas das fotos do item. */
+function Instalado({ i, fotos, servico }: { i: { instalado: boolean; instaladoEm: Date | null }; fotos: string[]; servico?: boolean }) {
+  if (!i.instalado && !fotos.length) return null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      {i.instalado && <span className="pilula border-emerald-300 bg-emerald-50 text-emerald-700">{servico ? "Feito" : "Instalado"}{i.instaladoEm ? ` ${dataSP(i.instaladoEm)}` : ""}</span>}
+      {fotos.map((f) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <a key={f} href={`/api/cadastros/anexo/${f}`} target="_blank"><img src={`/api/cadastros/anexo/${f}`} alt="Foto da instalação" loading="lazy" className="h-8 w-8 rounded border object-cover" /></a>
+      ))}
+    </div>
   );
 }

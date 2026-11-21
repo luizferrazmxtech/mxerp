@@ -19,6 +19,7 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/os/situacoes", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/os/mensagens", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/os/configuracoes", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/os/equipes", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/vendas/canais", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/vendas/mensagens", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/vendas/balancas", papeis: ["ADMIN", "GERENTE"] },

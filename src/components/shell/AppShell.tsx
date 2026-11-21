@@ -28,7 +28,7 @@ function ativo(href: string, caminho: string, busca: string) {
   if (busca.includes("entidade=") && p === "/campos-extras") return false; // campos extras de produtos ficam no menu Itens
   if (p === "/orcamentos") return caminho === p || (caminho.startsWith(p + "/") && !/^\/orcamentos\/(servicos|situacoes|mensagens|configuracoes)/.test(caminho));
   if (p === "/vendas") return caminho === p || (caminho.startsWith(p + "/") && !/^\/vendas\/(servicos|balcao|devolucoes|vales|situacoes|canais|mensagens|balancas|configuracoes)/.test(caminho));
-  if (p === "/os") return caminho === p || (caminho.startsWith(p + "/") && !/^\/os\/(painel|situacoes|mensagens|configuracoes)/.test(caminho));
+  if (p === "/os") return caminho === p || (caminho.startsWith(p + "/") && !/^\/os\/(painel|situacoes|equipes|mensagens|configuracoes)/.test(caminho));
   if (p === "/estoque") return caminho === p || caminho.startsWith("/estoque/produto");
   if (p === "/estoque/ajustes") return /^\/estoque\/(ajustes|zerar|inventarios)/.test(caminho);
   if (p === "/compras") return caminho === p || (caminho.startsWith(p + "/") && !/^\/compras\/(servicos|cotacoes|situacoes|mensagens)/.test(caminho));
@@ -41,7 +41,9 @@ export default function AppShell({ menu, usuario, empresa, lojas = [], trocarLoj
   const [seletorLoja, setSeletorLoja] = useState(false);
   const caminho = usePathname();
   const busca = useSearchParams().toString();
-  const pdv = caminho.startsWith("/pdv");
+  // PDV e tela do técnico ocupam a tela toda (sem menu lateral)
+  const pdv = caminho.startsWith("/pdv") || caminho.startsWith("/tecnico");
+  const tecnico = caminho.startsWith("/tecnico");
   const [menuAberto, setMenuAberto] = useState(true);
   const [abertos, setAbertos] = useState<string[]>(() =>
     [...menu.filter((m) => m.filhos?.some((f) => ativoSub(f, caminho, busca))).map((m) => m.rotulo),
@@ -91,7 +93,11 @@ export default function AppShell({ menu, usuario, empresa, lojas = [], trocarLoj
           </button>
         )}
         <div className="ml-auto flex items-center gap-3">
-          {pdv ? (
+          {tecnico ? (
+            <Link href="/os" className="flex items-center gap-1 rounded bg-white/15 px-2 py-1 text-xs hover:bg-white/25">
+              <Icone nome="sair" size={13} /> Sistema completo
+            </Link>
+          ) : pdv ? (
             <Link href="/vendas/balcao" className="flex items-center gap-1 rounded bg-white/15 px-2 py-1 text-xs hover:bg-white/25">
               <Icone nome="sair" size={13} /> Sair do PDV
             </Link>

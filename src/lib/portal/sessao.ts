@@ -21,7 +21,8 @@ const digitos = (s: string) => s.replace(/\D/g, "");
 export async function criarSessaoCliente(pessoaId: string, ip?: string | null) {
   const token = randomBytes(32).toString("base64url");
   await prisma.sessaoCliente.create({ data: { tokenHash: hash(token), pessoaId, ip: ip ?? null, expira: new Date(Date.now() + DURACAO_CLIENTE_MS) } });
-  await semAuditoria(() => prisma.pessoa.update({ where: { id: pessoaId }, data: { portalUltimoAcesso: new Date() } }));
+  // no modo só leitura (licença da Central) o banco recusa a gravação: o cliente entra do mesmo jeito
+  await semAuditoria(() => prisma.pessoa.update({ where: { id: pessoaId }, data: { portalUltimoAcesso: new Date() } })).catch(() => {});
   return token;
 }
 
