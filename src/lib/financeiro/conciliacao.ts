@@ -1,5 +1,5 @@
 import { todasAsLojas } from "@/lib/empresa/loja";
-import { prisma } from "@/lib/db";
+import { prisma, type Tx } from "@/lib/db";
 import { diaSP } from "@/lib/datas";
 import { normalizar } from "@/lib/migracao/planilha";
 import { CATEGORIAS_PESSOAL, garantirCategoriasPessoal, type TipoPagamentoPessoal } from "./padroes";
@@ -55,7 +55,10 @@ export type LinhaAnalise = {
   pontosUrgencia: number;
   /** funcionário cadastrado que recebeu (saída) e o tipo do pagamento */
   funcionario: string | null;
+  funcionarioId: string | null;
   tipoPessoal: string | null;
+  /** regra de conciliação que decidiu a sugestão (aprendida ou cadastrada) */
+  regraId: string | null;
   /** descrição e competência (AAAA-MM-DD) do lançamento avulso sugerido, quando diferem do padrão */
   descricaoLancamento: string | null;
   competencia: string | null;
@@ -182,6 +185,49 @@ const REGRAS: { re: RegExp; tipo: "PAGAR" | "RECEBER"; categoria: string }[] = [
   { re: /\b(das|simples nacional|darf|icms|iss|issqn)\b/, tipo: "PAGAR", categoria: "Impostos sobre vendas (DAS/ICMS/ISS)" },
   { re: /\b(rendimento|remuneracao|rend pago|aplicacao|cdb|juros recebidos)\b/, tipo: "RECEBER", categoria: "Receitas financeiras" },
 ];
+
+// ---------- regras de conciliação (aprendidas ao confirmar, ou cadastradas na tela de regras)
+
+export type RegraAnalise = {
+  id: string; texto: string; modo: "IGUAL" | "CONTEM" | string; tipo: "PAGAR" | "RECEBER";
+  categoriaId: string; centroCustoId: string | null; descricao: string | null; origem: "APRENDIDA" | "MANUAL" | string; vezes: number;
+};
+
+/**
+ * Regra que vale para a linha: a do favorecido igual ganha da de "contém"; entre as de "contém", o trecho mais longo;
+ * empate, a cadastrada à mão ganha da aprendida.
+ */
+export function regraDaLinha(t: { descricao: string; valor: number }, f: string, regras: RegraAnalise[]): RegraAnalise | null {
+  const tipo = t.valor < 0 ? "PAGAR" : "RECEBER";
+  const d = normalizar(t.descricao);
+  const servem = regras.filter((r) => r.tipo === tipo && r.texto && (r.modo === "CONTEM" ? d.includes(r.texto) : r.texto === f));
+  servem.sort((a, b) => Number(b.modo !== "CONTEM") - Number(a.modo !== "CONTEM") || b.texto.length - a.texto.length || Number(b.origem === "MANUAL") - Number(a.origem === "MANUAL"));
+  return servem[0] ?? null;
+}
+
+/** Confiança da sugestão feita por uma regra: cadastrada à mão 95; aprendida sobe com as confirmações (80 → 95). */
+export const confiancaRegra = (r: RegraAnalise) => (r.origem === "MANUAL" ? 95 : Math.min(95, 80 + 3 * Math.max(0, r.vezes - 1)));
+
+/**
+ * Aprende com o lançamento avulso confirmado: o favorecido passa a ir direto para essa categoria e centro de custo.
+ * Regra cadastrada à mão não é trocada (só conta a confirmação quando bate); aprendida que mudou de categoria recomeça.
+ */
+export async function aprenderRegra(tx: Tx, d: { descricao: string; valor: number; categoriaId: string; centroCustoId?: string | null }) {
+  const texto = favorecido(d.descricao);
+  if (texto.length < 3) return null;
+  const tipo = d.valor < 0 ? "PAGAR" : "RECEBER";
+  const atual = await tx.regraConciliacao.findUnique({ where: { texto_modo_tipo: { texto, modo: "IGUAL", tipo } } });
+  const agora = new Date();
+  if (!atual) return tx.regraConciliacao.create({ data: { texto, modo: "IGUAL", tipo, categoriaId: d.categoriaId, centroCustoId: d.centroCustoId || null, vezes: 1, ultimaEm: agora } });
+  if (atual.origem === "MANUAL") {
+    return atual.categoriaId === d.categoriaId ? tx.regraConciliacao.update({ where: { id: atual.id }, data: { vezes: { increment: 1 }, ultimaEm: agora } }) : atual;
+  }
+  const mesma = atual.categoriaId === d.categoriaId;
+  return tx.regraConciliacao.update({
+    where: { id: atual.id },
+    data: { categoriaId: d.categoriaId, centroCustoId: d.centroCustoId || (mesma ? atual.centroCustoId : null), vezes: mesma ? { increment: 1 } : 1, ultimaEm: agora },
+  });
+}
 
 // ---------- pagamento a funcionários
 
@@ -359,6 +405,7 @@ export function analisar(
   hoje: Date = diaSP(),
   ramos: Map<string, RamoFavorecido> = new Map(),
   pessoal: PessoalAnalise | null = null,
+  regras: RegraAnalise[] = [],
 ): LinhaAnalise[] {
   // o que já foi lançado para empresas de cada ramo (classe CNAE de 4 dígitos) ensina mais que a tabela fixa
   const porCnae = new Map<string, Map<string, number>>();
@@ -430,21 +477,28 @@ export function analisar(
       }
     }
 
+    // regra (aprendida ou cadastrada) vale mais que histórico, ramo e descrição
+    const regra = regraDaLinha(t, f, regras);
+    if (regra && catTipo.get(regra.categoriaId) === tipo) {
+      avulso = { categoriaId: regra.categoriaId, confianca: confiancaRegra(regra), motivo: regra.origem === "MANUAL" ? `regra cadastrada: "${regra.texto}"` : `regra aprendida: ${regra.vezes}× confirmado nesta categoria` };
+    }
+
     // pagamento a funcionário cadastrado: vale mais que histórico e ramo
-    let func: { nome: string; tipo: TipoPagamentoPessoal; descricao: string; competencia: Date } | null = null;
+    let func: { id: string; nome: string; tipo: TipoPagamentoPessoal; descricao: string; competencia: Date } | null = null;
     if (tipo === "PAGAR" && pessoal?.funcionarios.length) {
       const m = funcionarioDaLinha(t, pessoal.funcionarios);
       if (m) {
         const c = classificarPagamento(t.data, t.valor, t.descricao, m.funcionario.salarioRef);
         const nomeFunc = m.funcionario.nome.toUpperCase();
-        func = { nome: m.funcionario.nome, tipo: c.tipo, competencia: c.competencia, descricao: c.tipo === "OUTROS" ? `Pagamento a funcionário - ${nomeFunc}` : `${ROTULO_PESSOAL[c.tipo]} ${mesAno(c.competencia)} - ${nomeFunc}` };
+        func = { id: m.funcionario.id, nome: m.funcionario.nome, tipo: c.tipo, competencia: c.competencia, descricao: c.tipo === "OUTROS" ? `Pagamento a funcionário - ${nomeFunc}` : `${ROTULO_PESSOAL[c.tipo]} ${mesAno(c.competencia)} - ${nomeFunc}` };
         avulso = { categoriaId: pessoal.categorias[c.tipo], confianca: (m.por === "CPF confere" ? 95 : 85) - (c.tipo === "OUTROS" ? 20 : 0), motivo: `funcionário ${m.funcionario.nome} (${m.por}) · ${c.motivo}` };
       }
     }
 
     let acao: Acao = "REVISAR", confianca = 0, motivos: string[] = [], lancamentoId: string | null = null, categoriaId: string | null = null;
     // favorecido que sempre foi lançado avulso (tarifa, assinatura) não vira baixa de conta parecida por acaso
-    const sempreAvulso = (!!hist && hist.avulsos >= hist.n && hist.n >= 2) || !!func;
+    const regraVale = !!regra && !func && avulso?.categoriaId === regra.categoriaId;
+    const sempreAvulso = (!!hist && hist.avulsos >= hist.n && hist.n >= 2) || !!func || regraVale;
     if (melhor && melhor.confianca >= 60 && !(sempreAvulso && avulso && avulso.confianca > melhor.confianca)) {
       acao = "BAIXAR"; confianca = melhor.confianca; motivos = melhor.motivos; lancamentoId = melhor.lancamentoId;
     } else if (avulso && avulso.confianca >= 50) {
@@ -464,7 +518,8 @@ export function analisar(
     // pela categoria só quando é um padrão claro (2 vezes ou mais e na maioria das contas dela)
     const ccCatBruto = catFinal ? maisUsado(h.centroPorCategoria.get(catFinal)) : null;
     const ccCat = ccCatBruto && ccCatBruto.n >= 2 && ccCatBruto.parte >= 0.6 ? ccCatBruto : null;
-    const centroCustoId = conta?.centroCustoId ?? ccFav?.id ?? ccPessoa?.id ?? ccCat?.id ?? null;
+    const ccRegra = regraVale && acao === "LANCAR" ? regra!.centroCustoId : null;
+    const centroCustoId = conta?.centroCustoId ?? ccRegra ?? ccFav?.id ?? ccPessoa?.id ?? ccCat?.id ?? null;
 
     // urgência
     const diasPendente = Math.max(0, Math.round((hoje.getTime() - t.data.getTime()) / DIA));
@@ -493,8 +548,8 @@ export function analisar(
 
     return {
       transacaoId: t.id, data: iso(t.data), hora: horaSP(t.dataHora), ordem: `${iso(t.data)}|${horaSP(t.dataHora) ?? "00:00"}|${t.criadaEm?.toISOString() ?? ""}`, valor: t.valor, descricao: t.descricao, favorecido: f, conta: t.conta, contaBancariaId: t.contaBancariaId, tipo,
-      funcionario: func?.nome ?? null, tipoPessoal: func ? (func.tipo === "OUTROS" ? "Outros" : ROTULO_PESSOAL[func.tipo]) : null,
-      descricaoLancamento: func && acao === "LANCAR" ? func.descricao : null, competencia: func && acao === "LANCAR" ? iso(func.competencia) : null,
+      funcionario: func?.nome ?? null, funcionarioId: func?.id ?? null, regraId: regraVale && acao === "LANCAR" ? regra!.id : null, tipoPessoal: func ? (func.tipo === "OUTROS" ? "Outros" : ROTULO_PESSOAL[func.tipo]) : null,
+      descricaoLancamento: func && acao === "LANCAR" ? func.descricao : regraVale && acao === "LANCAR" ? regra!.descricao || null : null, competencia: func && acao === "LANCAR" ? iso(func.competencia) : null,
       ramo: ramos.get(f)?.cnae ? `${ramos.get(f)!.cnae.replace(/^(\d{4})(\d)(\d{2})$/, "$1-$2/$3")}${ramoDoCnae(ramos.get(f)!.cnae) ? ` ${ramoDoCnae(ramos.get(f)!.cnae)!.ramo}` : ""}` : null,
       documentoFavorecido: ramos.get(f)?.documento ?? null,
       acao, confianca, nivel: nivelDe(confianca), motivos: [...motivos, ...avisos], candidatos, lancamentoId, categoriaId, centroCustoId,
@@ -577,6 +632,7 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
     comCentro,
   );
   const pessoal = await carregarPessoal();
+  const regras = await prisma.regraConciliacao.findMany({ where: { ativa: true } });
   const docs = await documentosDosFavorecidos([...ts, ...conciliadas]);
   const ramos = new Map<string, RamoFavorecido>();
   for (const [f, d] of docs) if (d.documento || d.cnae) ramos.set(f, { cnae: d.cnae ?? "", documento: d.documento });
@@ -591,13 +647,13 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
       pessoaNomes: l.pessoa ? [l.pessoa.nome, l.pessoa.fantasia].filter((x): x is string => !!x) : [], pessoaDocumento: l.pessoa?.documento ?? null,
       boletos: l.boletos.flatMap((b) => [b.nossoNumero, b.txid]).filter((x): x is string => !!x),
     })),
-    h, categorias, diaSP(), ramos, pessoal,
+    h, categorias, diaSP(), ramos, pessoal, regras,
   );
 }
 
 /** Funcionários cadastrados (ativos) com o último salário lançado pela conciliação, e as categorias de pessoal. */
 export async function carregarPessoal(): Promise<PessoalAnalise | null> {
-  const funcs = await prisma.usuario.findMany({ where: { ativo: true }, select: { id: true, nome: true, cpf: true } });
+  const funcs = await prisma.usuario.findMany({ where: { ativo: true }, select: { id: true, nome: true, cpf: true, salario: true } });
   if (!funcs.length) return null;
   const categorias = await prisma.$transaction((tx) => garantirCategoriasPessoal(tx));
   // salário de referência: o último "Salário MM/AAAA - NOME" lançado
@@ -612,7 +668,7 @@ export async function carregarPessoal(): Promise<PessoalAnalise | null> {
   }
   return {
     categorias,
-    funcionarios: funcs.map((f) => ({ id: f.id, nome: f.nome, cpf: f.cpf?.replace(/\D/g, "") || null, salarioRef: ref.get(f.nome.toUpperCase()) ?? null })),
+    funcionarios: funcs.map((f) => ({ id: f.id, nome: f.nome, cpf: f.cpf?.replace(/\D/g, "") || null, salarioRef: f.salario != null ? Number(f.salario) : ref.get(f.nome.toUpperCase()) ?? null })),
   };
 }
 

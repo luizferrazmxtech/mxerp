@@ -13,7 +13,7 @@ export default async function PaginaFormFuncionario({ id }: { id?: string }) {
   const lojas = empresas.map((e) => ({ id: e.id, nome: e.nomeFantasia || e.razaoSocial, cnpj: cnpjFmt(e.cnpj) }));
   let inicial: InicialFuncionario = {
     nome: "", cpf: "", rg: "", nascimento: "", sexo: "", email: "", ativo: true, acessoSistema: false, papel: "OPERADOR", senha: "",
-    tecnico: false, vendedor: false, observacoes: "", comissao: "", liberacaoComissao: "PARCIAL", telefone: "", celular: "", celular2: "",
+    tecnico: false, vendedor: false, observacoes: "", comissao: "", salario: "", liberacaoComissao: "PARCIAL", telefone: "", celular: "", celular2: "",
     cep: "", logradouro: "", numero: "", complemento: "", bairro: "", cidade: "", codigoMunicipio: "", uf: "", lojas: lojas.map((l) => l.id),
   };
   if (id) {
@@ -25,6 +25,7 @@ export default async function PaginaFormFuncionario({ id }: { id?: string }) {
       id, temFoto, temSenha: !!u.senhaHash, nome: u.nome, cpf: s(u.cpf), rg: s(u.rg), nascimento: u.nascimento?.toISOString().slice(0, 10) ?? "", sexo: s(u.sexo),
       email: s(u.email), ativo: u.ativo, acessoSistema: u.acessoSistema, papel: u.papel, senha: "", tecnico: u.tecnico, vendedor: u.vendedor,
       observacoes: s(u.observacoes), comissao: u.comissao != null ? String(Number(u.comissao)).replace(".", ",") : "", liberacaoComissao: u.liberacaoComissao,
+      salario: u.salario != null ? Number(u.salario).toFixed(2).replace(".", ",") : "",
       telefone: s(u.telefone), celular: s(u.celular), celular2: s(u.celular2), cep: s(u.cep), logradouro: s(u.logradouro), numero: s(u.numero),
       complemento: s(u.complemento), bairro: s(u.bairro), cidade: s(u.cidade), codigoMunicipio: s(u.codigoMunicipio), uf: s(u.uf),
       lojas: u.lojas.filter((l) => lojas.some((x) => x.id === l)).length ? u.lojas.filter((l) => lojas.some((x) => x.id === l)) : lojas.map((l) => l.id),

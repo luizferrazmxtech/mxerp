@@ -6,6 +6,7 @@ import { analisarExtrato, buscarRamos, type LinhaAnalise } from "@/lib/financeir
 import { interConfigurado } from "@/lib/financeiro/inter";
 import { garantirCategoriasPessoal, garantirPadroes } from "@/lib/financeiro/padroes";
 import { brl, data } from "@/lib/ui/format";
+import { normalizar } from "@/lib/migracao/planilha";
 import { desfazer } from "./actions";
 import { EnviarExtrato, PuxarInter } from "./Formularios";
 import TabelaConciliacao from "./TabelaConciliacao";
@@ -13,7 +14,7 @@ import TabelaConciliacao from "./TabelaConciliacao";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Conciliação bancária" };
 
-type Sp = { ver?: string; f?: string; conta?: string; ordem?: string; aba?: string };
+type Sp = { ver?: string; f?: string; conta?: string; ordem?: string; aba?: string; q?: string };
 type Aba = "revisar" | "sugestoes" | "conciliados" | "geral";
 
 const ABAS: { chave: Aba; rotulo: string }[] = [
@@ -29,6 +30,19 @@ const FILTROS: Record<string, (l: LinhaAnalise) => boolean> = {
   lancar: (l) => l.acao === "LANCAR",
 };
 const ehSugestao = (l: LinhaAnalise) => l.acao !== "REVISAR";
+
+/** Busca das abas: nome/descrição (sem acento), CPF/CNPJ ou valor ("1400", "1.400,00", "-1400"). */
+function buscador(q: string | undefined) {
+  const bruto = (q ?? "").trim();
+  if (!bruto) return null;
+  const texto = normalizar(bruto);
+  const num = /^-?[\d.,\s]+$/.test(bruto) ? Math.abs(Number(bruto.replace(/[\s.]/g, "").replace(",", "."))) : NaN;
+  const doc = bruto.replace(/\D/g, "");
+  return (campos: (string | null | undefined)[], valores: number[], docs: (string | null | undefined)[] = []) =>
+    (Number.isFinite(num) && num > 0 && valores.some((v) => Math.abs(Math.abs(v) - num) < 0.01))
+    || (doc.length >= 5 && docs.some((d) => d?.includes(doc)))
+    || normalizar(campos.filter(Boolean).join(" ")).includes(texto);
+}
 const ehAlta = (l: LinhaAnalise) => ehSugestao(l) && l.nivel === "alta";
 const horaSP = (d: Date | null) => (d ? d.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }) : null);
 const ordemDe = (d: Date, dh: Date | null, criada: Date) => `${d.toISOString().slice(0, 10)}|${horaSP(dh) ?? "00:00"}|${criada.toISOString()}`;
@@ -44,11 +58,11 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
   const [contas, analise, recentes, categorias, centros, inter, totalConc] = await Promise.all([
     prisma.contaBancaria.findMany({ where: { ativa: true }, orderBy: { nome: "asc" } }),
     analisarExtrato({ contaBancariaId: sp.conta || undefined }),
-    aba === "conciliados" || aba === "geral"
+    aba === "conciliados" || aba === "geral" || sp.q
       ? prisma.transacaoBancaria.findMany({
         where: { situacao: { in: ["CONCILIADA", "IGNORADA"] }, ...(sp.conta ? { contaBancariaId: sp.conta } : {}) },
         include: { contaBancaria: true, lancamentos: { include: { pessoa: true, categoria: true, centroCusto: true } } },
-        orderBy: [{ data: "desc" }, { dataHora: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }], take: verTodas ? 1000 : 50,
+        orderBy: [{ data: "desc" }, { dataHora: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }], take: verTodas || sp.q ? 1000 : 50,
       })
       : Promise.resolve([]),
     prisma.categoriaFinanceira.findMany({ where: { ativa: true }, orderBy: [{ codigo: "asc" }, { nome: "asc" }], select: { id: true, nome: true, tipo: true, codigo: true } }),
@@ -65,8 +79,11 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
     ordem === "urgencia" ? b.pontosUrgencia - a.pontosUrgencia || b.ordem.localeCompare(a.ordem)
       : ordem === "antigos" ? a.ordem.localeCompare(b.ordem)
         : b.ordem.localeCompare(a.ordem));
-  const revisar = analise.filter((l) => !ehSugestao(l));
-  const sugestoes = analise.filter(ehSugestao);
+  const bate = buscador(sp.q);
+  const achadas = bate ? analise.filter((l) => bate([l.descricao, l.favorecido, l.funcionario, ...l.candidatos.slice(0, 1).flatMap((c) => [c.descricao, c.pessoa])], [l.valor], [l.documentoFavorecido])) : analise;
+  const revisar = achadas.filter((l) => !ehSugestao(l));
+  const sugestoes = achadas.filter(ehSugestao);
+  const conciliadosBusca = bate ? recentes.filter((t) => bate([t.descricao, ...t.lancamentos.flatMap((l) => [l.descricao, l.pessoa?.nome, l.pessoa?.fantasia])], [Number(t.valor)], [t.contraparteDocumento, ...t.lancamentos.map((l) => l.pessoa?.documento)])) : recentes;
   const daAba = aba === "revisar" ? revisar : aba === "sugestoes" ? sugestoes : [];
   const linhas = ordenar(daAba.filter(filtro ? FILTROS[filtro] : () => true));
 
@@ -74,23 +91,25 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
   const pct = (x: number) => (n ? (x / n) * 100 : 0);
   const soma = (ls: LinhaAnalise[]) => ls.reduce((s, l) => s + Math.abs(l.valor), 0);
   const urg = analise.filter(FILTROS.urgentes);
-  const contagem: Record<Aba, number> = { revisar: revisar.length, sugestoes: sugestoes.length, conciliados: totalConc, geral: n + totalConc };
+  const contagem: Record<Aba, number> = bate
+    ? { revisar: revisar.length, sugestoes: sugestoes.length, conciliados: conciliadosBusca.length, geral: achadas.length + conciliadosBusca.length }
+    : { revisar: revisar.length, sugestoes: sugestoes.length, conciliados: totalConc, geral: n + totalConc };
   const link = (mudar: Partial<Sp>) => {
-    const q = new URLSearchParams(Object.entries({ aba: sp.aba, conta: sp.conta, ordem: sp.ordem, f: sp.f, ...mudar }).filter((x): x is [string, string] => !!x[1]));
+    const q = new URLSearchParams(Object.entries({ aba: sp.aba, conta: sp.conta, ordem: sp.ordem, f: sp.f, q: sp.q, ...mudar }).filter((x): x is [string, string] => !!x[1]));
     return `/financeiro/conciliacao${q.size ? `?${q}` : ""}`;
   };
 
   // aba Geral: pendentes e conciliados juntos, do mais novo para o mais antigo
   type LinhaGeral = { id: string; ordem: string; data: string; hora: string | null; conta: string; descricao: string; valor: number; situacao: React.ReactNode; detalhe: React.ReactNode; acao: React.ReactNode };
   const geral: LinhaGeral[] = aba !== "geral" ? [] : [
-    ...analise.map((l): LinhaGeral => ({
+    ...achadas.map((l): LinhaGeral => ({
       id: l.transacaoId, ordem: l.ordem, data: l.data, hora: l.hora, conta: l.conta, descricao: l.descricao, valor: l.valor,
       situacao: ehSugestao(l) ? <span className="pilula border-emerald-300 bg-emerald-50 text-emerald-700">Sugestão {l.confianca}%</span> : <span className="pilula border-amber-300 bg-amber-50 text-amber-800">A revisar</span>,
       detalhe: l.acao === "BAIXAR" ? `Baixar: ${l.candidatos[0]?.descricao ?? ""}${l.candidatos[0]?.pessoa ? ` (${l.candidatos[0].pessoa})` : ""}`
         : l.acao === "LANCAR" ? `Lançar em ${categorias.find((c) => c.id === l.categoriaId)?.nome ?? "categoria"}` : "—",
       acao: <Link href={link({ aba: ehSugestao(l) ? "sugestoes" : "revisar", f: undefined })} className="text-sm underline">abrir</Link>,
     })),
-    ...recentes.map((t): LinhaGeral => ({
+    ...conciliadosBusca.map((t): LinhaGeral => ({
       id: t.id, ordem: ordemDe(t.data, t.dataHora, t.createdAt), data: t.data.toISOString().slice(0, 10), hora: horaSP(t.dataHora), conta: t.contaBancaria.nome, descricao: t.descricao, valor: Number(t.valor),
       situacao: t.situacao === "IGNORADA" ? <span className="pilula border-slate-300 bg-slate-50 text-slate-600">Ignorada</span> : <span className="pilula border-sky-300 bg-sky-50 text-sky-700">Conciliada</span>,
       detalhe: t.lancamentos.map((l) => `${l.descricao}${l.pessoa ? ` (${l.pessoa.nome})` : ""}`).join("; ") || "—",
@@ -126,8 +145,21 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
               <span className={`rounded px-1.5 text-[11px] ${aba === a.chave ? "bg-white/20" : "bg-slate-200 text-slate-700"}`}>{contagem[a.chave]}</span>
             </Link>
           ))}
-          <Link href="/openfinance" className="btn-sec ml-auto">Outros bancos (Open Finance)</Link>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Link href="/financeiro/conciliacao/saldos" className="btn-sec">Conferência de saldo</Link>
+            <Link href="/financeiro/conciliacao/regras" className="btn-sec">Regras e aviso diário</Link>
+            <Link href="/financeiro/mao-de-obra" className="btn-sec">Mão de obra</Link>
+            <Link href="/openfinance" className="btn-sec">Outros bancos (Open Finance)</Link>
+          </div>
         </div>
+
+        <form className="flex flex-wrap items-center gap-2" action="/financeiro/conciliacao">
+          {Object.entries({ aba: sp.aba, conta: sp.conta, ordem: sp.ordem }).filter(([, v]) => v).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
+          <input name="q" defaultValue={sp.q ?? ""} className="campo w-[440px] max-w-full" placeholder="Buscar em todas as abas: nome, descrição, CPF/CNPJ ou valor" />
+          <button className="btn-sec">Buscar</button>
+          {sp.q && <Link href={link({ q: undefined })} className="text-[13px] underline">limpar busca</Link>}
+          {sp.q && <span className="text-[13px] text-slate-600">{contagem.geral} lançamento{contagem.geral === 1 ? "" : "s"} com &quot;{sp.q}&quot; · os números das abas já mostram só o que bate</span>}
+        </form>
 
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[13px] text-slate-600">Ordem:</span>
@@ -155,7 +187,7 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
 
         {(aba === "revisar" || aba === "sugestoes") && (
           <TabelaConciliacao
-            key={`${aba}-${filtro}-${ordem}`}
+            key={`${aba}-${filtro}-${ordem}-${sp.q ?? ""}`}
             linhas={linhas}
             categorias={categorias.map((c) => ({ id: c.id, nome: c.codigo ? `${c.codigo} ${c.nome}` : c.nome, tipo: c.tipo }))}
             centros={centros}
@@ -169,8 +201,8 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
               <table className="tabela">
                 <thead><tr><th>Data</th><th>Extrato</th><th className="text-right">Valor</th><th>Baixou</th><th>Categoria</th><th>Centro de custo</th><th className="w-20"></th></tr></thead>
                 <tbody>
-                  {recentes.length === 0 && <tr><td colSpan={7} className="text-slate-500">Nada conciliado ainda.</td></tr>}
-                  {recentes.map((t) => {
+                  {conciliadosBusca.length === 0 && <tr><td colSpan={7} className="text-slate-500">{bate ? "Nada encontrado com esta busca." : "Nada conciliado ainda."}</td></tr>}
+                  {conciliadosBusca.map((t) => {
                     const cats = [...new Set(t.lancamentos.map((l) => l.categoria.nome))].join(", ");
                     const ccs = [...new Set(t.lancamentos.map((l) => l.centroCusto?.nome).filter(Boolean))].join(", ");
                     return (
@@ -201,7 +233,7 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
                 </tbody>
               </table>
             </div>
-            {!verTodas && totalConc > recentes.length && <div className="text-center"><Link href={link({ ver: "todas" })} className="btn-sec">Mostrar mais (até 1.000)</Link></div>}
+            {!verTodas && !bate && totalConc > recentes.length && <div className="text-center"><Link href={link({ ver: "todas" })} className="btn-sec">Mostrar mais (até 1.000)</Link></div>}
           </section>
         )}
 

@@ -84,7 +84,13 @@ export default function FormFuncionario({ inicial, lojas, liberacoes, papeis, ad
               <span className="rounded-r border border-l-0 border-slate-300 bg-slate-50 px-2 py-[7px] text-[13px]">%</span></div>
             <p className="mt-1 text-[11px] text-slate-500">Percentual sobre as vendas do funcionário.</p>
           </div>
-          <div className="lg:col-span-2">
+          <div>
+            <span className="rotulo">Salário combinado</span>
+            <div className="flex"><span className="rounded-l border border-r-0 border-slate-300 bg-slate-50 px-2 py-[7px] text-[13px]">R$</span>
+              <input className="campo rounded-l-none text-right" inputMode="decimal" value={d.salario ?? ""} onChange={(e) => set("salario", e.target.value)} /></div>
+            <p className="mt-1 text-[11px] text-slate-500">Confere a folha e separa salário, vale e férias na conciliação.</p>
+          </div>
+          <div className="lg:col-span-1">
             <span className="rotulo">Liberação da comissão</span>
             <select className="campo" value={d.liberacaoComissao} onChange={(e) => set("liberacaoComissao", e.target.value as LiberacaoComissao)}>
               {liberacoes.map((l) => <option key={l.valor} value={l.valor}>{l.rotulo}</option>)}
