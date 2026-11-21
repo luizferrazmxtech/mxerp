@@ -13,7 +13,7 @@ export const metadata = { title: "Equipes de técnicos" };
 export default async function Equipes({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
   const [lista, funcionarios] = await Promise.all([
-    prisma.equipe.findMany({ where: sp.q ? { nome: { contains: sp.q, mode: "insensitive" } } : {}, orderBy: { nome: "asc" } }),
+    prisma.equipe.findMany({ where: sp.q ? { nome: { contains: sp.q, mode: "insensitive" } } : {}, orderBy: { nome: "asc" }, include: { carro: { select: { nome: true } } } }),
     prisma.usuario.findMany({ where: { ativo: true }, select: { id: true, nome: true, tecnico: true, papel: true }, orderBy: { nome: "asc" } }),
   ]);
   const ordenados = [...funcionarios].sort((a, b) => Number(b.tecnico || b.papel === "TECNICO") - Number(a.tecnico || a.papel === "TECNICO"));
@@ -25,17 +25,18 @@ export default async function Equipes({ searchParams }: { searchParams: Promise<
       {(sp.novo === "1" || editando) && <FormEquipe key={editando?.id ?? "novo"} e={editando} funcionarios={ordenados.map((f) => ({ id: f.id, nome: f.nome, tecnico: f.tecnico || f.papel === "TECNICO" }))} />}
       <div className="cartao overflow-x-auto">
         <table className="tabela">
-          <thead><tr><th>Nome</th><th>Membros</th><th className="w-24">Situação</th><th className="w-28 text-right">Ações</th></tr></thead>
+          <thead><tr><th>Nome</th><th>Membros</th><th>Carro (estoque)</th><th className="w-24">Situação</th><th className="w-28 text-right">Ações</th></tr></thead>
           <tbody>
             {lista.map((e) => (
               <tr key={e.id}>
                 <td><Link href={`/os/equipes?editar=${e.id}`} className="hover:underline">{e.nome}</Link></td>
                 <td className="text-slate-600">{e.membros.map((m) => nomes.get(m)).filter(Boolean).join(", ")}</td>
+                <td className="text-[13px]">{e.carro ? e.carro.nome : <Link href="/estoque/locais" className="text-sky-700 underline">Criar carro</Link>}</td>
                 <td>{e.ativo ? <span className="pilula border-emerald-300 bg-emerald-50 text-emerald-700">Ativa</span> : <span className="pilula border-slate-300 bg-white text-slate-600">Inativa</span>}</td>
                 <td><AcoesLinha editar={`/os/equipes?editar=${e.id}`} excluir={<BotaoExcluir acao={excluirEquipeAcao.bind(null, e.id)} pergunta={`Excluir a equipe ${e.nome}?`} />} /></td>
               </tr>
             ))}
-            {!lista.length && <tr><td colSpan={4} className="py-6 text-center text-slate-500">Nenhuma equipe. Cadastre uma para que vários técnicos trabalhem na mesma OS.</td></tr>}
+            {!lista.length && <tr><td colSpan={5} className="py-6 text-center text-slate-500">Nenhuma equipe. Cadastre uma para cada carro: os técnicos dela trabalham nas mesmas OS e as peças saem do estoque do carro.</td></tr>}
           </tbody>
         </table>
         <RodapeLista total={lista.length} />

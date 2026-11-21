@@ -7,13 +7,14 @@ import { criarEstoqueEquipeAcao, criarLocal } from "../actions";
 export const dynamic = "force-dynamic";
 
 export default async function LocaisPage() {
-  const [locais, semCarro, usuarios] = await Promise.all([
+  const [locais, semCarro, usuarios, temEquipes] = await Promise.all([
     prisma.local.findMany({
       include: { deposito: { include: { equipe: { select: { nome: true, membros: true } } } }, _count: { select: { saldos: { where: { quantidade: { not: 0 } } } } } },
       orderBy: { codigo: "asc" },
     }),
     prisma.equipe.findMany({ where: { ativo: true, carro: null }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
     prisma.usuario.findMany({ select: { id: true, nome: true } }),
+    prisma.equipe.count({ where: { ativo: true } }),
   ]);
   const doCarro = locais.filter((l) => l.deposito.equipeId);
   const nome = new Map(usuarios.map((x) => [x.id, x.nome]));
@@ -33,16 +34,33 @@ export default async function LocaisPage() {
         <button className="btn"><Icone nome="mais" size={14} /> Adicionar local</button>
       </form>
     </Bloco>
-    <Bloco icone="frete" titulo={<>Estoque dos <b>carros</b></>} subtitulo="Cada equipe é um carro (sempre os mesmos técnicos) com estoque à parte: fica fora do disponível da loja, abastece por transferência (sem gerar venda) e a peça que a equipe lança na OS sai dele." corpo="p-0">
-      <form action={criarEstoqueEquipeAcao} className="flex flex-wrap items-end gap-2 border-b p-3">
-        <Campo rotulo="Equipe"><select name="equipeId" className="campo min-w-56" required defaultValue="">
-          <option value="" disabled>{semCarro.length ? "Selecione" : "Todas as equipes já têm carro"}</option>
-          {semCarro.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
-        </select></Campo>
-        <Campo rotulo="Nome do estoque"><input name="nome" className="campo min-w-56" placeholder="automático: Carro - Equipe" /></Campo>
-        <button className="btn"><Icone nome="mais" size={14} /> Criar estoque do carro</button>
-        <Link href="/os/equipes" className="btn-sec">Equipes</Link>
-      </form>
+    <Bloco icone="frete" titulo={<>Estoque dos <b>carros</b></>} subtitulo="Cada equipe é um carro (sempre os mesmos técnicos) com estoque à parte: fica fora do disponível da loja e a peça que a equipe lança na OS sai dele." corpo="p-0">
+      <ol className="grid gap-2 border-b bg-slate-50 p-3 text-[13px] text-slate-700 sm:grid-cols-3">
+        <li><b>1. Crie a equipe</b> em <Link href="/os/equipes" className="text-sky-700 underline">Ordens de serviço › Equipes</Link>, com os técnicos que andam no carro.</li>
+        <li><b>2. Crie o carro</b> da equipe aqui embaixo.</li>
+        <li><b>3. Abasteça</b> o carro com uma transferência (botão Abastecer na lista). Não gera venda.</li>
+      </ol>
+      {!temEquipes ? (
+        <div className="flex flex-wrap items-center gap-2 border-b p-3 text-[13px] text-slate-600">
+          Nenhuma equipe cadastrada ainda.
+          <Link href="/os/equipes?novo=1" className="btn"><Icone nome="mais" size={14} /> Cadastrar equipe</Link>
+        </div>
+      ) : !semCarro.length ? (
+        <div className="flex flex-wrap items-center gap-2 border-b p-3 text-[13px] text-slate-600">
+          Todas as equipes já têm carro. Para outro carro, cadastre uma nova equipe.
+          <Link href="/os/equipes" className="btn-sec">Equipes</Link>
+        </div>
+      ) : (
+        <form action={criarEstoqueEquipeAcao} className="flex flex-wrap items-end gap-2 border-b p-3">
+          <Campo rotulo="Equipe" obrigatorio><select name="equipeId" className="campo min-w-56" required defaultValue="">
+            <option value="" disabled>Selecione</option>
+            {semCarro.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
+          </select></Campo>
+          <Campo rotulo="Nome do carro (opcional)"><input name="nome" className="campo min-w-64" placeholder="em branco: Carro - nome da equipe" /></Campo>
+          <button className="btn"><Icone nome="mais" size={14} /> Criar carro</button>
+          <Link href="/os/equipes" className="btn-sec">Equipes</Link>
+        </form>
+      )}
       <table className="tabela">
         <thead><tr><th>Equipe</th><th>Técnicos</th><th>Local</th><th className="text-right">Produtos com saldo</th><th className="text-right">Ações</th></tr></thead>
         <tbody>
