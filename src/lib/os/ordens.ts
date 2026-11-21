@@ -170,7 +170,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
     total: D(tot.total), exibirTotal: d.exibirTotal, condicao: d.condicao, formaPagamentoId: t(d.formaPagamentoId), intervaloDias: Math.trunc(n(d.intervaloDias)) || 30,
     observacoes: t(d.observacoes), observacaoInterna: t(d.observacaoInterna), camposExtras: (d.camposExtras ?? {}) as Prisma.InputJsonValue,
   };
-  // o local de origem (item com o técnico) também muda a reserva
+  // o local de origem (item no carro da equipe) também muda a reserva
   const assinaturaItens = (l: { produtoId: string; quantidade: number; localOrigemId: string | null }[]) => l.map((x) => `${x.produtoId}:${x.quantidade}:${x.localOrigemId ?? ""}`).sort().join("|");
   const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, quantidade: n(l.quantidade), localOrigemId: t(l.localOrigemId) }));
   const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null }[]) =>

@@ -2,20 +2,21 @@ import Link from "next/link";
 import { Bloco, Campo, Pagina } from "@/components/ui/Pagina";
 import Icone from "@/components/Icone";
 import { prisma } from "@/lib/db";
-import { criarEstoqueTecnicoAcao, criarLocal } from "../actions";
+import { criarEstoqueEquipeAcao, criarLocal } from "../actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function LocaisPage() {
-  const [locais, funcionarios] = await Promise.all([
+  const [locais, semCarro, usuarios] = await Promise.all([
     prisma.local.findMany({
-      include: { deposito: { include: { tecnico: { select: { nome: true } } } }, _count: { select: { saldos: { where: { quantidade: { not: 0 } } } } } },
+      include: { deposito: { include: { equipe: { select: { nome: true, membros: true } } } }, _count: { select: { saldos: { where: { quantidade: { not: 0 } } } } } },
       orderBy: { codigo: "asc" },
     }),
-    prisma.usuario.findMany({ where: { ativo: true, estoqueTecnico: null }, select: { id: true, nome: true, tecnico: true, papel: true }, orderBy: { nome: "asc" } }),
+    prisma.equipe.findMany({ where: { ativo: true, carro: null }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
+    prisma.usuario.findMany({ select: { id: true, nome: true } }),
   ]);
-  const doTecnico = locais.filter((l) => l.deposito.tecnicoId);
-  const tecnicosSem = funcionarios.filter((f) => f.tecnico || f.papel === "TECNICO");
+  const doCarro = locais.filter((l) => l.deposito.equipeId);
+  const nome = new Map(usuarios.map((x) => [x.id, x.nome]));
   return (
     <Pagina titulo="Locais de estoque" icone="locais" trilha={[{ rotulo: "Estoque", href: "/estoque" }, { rotulo: "Locais" }]}>
     <div className="no-print mb-3 flex flex-wrap items-center gap-2">
@@ -32,35 +33,35 @@ export default async function LocaisPage() {
         <button className="btn"><Icone nome="mais" size={14} /> Adicionar local</button>
       </form>
     </Bloco>
-    <Bloco icone="equipe" titulo={<>Estoque dos <b>técnicos</b></>} subtitulo="O carro de cada técnico é um estoque à parte: fica fora do disponível da loja, abastece por transferência (sem gerar venda) e a peça que o técnico lança na OS sai dele." corpo="p-0">
-      <form action={criarEstoqueTecnicoAcao} className="flex flex-wrap items-end gap-2 border-b p-3">
-        <Campo rotulo="Técnico"><select name="tecnicoId" className="campo min-w-56" required defaultValue="">
-          <option value="" disabled>Selecione</option>
-          {tecnicosSem.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
-          {funcionarios.length > tecnicosSem.length && <optgroup label="Outros funcionários">{funcionarios.filter((f) => !tecnicosSem.includes(f)).map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}</optgroup>}
+    <Bloco icone="frete" titulo={<>Estoque dos <b>carros</b></>} subtitulo="Cada equipe é um carro (sempre os mesmos técnicos) com estoque à parte: fica fora do disponível da loja, abastece por transferência (sem gerar venda) e a peça que a equipe lança na OS sai dele." corpo="p-0">
+      <form action={criarEstoqueEquipeAcao} className="flex flex-wrap items-end gap-2 border-b p-3">
+        <Campo rotulo="Equipe"><select name="equipeId" className="campo min-w-56" required defaultValue="">
+          <option value="" disabled>{semCarro.length ? "Selecione" : "Todas as equipes já têm carro"}</option>
+          {semCarro.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
         </select></Campo>
-        <Campo rotulo="Nome do estoque"><input name="nome" className="campo min-w-56" placeholder="automático: Carro - Nome" /></Campo>
-        <button className="btn"><Icone nome="mais" size={14} /> Criar estoque do técnico</button>
+        <Campo rotulo="Nome do estoque"><input name="nome" className="campo min-w-56" placeholder="automático: Carro - Equipe" /></Campo>
+        <button className="btn"><Icone nome="mais" size={14} /> Criar estoque do carro</button>
+        <Link href="/os/equipes" className="btn-sec">Equipes</Link>
       </form>
       <table className="tabela">
-        <thead><tr><th>Técnico</th><th>Estoque</th><th>Local</th><th className="text-right">Produtos com saldo</th><th className="text-right">Ações</th></tr></thead>
+        <thead><tr><th>Equipe</th><th>Técnicos</th><th>Local</th><th className="text-right">Produtos com saldo</th><th className="text-right">Ações</th></tr></thead>
         <tbody>
-          {doTecnico.map((l) => (
+          {doCarro.map((l) => (
             <tr key={l.id}>
-              <td className="font-semibold">{l.deposito.tecnico?.nome ?? "—"}</td>
-              <td>{l.deposito.nome}</td>
+              <td className="font-semibold">{l.deposito.nome}</td>
+              <td className="text-[13px]">{(l.deposito.equipe?.membros ?? []).map((m) => nome.get(m)).filter(Boolean).join(", ") || "—"}</td>
               <td className="font-mono text-[12px]">{l.codigo}</td>
               <td className="text-right">{l._count.saldos}</td>
               <td className="text-right">
                 <div className="flex justify-end gap-1 whitespace-nowrap">
-                  <Link href={`/tecnico/estoque?tec=${l.deposito.tecnicoId}`} className="btn-sec py-1"><Icone nome="ver" size={13} /> Ver</Link>
+                  <Link href={`/tecnico/estoque?equipe=${l.deposito.equipeId}`} className="btn-sec py-1"><Icone nome="ver" size={13} /> Ver</Link>
                   <Link href={`/estoque/transferencias/adicionar?destino=${l.depositoId}`} className="btn-sec py-1">Abastecer</Link>
                   <Link href={`/estoque/transferencias/adicionar?origem=${l.depositoId}`} className="btn-sec py-1">Devolver à loja</Link>
                 </div>
               </td>
             </tr>
           ))}
-          {!doTecnico.length && <tr><td colSpan={5} className="py-6 text-center text-slate-500">Nenhum técnico com estoque próprio.</td></tr>}
+          {!doCarro.length && <tr><td colSpan={5} className="py-6 text-center text-slate-500">Nenhuma equipe com estoque de carro.</td></tr>}
         </tbody>
       </table>
     </Bloco>

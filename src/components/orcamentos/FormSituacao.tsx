@@ -9,7 +9,7 @@ import BotaoAcao from "@/components/ui/BotaoAcao";
 export default function FormSituacao({ id, numero, atual, situacoes, voltar, acao: acaoServidor, rotulo = "do orçamento", depois }: {
   id: string; numero: number; atual: string; situacoes: { id: string; nome: string; geraVenda?: boolean; aviso?: string }[]; voltar: string;
   acao?: (r: Resultado, f: FormData) => Promise<Resultado>; rotulo?: string;
-  /** próximo passo sugerido depois de salvar (OS: marcar os itens que estão com o técnico) */
+  /** próximo passo sugerido depois de salvar (OS: marcar os itens que estão no carro) */
   depois?: { href: string; texto: string };
 }) {
   const [r, acao, pendente] = useActionState<Resultado, FormData>(acaoServidor ?? alterarSituacaoAcao, null);

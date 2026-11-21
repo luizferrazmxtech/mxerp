@@ -7,10 +7,10 @@ process.env.DATABASE_URL = URL;
 const { prisma } = await import("@/lib/db");
 const est = await import("@/lib/estoque/estoque");
 const doc = await import("@/lib/estoque/documentos");
-const tecEst = await import("@/lib/estoque/tecnico");
+const carroLib = await import("@/lib/estoque/carro");
 const ord = await import("@/lib/os/ordens");
 const tec = await import("@/lib/os/tecnico");
-const itens = await import("@/lib/os/itensTecnico");
+const itens = await import("@/lib/os/itensCarro");
 const { equipamentoVazio } = await import("@/lib/os/tipos");
 type Dados = import("@/lib/os/tipos").DadosOs;
 type U = import("@/lib/os/tecnico").UsuarioTecnico;
@@ -18,6 +18,7 @@ type U = import("@/lib/os/tecnico").UsuarioTecnico;
 let prod = "", cli = "", loc = "", loc2 = "", loja = "";
 let escritorio: U, ana: U, beto: U;
 let carroAna = { depositoId: "", localId: "" };
+let equipeAzul = "";
 
 beforeAll(() => {
   execSync("npx prisma migrate deploy", { env: { ...process.env, DATABASE_URL: URL }, stdio: "ignore" });
@@ -42,7 +43,8 @@ beforeEach(async () => {
   ana = await usuario("ana", "TECNICO");
   beto = await usuario("beto", "TECNICO");
   await prisma.$transaction((tx) => est.entrada(tx, { produtoId: prod, localId: loc, quantidade: 10, origemTipo: "IMPLANTACAO" }));
-  carroAna = await tecEst.criarEstoqueTecnico(ana.id);
+  equipeAzul = (await prisma.equipe.create({ data: { nome: "Azul", membros: [ana.id] } })).id;
+  carroAna = await carroLib.criarEstoqueEquipe(equipeAzul);
 });
 
 const resumo = () => prisma.$transaction((tx) => est.resumoProduto(tx, prod));
@@ -57,18 +59,21 @@ const dados = (m: Partial<Dados> = {}, q = "3", localOrigemId?: string): Dados =
   servicos: [], transportadoraId: "", transportadoraNome: "", frete: "0", mostrarEntrega: false, enderecoEntregaId: "",
   desconto: "", descontoPct: false, exibirTotal: true, gerarCondicoes: true, condicao: "AVISTA", formaPagamentoId: "", vencimento: "", intervaloDias: "30",
   numParcelas: "1", primeiraParcela: "", parcelas: [], observacoes: "", observacaoInterna: "", camposExtras: {},
-  entrada: "2026-11-21T09:00", saida: "", prioridade: "", tecnicoIds: [ana.id], outros: "0",
+  entrada: "2026-11-21T09:00", saida: "", prioridade: "", tecnicoIds: [], equipeId: equipeAzul, outros: "0",
   equipamentos: [{ ...equipamentoVazio(), equipamento: "Rede" }],
   ...m,
 });
 
-describe("estoque do técnico", () => {
-  it("cria o estoque do técnico uma vez só e lista nos estoques de técnicos", async () => {
-    expect(await tecEst.criarEstoqueTecnico(ana.id)).toEqual(carroAna);
-    const l = await tecEst.estoquesDosTecnicos();
-    expect(l).toEqual([{ tecnicoId: ana.id, tecnicoNome: "ana", depositoId: carroAna.depositoId, nome: "Carro - ana", localId: carroAna.localId }]);
-    expect(await tecEst.localDoTecnico(prisma, ana.id)).toBe(carroAna.localId);
-    expect(await tecEst.localDoTecnico(prisma, beto.id)).toBeNull();
+describe("estoque do carro da equipe", () => {
+  it("cria o carro da equipe uma vez só; o técnico usa o carro da equipe da OS ou o da equipe dele", async () => {
+    expect(await carroLib.criarEstoqueEquipe(equipeAzul)).toEqual(carroAna);
+    const l = await carroLib.carrosDasEquipes();
+    expect(l).toEqual([{ equipeId: equipeAzul, equipeNome: "Azul", membros: [ana.id], depositoId: carroAna.depositoId, nome: "Carro - Azul", localId: carroAna.localId }]);
+    expect(await carroLib.carroDoTecnico(prisma, ana.id)).toBe(carroAna.localId);
+    expect(await carroLib.carroDoTecnico(prisma, beto.id)).toBeNull();
+    // técnico adicional (beto) numa OS da equipe Azul: a peça sai do carro da equipe da OS
+    const o = await ord.salvarOrdem(dados({ tecnicoIds: [beto.id] }), escritorio);
+    expect(await carroLib.carroDoTecnico(prisma, beto.id, o.id)).toBe(carroAna.localId);
   });
 
   it("transferência loja → carro não gera venda e o carro fica fora do disponível da loja", async () => {
@@ -76,21 +81,21 @@ describe("estoque do técnico", () => {
     expect(await saldo(loc)).toBe(6);
     expect(await saldo(carroAna.localId)).toBe(4);
     expect(await prisma.venda.count()).toBe(0);
-    expect(await resumo()).toMatchObject({ fisico: 10, reservado: 0, disponivel: 6, comTecnicos: 4 });
+    expect(await resumo()).toMatchObject({ fisico: 10, reservado: 0, disponivel: 6, nosCarros: 4 });
     // OS comum (item da loja) nunca reserva do carro: o que passa da loja vira falta
     const o = await ord.salvarOrdem(dados({}, "8"), escritorio);
     const r = await prisma.reserva.findMany({ where: { origemId: o.id, status: "ATIVA" }, orderBy: { quantidade: "desc" } });
     expect(r.map((x) => [x.localId, Number(x.quantidade)])).toEqual([[loc, 6], [null, 2]]);
-    const d = await tecEst.saldoDetalhado(prod);
-    expect(d).toMatchObject({ fisico: 10, reservado: 6, falta: 2, disponivel: 0, comTecnicos: 4 });
-    expect(d!.onde).toEqual([{ nome: "Loja", tecnico: false, fisico: 6, reservado: 6 }, { nome: "Carro - ana", tecnico: true, fisico: 4, reservado: 0 }]);
+    const d = await carroLib.saldoDetalhado(prod);
+    expect(d).toMatchObject({ fisico: 10, reservado: 6, falta: 2, disponivel: 0, nosCarros: 4 });
+    expect(d!.onde).toEqual([{ nome: "Loja", carro: false, fisico: 6, reservado: 6 }, { nome: "Carro - Azul", carro: true, fisico: 4, reservado: 0 }]);
   });
 
-  it("item da OS marcado com o técnico reserva e baixa do carro; reabrir devolve ao carro", async () => {
+  it("item da OS marcado no carro reserva e baixa do carro; reabrir devolve ao carro", async () => {
     await abastecer(4);
     const o = await ord.salvarOrdem(dados({}, "3", carroAna.localId), escritorio);
     expect((await prisma.reserva.findMany({ where: { origemId: o.id, status: "ATIVA" } })).map((x) => [x.localId, Number(x.quantidade)])).toEqual([[carroAna.localId, 3]]);
-    expect(await resumo()).toMatchObject({ disponivel: 6, comTecnicos: 1 });
+    expect(await resumo()).toMatchObject({ disponivel: 6, nosCarros: 1 });
     // concluir (situação que lança estoque): sai do carro, a loja não mexe
     await ord.alterarSituacaoOrdem(o.id, "so_teste", escritorio);
     expect(await saldo(carroAna.localId)).toBe(1);
@@ -105,43 +110,45 @@ describe("estoque do técnico", () => {
     expect((await prisma.reserva.findMany({ where: { origemId: o.id, status: "ATIVA" } })).map((x) => [x.localId, Number(x.quantidade)])).toEqual([[carroAna.localId, 2]]);
   });
 
-  it("ao ir para execução, o escritório marca os itens que estão com o técnico", async () => {
+  it("ao ir para execução, o escritório marca os itens que estão no carro", async () => {
     await abastecer(4);
     const o = await ord.salvarOrdem(dados({}, "3"), escritorio);
     const item = await prisma.osItemProduto.findFirstOrThrow({ where: { osId: o.id } });
     expect(await itens.definirOrigemItens(o.id, [{ itemId: item.id, localId: carroAna.localId }], escritorio)).toBe(1);
     expect((await prisma.reserva.findMany({ where: { origemId: o.id, status: "ATIVA" } })).map((x) => x.localId)).toEqual([carroAna.localId]);
-    expect(await resumo()).toMatchObject({ reservado: 3, disponivel: 6, comTecnicos: 1 });
+    expect(await resumo()).toMatchObject({ reservado: 3, disponivel: 6, nosCarros: 1 });
     // volta para a loja
     await itens.definirOrigemItens(o.id, [{ itemId: item.id, localId: null }], escritorio);
     expect((await prisma.reserva.findMany({ where: { origemId: o.id, status: "ATIVA" } })).map((x) => x.localId)).toEqual([loc]);
     // só estoque de técnico; e com a OS baixada precisa reabrir
-    await expect(itens.definirOrigemItens(o.id, [{ itemId: item.id, localId: loc2 }], escritorio)).rejects.toThrow(/estoque de um técnico/);
+    await expect(itens.definirOrigemItens(o.id, [{ itemId: item.id, localId: loc2 }], escritorio)).rejects.toThrow(/carro de uma equipe/);
     await ord.alterarSituacaoOrdem(o.id, "so_teste", escritorio);
     await expect(itens.definirOrigemItens(o.id, [{ itemId: item.id, localId: carroAna.localId }], escritorio)).rejects.toThrow(/reabra/);
-    expect(await prisma.osHistorico.count({ where: { osId: o.id, descricao: { startsWith: "Itens com o técnico" } } })).toBe(2);
+    expect(await prisma.osHistorico.count({ where: { osId: o.id, descricao: { startsWith: "Itens no carro" } } })).toBe(2);
   });
 
-  it("técnico lança pela tela dele saindo do próprio carro (mesmo sem saldo, sem virar falta)", async () => {
+  it("técnico lança pela tela dele saindo do carro da equipe (mesmo sem saldo, sem virar falta)", async () => {
     await abastecer(2);
     const o = await ord.salvarOrdem(dados({ produtos: [] }), escritorio);
-    const r = await tec.lancarItemTecnico(ana, o.id, { tipo: "produto", id: prod, quantidade: 3, doMeuEstoque: true });
+    const r = await tec.lancarItemTecnico(ana, o.id, { tipo: "produto", id: prod, quantidade: 3, doCarro: true });
     expect(r.alocacoes).toEqual([{ localId: carroAna.localId, quantidade: 3 }]);
     expect((await prisma.osItemProduto.findUniqueOrThrow({ where: { id: r.itemId } })).localOrigemId).toBe(carroAna.localId);
-    expect((await tecEst.saldoDoTecnico(ana.id))[0]).toMatchObject({ fisico: 2, reservado: 3, livre: -1 });
-    // quem não tem carro não pode marcar
-    await prisma.ordemServico.update({ where: { id: o.id }, data: { tecnicoIds: [ana.id, beto.id] } });
-    await expect(tec.lancarItemTecnico(beto, o.id, { tipo: "produto", id: prod, quantidade: 1, doMeuEstoque: true })).rejects.toThrow(/estoque próprio/);
-    // o técnico não usa o carro de outro
-    const carroBeto = await tecEst.criarEstoqueTecnico(beto.id);
-    await expect(itens.definirOrigemItens(o.id, [{ itemId: r.itemId, localId: carroBeto.localId }], beto, { soDoTecnico: beto.id })).rejects.toThrow(/seu próprio/);
+    expect((await carroLib.saldoDoCarro(equipeAzul))[0]).toMatchObject({ fisico: 2, reservado: 3, livre: -1 });
+    // OS sem equipe com carro e técnico sem equipe: não tem de onde tirar
+    const semCarro = await ord.salvarOrdem(dados({ produtos: [], equipeId: "", tecnicoIds: [beto.id] }), escritorio);
+    await expect(tec.lancarItemTecnico(beto, semCarro.id, { tipo: "produto", id: prod, quantidade: 1, doCarro: true })).rejects.toThrow(/não tem carro/);
+    // o técnico não usa o carro de outra equipe
+    const verde = await prisma.equipe.create({ data: { nome: "Verde", membros: [beto.id] } });
+    const carroVerde = await carroLib.criarEstoqueEquipe(verde.id);
+    await prisma.ordemServico.update({ where: { id: o.id }, data: { tecnicoIds: [beto.id] } });
+    await expect(itens.definirOrigemItens(o.id, [{ itemId: r.itemId, localId: carroVerde.localId }], beto, { membro: beto.id })).rejects.toThrow(/sua equipe/);
   });
 
   it("do carro só volta para a loja o que não está separado para OS", async () => {
     await abastecer(4);
     await ord.salvarOrdem(dados({}, "3", carroAna.localId), escritorio);
     const devolver = (q: number) => doc.criarTransferencia({ origemDepositoId: carroAna.depositoId, destinoDepositoId: loja, observacoes: "", itens: [{ produtoId: prod, quantidade: String(q) }] }, escritorio);
-    await expect(devolver(2)).rejects.toThrow(/só tem livre 1/);
+    await expect(devolver(2)).rejects.toThrow(/carro só tem livre 1/);
     await devolver(1);
     expect(await saldo(carroAna.localId)).toBe(3);
   });
@@ -153,6 +160,6 @@ describe("estoque do técnico", () => {
     const r = await prisma.reserva.findMany({ where: { origemId: o.id, status: "ATIVA" } });
     expect(r.every((x) => x.localId !== carroAna.localId)).toBe(true);
     expect(r.reduce((s, x) => s + Number(x.quantidade), 0)).toBe(9);
-    expect(await resumo()).toMatchObject({ fisico: 15, comTecnicos: 12 });
+    expect(await resumo()).toMatchObject({ fisico: 15, nosCarros: 12 });
   });
 });

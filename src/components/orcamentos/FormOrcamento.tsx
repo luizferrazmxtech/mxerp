@@ -24,9 +24,9 @@ type Opcoes = {
   tiposValor: { id: string; nome: string; padrao: boolean }[]; campos: { id: string; nome: string }[]; centros: string[]; canais: string[];
   tecnicos?: { id: string; nome: string }[];
   /** equipes de técnicos (só OS) */
-  equipes?: { id: string; nome: string; membros?: string[] }[];
-  /** só OS: estoques dos técnicos (carros), para marcar o item que está com o técnico */
-  estoquesTecnicos?: { tecnicoId: string; tecnicoNome: string; localId: string; nome: string }[];
+  equipes?: { id: string; nome: string }[];
+  /** só OS: carros das equipes, para marcar o item que sai do carro */
+  carros?: { equipeId: string; localId: string; nome: string }[];
 };
 
 type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; situacao?: SituacaoEstoque; minimo?: number; valores: { tipoValorId: string; valor: number }[] };
@@ -73,9 +73,8 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
   const novoProduto = (): LinhaProduto => ({ produtoId: "", nome: "", codigo: "", unidade: "", detalhes: "", quantidade: "1", tipoValorId: padrao, valorUnit: "0,00", desconto: "", descontoPct: false });
   const novoServico = (): LinhaServico => ({ servicoId: "", nome: "", codigo: "", detalhes: "", quantidade: "1", valorUnit: "0,00", desconto: "", descontoPct: false });
 
-  // técnicos desta OS (e da equipe) que têm estoque próprio: o item pode sair do carro deles
-  const daOs = new Set([...(d.tecnicoIds ?? []), ...(op.equipes?.find((q) => q.id === d.equipeId)?.membros ?? [])].filter(Boolean));
-  const carros = (atual?: string) => (op.estoquesTecnicos ?? []).filter((e) => daOs.has(e.tecnicoId) || e.localId === atual);
+  // a equipe da OS é o carro: o item pode sair do estoque do carro dela
+  const carros = (atual?: string) => (op.carros ?? []).filter((c) => c.equipeId === d.equipeId || c.localId === atual);
 
   const blocoProdutos = (
     <Bloco key="p" icone="produtos" titulo={os ? <>Adicione os <b>produtos e peças</b> {doc}</> : <>Adicione os <b>produtos</b> {doc}</>} subtitulo="Produto, quantidade, valor e desconto por linha." corpo="p-0"
@@ -97,7 +96,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                         <label className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">Sai de
                           <select className={`rounded border px-1 py-0.5 text-[11px] ${l.localOrigemId ? "border-marca bg-teal-50 text-marca-escura" : "border-slate-300"}`} value={l.localOrigemId ?? ""} onChange={(e) => setProd(i, { localOrigemId: e.target.value })}>
                             <option value="">Estoque da loja</option>
-                            {carros(l.localOrigemId).map((c) => <option key={c.localId} value={c.localId}>Com o técnico: {c.tecnicoNome}</option>)}
+                            {carros(l.localOrigemId).map((c) => <option key={c.localId} value={c.localId}>{c.nome}</option>)}
                           </select>
                         </label>
                       )}</div>
@@ -206,19 +205,19 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
       </Bloco>
 
       {os && (
-        <Bloco icone="pessoa" titulo={<>Defina os <b>responsáveis</b> pela ordem de serviço</>} subtitulo="Vendedor, um ou mais técnicos e, se quiser, a equipe (todos os membros podem lançar itens pela tela do técnico).">
+        <Bloco icone="pessoa" titulo={<>Defina os <b>responsáveis</b> pela ordem de serviço</>} subtitulo="A equipe é o carro (sempre os mesmos técnicos): as peças do carro saem do estoque dela. Técnico adicional é só para constar quem foi junto.">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Campo rotulo="Vendedor"><select className="campo" value={d.vendedorId} onChange={(e) => set("vendedorId", e.target.value)}><option value="">Selecione</option>{op.vendedores.map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select></Campo>
+            {!!op.equipes?.length && <Campo rotulo="Equipe (carro)"><select className="campo" value={d.equipeId ?? ""} onChange={(e) => set("equipeId", e.target.value)}><option value="">Nenhuma</option>{op.equipes.map((q) => <option key={q.id} value={q.id}>{q.nome}{op.carros?.some((c) => c.equipeId === q.id) ? " (com carro)" : ""}</option>)}</select></Campo>}
             {(d.tecnicoIds?.length ? d.tecnicoIds : [""]).map((tid, i, arr) => (
-              <div key={i}><span className="rotulo">Técnico{arr.length > 1 ? ` ${i + 1}` : ""}</span>
+              <div key={i}><span className="rotulo">{d.equipeId ? "Técnico adicional" : "Técnico"}{arr.length > 1 ? ` ${i + 1}` : ""}</span>
                 <div className="flex gap-1">
-                  <select className="campo" value={tid} onChange={(e) => set("tecnicoIds", arr.map((x, j) => (j === i ? e.target.value : x)))}><option value="">Selecione</option>{(op.tecnicos ?? op.vendedores).map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select>
+                  <select className="campo" value={tid} onChange={(e) => set("tecnicoIds", arr.map((x, j) => (j === i ? e.target.value : x)))}><option value="">{d.equipeId ? "Nenhum" : "Selecione"}</option>{(op.tecnicos ?? op.vendedores).map((v) => <option key={v.id} value={v.id}>{v.nome}</option>)}</select>
                   {arr.length > 1 && <button type="button" className="btn-icone text-red-600" title="Remover técnico" onClick={() => set("tecnicoIds", arr.filter((_, j) => j !== i))}><Icone nome="excluir" size={13} /></button>}
                 </div></div>
             ))}
-            {!!op.equipes?.length && <Campo rotulo="Equipe"><select className="campo" value={d.equipeId ?? ""} onChange={(e) => set("equipeId", e.target.value)}><option value="">Nenhuma</option>{op.equipes.map((q) => <option key={q.id} value={q.id}>{q.nome}</option>)}</select></Campo>}
           </div>
-          <button type="button" className="btn-sec mt-3" onClick={() => set("tecnicoIds", [...(d.tecnicoIds?.length ? d.tecnicoIds : [""]), ""])}><Icone nome="mais" size={14} /> Adicionar técnico</button>
+          <button type="button" className="btn-sec mt-3" onClick={() => set("tecnicoIds", [...(d.tecnicoIds?.length ? d.tecnicoIds : [""]), ""])}><Icone nome="mais" size={14} /> {d.equipeId ? "Adicionar técnico adicional" : "Adicionar técnico"}</button>
         </Bloco>
       )}
 

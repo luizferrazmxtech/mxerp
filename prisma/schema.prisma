@@ -106,7 +106,6 @@ model Usuario {
   updatedAt         DateTime          @default(now()) @updatedAt
 
   osComoTecnico       OrdemServico[]     @relation("OsTecnico")
-  estoqueTecnico      Deposito?          @relation("EstoqueTecnico")
   osComoVendedor      OrdemServico[]     @relation("OsVendedor")
   orcamentos          Orcamento[]        @relation("OrcamentoVendedor")
   vendas              Venda[]
@@ -616,14 +615,14 @@ model Servico {
 // ───────────────────────── Estoque ─────────────────────────
 
 model Deposito {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   empresaId String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  nome      String   @unique
-  ativo     Boolean  @default(true)
+  nome      String  @unique
+  ativo     Boolean @default(true)
   locais    Local[]
-  /// estoque de um técnico (o carro dele): não entra no disponível da loja; a OS tira daqui o que estiver "com o técnico"
-  tecnicoId String?  @unique
-  tecnico   Usuario? @relation("EstoqueTecnico", fields: [tecnicoId], references: [id])
+  /// estoque do carro de uma equipe: não entra no disponível da loja; a OS tira daqui o que estiver "no carro"
+  equipeId  String? @unique
+  equipe    Equipe? @relation(fields: [equipeId], references: [id])
 
   @@index([empresaId])
 }
@@ -838,6 +837,8 @@ model Equipe {
   membros   String[] // ids de Usuario
   createdAt DateTime       @default(now())
   ordens    OrdemServico[]
+  /// o carro da equipe (estoque à parte)
+  carro     Deposito?
 }
 
 model OsItemProduto {
@@ -860,7 +861,7 @@ model OsItemProduto {
   instalado      Boolean      @default(false)
   instaladoEm    DateTime?
   instaladoPorId String?
-  // "com o técnico": a peça sai deste local (o carro do técnico) em vez do estoque da loja
+  // "no carro": a peça sai deste local (o carro da equipe) em vez do estoque da loja
   localOrigemId  String?
   localOrigem    Local?       @relation("OsItemOrigem", fields: [localOrigemId], references: [id], onDelete: SetNull)
 }

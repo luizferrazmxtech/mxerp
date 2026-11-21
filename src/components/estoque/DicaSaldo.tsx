@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { SaldoDetalhado } from "@/lib/estoque/tecnico";
+import type { SaldoDetalhado } from "@/lib/estoque/carro";
 
 /**
  * Dica do saldo ao passar o mouse (ou focar) na quantidade de um item de OS, venda ou orçamento:
- * físico, reservado, disponível e onde está (loja e carros dos técnicos).
+ * físico, reservado, disponível e onde está (loja e carros das equipes).
  * Busca só quando abre e guarda por 20 s, para não pesar a tela.
  */
 const cache = new Map<string, { em: number; dados: SaldoDetalhado | null }>();
@@ -58,14 +58,14 @@ export default function DicaSaldo({ produtoId, children }: { produtoId?: string;
                 <div className="mb-1 font-semibold text-slate-800">Estoque no sistema</div>
                 <div className="flex justify-between"><span>Físico</span><b>{q(dados.fisico)} {dados.unidade}</b></div>
                 <div className="flex justify-between text-amber-700"><span>Reservado</span><b>{q(dados.reservado)}</b></div>
-                <div className={`flex justify-between ${dados.disponivel > 0 ? "text-emerald-700" : "text-red-600"}`}><span>Disponível{dados.comTecnicos ? " na loja" : ""}</span><b>{q(dados.disponivel)}</b></div>
-                {dados.comTecnicos !== 0 && <div className="flex justify-between text-slate-600"><span>Livre com técnicos</span><b>{q(dados.comTecnicos)}</b></div>}
+                <div className={`flex justify-between ${dados.disponivel > 0 ? "text-emerald-700" : "text-red-600"}`}><span>Disponível{dados.nosCarros ? " na loja" : ""}</span><b>{q(dados.disponivel)}</b></div>
+                {dados.nosCarros !== 0 && <div className="flex justify-between text-slate-600"><span>Livre nos carros</span><b>{q(dados.nosCarros)}</b></div>}
                 {dados.falta > 0 && <div className="flex justify-between text-red-600"><span>Falta p/ pedidos</span><b>{q(dados.falta)}</b></div>}
                 {dados.onde.length > 0 && (
                   <div className="mt-2 border-t pt-2">
                     {dados.onde.map((o) => (
                       <div key={o.nome} className="flex justify-between gap-2">
-                        <span className="truncate">{o.nome}{o.tecnico && <span className="ml-1 text-[10px] uppercase text-slate-400">técnico</span>}</span>
+                        <span className="truncate">{o.nome}{o.carro && <span className="ml-1 text-[10px] uppercase text-slate-400">carro</span>}</span>
                         <span className="whitespace-nowrap">{q(o.fisico)}{o.reservado ? <span className="text-amber-700"> ({q(o.reservado)} res.)</span> : null}</span>
                       </div>
                     ))}

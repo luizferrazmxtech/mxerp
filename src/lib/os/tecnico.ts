@@ -4,7 +4,7 @@ import { liberarItem, reservarItem } from "@/lib/estoque/estoque";
 import type { Alocacao } from "@/lib/estoque/alocacao";
 import { estadoDe, OsError } from "@/lib/os/ordens";
 import { estadoEstoque } from "@/lib/os/os";
-import { localDoTecnico } from "@/lib/estoque/tecnico";
+import { carroDoTecnico } from "@/lib/estoque/carro";
 
 /**
  * Tela do técnico (celular/tablet): o técnico vê as OS em que é técnico ou cuja equipe integra,
@@ -113,7 +113,7 @@ const qtdTxt = (q: number) => q.toLocaleString("pt-BR", { maximumFractionDigits:
 export async function lancarItemTecnico(
   u: UsuarioTecnico,
   osId: string,
-  item: { tipo: "produto" | "servico"; id: string; quantidade: number; detalhes?: string; instalado?: boolean; doMeuEstoque?: boolean },
+  item: { tipo: "produto" | "servico"; id: string; quantidade: number; detalhes?: string; instalado?: boolean; doCarro?: boolean },
 ): Promise<{ itemId: string; alocacoes: Alocacao[] }> {
   if (!(item.quantidade > 0)) throw new OsError("Informe a quantidade");
   return prisma.$transaction(async (tx) => {
@@ -129,9 +129,9 @@ export async function lancarItemTecnico(
       const prod = await tx.produto.findUnique({ where: { id: item.id } });
       if (!prod?.ativo) throw new OsError("Produto não encontrado ou inativo");
       const valor = Number(prod.precoVenda);
-      // "saiu do meu carro": reserva e baixa do estoque do técnico, não da loja
-      const localOrigemId = item.doMeuEstoque ? await localDoTecnico(tx, u.id) : null;
-      if (item.doMeuEstoque && !localOrigemId) throw new OsError("Você não tem estoque próprio cadastrado. Peça ao escritório em Estoque › Locais.");
+      // "saiu do carro": reserva e baixa do carro da equipe, não da loja
+      const localOrigemId = item.doCarro ? await carroDoTecnico(tx, u.id, osId) : null;
+      if (item.doCarro && !localOrigemId) throw new OsError("Sua equipe não tem carro com estoque cadastrado. Peça ao escritório em Estoque › Locais.");
       const criado = await tx.osItemProduto.create({
         data: { osId, ordem, produtoId: prod.id, quantidade: new Prisma.Decimal(item.quantidade), valorUnit: D(valor), custoUnit: prod.custo, subtotal: D(valor * item.quantidade), localOrigemId, ...marcas },
       });

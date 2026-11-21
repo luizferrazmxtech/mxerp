@@ -33,7 +33,7 @@ export default async function Transferencias({ searchParams }: { searchParams: P
         <div className="cartao px-6 py-10 text-center">
           <Icone nome="transferir" size={34} />
           <h2 className="mt-2 text-[18px] font-semibold">Transferências de estoque</h2>
-          <p className="mx-auto max-w-xl text-[13px] text-slate-600">Mande produtos de uma loja para outra, ou abasteça o carro do técnico, sem gerar venda.</p>
+          <p className="mx-auto max-w-xl text-[13px] text-slate-600">Mande produtos de uma loja para outra, ou abasteça o carro da equipe, sem gerar venda.</p>
           <ul className="mx-auto my-5 max-w-md space-y-1 text-left text-[13px] text-slate-700">
             <li>✓ O estoque das duas lojas é atualizado na hora</li>
             <li>✓ Fica o histórico de quem transferiu, quando e o quê</li>

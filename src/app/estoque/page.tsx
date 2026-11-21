@@ -86,7 +86,7 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
                   <td className="text-[12px] text-slate-600">{l.locais ?? "—"}</td>
                   <td className="text-right">{qtd(l.fisico)} <span className="text-[11px] text-slate-500">{l.unidade}</span></td>
                   <td className="text-right text-amber-700">{l.reservado ? qtd(l.reservado) : <span className="text-slate-400">—</span>}</td>
-                  <td className={`text-right font-semibold ${l.situacao === "SEM_CONTROLE" ? "text-slate-500" : l.disponivel <= 0 ? "text-red-600" : "text-emerald-700"}`}>{qtd(l.disponivel)}{l.comTecnicos > 0 && <span className="block text-[11px] font-normal text-slate-500" title="Livre nos carros dos técnicos (fora do disponível da loja)">+{qtd(l.comTecnicos)} c/ técnicos</span>}</td>
+                  <td className={`text-right font-semibold ${l.situacao === "SEM_CONTROLE" ? "text-slate-500" : l.disponivel <= 0 ? "text-red-600" : "text-emerald-700"}`}>{qtd(l.disponivel)}{l.nosCarros > 0 && <span className="block text-[11px] font-normal text-slate-500" title="Livre nos carros das equipes (fora do disponível da loja)">+{qtd(l.nosCarros)} nos carros</span>}</td>
                   <td className="text-center"><span className={`pilula ${s.cor}`}>{s.rotulo}</span></td>
                   <td className="text-right">{brl(l.precoVenda)}</td>
                   <td>

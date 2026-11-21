@@ -94,14 +94,14 @@ export function FormAjuste({ inicial }: { inicial?: { tipo: "ENTRADA" | "SAIDA";
 }
 
 /** Transferência entre lojas (depósitos): o saldo sai da origem e entra no destino. */
-export function FormTransferencia({ depositos, origemInicial = "", destinoInicial = "" }: { depositos: { id: string; nome: string; tecnico?: boolean }[]; origemInicial?: string; destinoInicial?: string }) {
+export function FormTransferencia({ depositos, origemInicial = "", destinoInicial = "" }: { depositos: { id: string; nome: string; carro?: boolean }[]; origemInicial?: string; destinoInicial?: string }) {
   const [r, acao, pendente] = useActionState<Resultado, FormData>(salvarTransferenciaForm, null);
   const [origem, setOrigem] = useState(origemInicial);
   const [destino, setDestino] = useState(destinoInicial);
   const opcoes = (lista: typeof depositos) => (
     <>
-      {lista.filter((d) => !d.tecnico).map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}
-      {lista.some((d) => d.tecnico) && <optgroup label="Estoque dos técnicos">{lista.filter((d) => d.tecnico).map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}</optgroup>}
+      {lista.filter((d) => !d.carro).map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}
+      {lista.some((d) => d.carro) && <optgroup label="Carros das equipes">{lista.filter((d) => d.carro).map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}</optgroup>}
     </>
   );
   const [obs, setObs] = useState("");
@@ -111,7 +111,7 @@ export function FormTransferencia({ depositos, origemInicial = "", destinoInicia
   return (
     <form action={acao}>
       <input type="hidden" name="dados" value={JSON.stringify({ origemDepositoId: origem, destinoDepositoId: destino, observacoes: obs, itens })} />
-      <Bloco icone="lojas" titulo={<>Informe a <b>origem e o destino</b> da transferência</>} subtitulo="Lojas ou estoque dos técnicos (carro). Transferir não gera venda; os produtos entram depois de escolher a origem e o destino.">
+      <Bloco icone="lojas" titulo={<>Informe a <b>origem e o destino</b> da transferência</>} subtitulo="Lojas ou carros das equipes. Transferir não gera venda; os produtos entram depois de escolher a origem e o destino.">
         <div className="grid items-end gap-3 sm:grid-cols-3">
           <Campo rotulo="Origem" obrigatorio><select className="campo" value={origem} onChange={(e) => setOrigem(e.target.value)}><option value="">Selecione</option>{opcoes(depositos)}</select></Campo>
           <Campo rotulo="Destino" obrigatorio><select className="campo" value={destino} onChange={(e) => setDestino(e.target.value)}><option value="">Selecione</option>{opcoes(depositos.filter((d) => d.id !== origem))}</select></Campo>
