@@ -2488,3 +2488,15 @@ model AnuncioMarketplace {
 
   @@unique([canal, anuncioId, variacaoId])
 }
+
+/// Quem aparece no extrato (nome normalizado tirado da descrição) e o ramo de atividade dele, para a conciliação
+/// sugerir a categoria das despesas. O CNAE vem da consulta do CNPJ (BrasilAPI/CNPJ.ws/ReceitaWS).
+model FavorecidoExtrato {
+  chave        String    @id // favorecido(descricao)
+  documento    String? // CNPJ/CPF só dígitos
+  cnae         String? // CNAE fiscal principal, só dígitos
+  razaoSocial  String?
+  consultadoEm DateTime?
+  erro         String?
+  updatedAt    DateTime  @updatedAt
+}

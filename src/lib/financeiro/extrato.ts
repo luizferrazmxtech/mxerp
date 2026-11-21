@@ -4,6 +4,7 @@ import { todasAsLojas } from "@/lib/empresa/loja";
 import { prisma, type Tx } from "@/lib/db";
 import { lerPlanilha, normalizar, numeroBr, campo } from "@/lib/migracao/planilha";
 import { baixarLancamento, estornarLancamento } from "./lancamentos";
+import { nomeConfere } from "./conciliacao";
 
 /**
  * Conciliação bancária: lê o extrato (OFX ou CSV/Excel do banco), guarda as
@@ -104,20 +105,17 @@ export async function lerExtrato(nome: string, conteudo: Buffer): Promise<Transa
 type Aberto = { id: string; tipo: "PAGAR" | "RECEBER"; valor: number; vencimento: Date; descricao: string; pessoa: string | null };
 export type Sugestao = { transacaoId: string; lancamentoId: string; tipo: "PAGAR" | "RECEBER"; confianca: "alta" | "media"; dias: number; porNome: boolean };
 
-const palavras = (s: string) => new Set(normalizar(s).split(" ").filter((p) => p.length >= 4 && !/^(ltda|eireli|comercio|servicos|transferencia|pagamento|recebido|enviado|boleto|compra|venda|ordem|servico)$/.test(p)));
+/** Nome do cliente/fornecedor (razão social ou fantasia) no extrato; ver nomeConfere. */
 function casaNome(t: string, l: Aberto) {
-  const pt = palavras(t);
-  const alvo = palavras(`${l.pessoa ?? ""} ${l.descricao}`);
-  let n = 0;
-  for (const p of alvo) if (pt.has(p)) n++;
-  return n > 0;
+  return (l.pessoa ?? "").split(" / ").some((n) => nomeConfere(t, n));
 }
 
 /**
  * Casa transações e lançamentos em aberto de mesmo valor (até R$ 0,01), com
  * vencimento de 45 dias antes a 15 dias depois da data do extrato. Cada
  * lançamento é usado uma vez; ganha o par mais próximo (nome bate > data perto).
- * "alta" = nome bate, ou era o único candidato para a transação e a transação a única para ele.
+ * "alta" = nome do fornecedor confere. Valor e data sozinhos (mesmo único candidato) nunca baixam: o Luiz viu
+ * pagamentos de um cliente indo para contas de outro.
  * Contas a RECEBER nunca saem "alta": valor e data não bastam para dizer quem pagou. Elas são baixadas pelo
  * boleto do Inter (ou pelo nosso número do boleto no extrato) e aqui só aparecem como sugestão.
  */
@@ -145,9 +143,8 @@ export function casar(transacoes: { id: string; data: Date; valor: number; descr
     if (usadosT.has(p.transacaoId) || usadosL.has(p.lancamentoId)) continue;
     usadosT.add(p.transacaoId);
     usadosL.add(p.lancamentoId);
-    const unico = candT.get(p.transacaoId) === 1 && candL.get(p.lancamentoId) === 1;
     const tipo = abertos.find((l) => l.id === p.lancamentoId)!.tipo;
-    out.push({ transacaoId: p.transacaoId, lancamentoId: p.lancamentoId, tipo, dias: p.dias, porNome: p.porNome, confianca: tipo === "PAGAR" && (p.porNome || unico) ? "alta" : "media" });
+    out.push({ transacaoId: p.transacaoId, lancamentoId: p.lancamentoId, tipo, dias: p.dias, porNome: p.porNome, confianca: tipo === "PAGAR" && p.porNome ? "alta" : "media" });
   }
   return out;
 }
@@ -161,7 +158,7 @@ export async function sugestoes(contaBancariaId?: string) {
   const abertos = await todasAsLojas(() => prisma.lancamento.findMany({ where: { pagoEm: null, vencimento: { gte: min, lte: max } }, include: { pessoa: true } }));
   return casar(
     ts.map((t) => ({ id: t.id, data: t.data, valor: Number(t.valor), descricao: t.descricao })),
-    abertos.map((l) => ({ id: l.id, tipo: l.tipo, valor: Number(l.valor), vencimento: l.vencimento, descricao: l.descricao, pessoa: l.pessoa ? `${l.pessoa.nome} ${l.pessoa.fantasia ?? ""}` : null })),
+    abertos.map((l) => ({ id: l.id, tipo: l.tipo, valor: Number(l.valor), vencimento: l.vencimento, descricao: l.descricao, pessoa: l.pessoa ? [l.pessoa.nome, l.pessoa.fantasia].filter(Boolean).join(" / ") : null })),
   );
 }
 

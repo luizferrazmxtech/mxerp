@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState, useTransition } from "react";
 import Icone from "@/components/Icone";
 import type { LinhaAnalise, Nivel, Urgencia } from "@/lib/financeiro/conciliacao";
-import { confirmarLote, ignorarLote, type ItemLote } from "./actions";
+import { buscarRamosAcao, confirmarLote, ignorarLote, informarCnpjFavorecido, type ItemLote } from "./actions";
 
 type Cat = { id: string; nome: string; tipo: "PAGAR" | "RECEBER" };
 type Escolha = { acao: "BAIXAR" | "LANCAR" | "REVISAR"; lancamentoId: string | null; categoriaId: string | null; centroCustoId: string | null };
@@ -33,6 +33,7 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
   const [msg, setMsg] = useState<{ ok: boolean; mensagem: string } | null>(null);
   const [pendente, start] = useTransition();
   const [linhaPendente, setLinhaPendente] = useState<string | null>(null);
+  const [cnpjs, setCnpjs] = useState<Record<string, string>>({});
 
   const esc = (id: string) => escolhas[id] ?? inicial[id];
   const mudar = (id: string, m: Partial<Escolha>) => setEscolhas((e) => ({ ...e, [id]: { ...(e[id] ?? inicial[id]), ...m } }));
@@ -64,6 +65,10 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
           <Icone nome="ok" size={14} /> Marcar as {altas} de confiança alta
         </button>
         <button type="button" className="btn-sec" onClick={() => setMarcadas(new Set(linhas.filter((l) => pronta(l.transacaoId)).map((l) => l.transacaoId)))}>Marcar todas com sugestão</button>
+        <button type="button" className="btn-sec" disabled={pendente} title="Consulta o CNPJ de quem recebeu as despesas para sugerir a categoria pelo ramo de atividade"
+          onClick={() => rodar(() => buscarRamosAcao(), "ramos")}>
+          <Icone nome="buscar" size={14} /> {linhaPendente === "ramos" ? "Consultando…" : "Buscar ramo de atividade"}
+        </button>
         {marcadas.size > 0 && <button type="button" className="text-[13px] text-slate-600 underline" onClick={() => setMarcadas(new Set())}>limpar ({marcadas.size})</button>}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <button type="button" className="btn-verde" disabled={pendente || !prontasMarcadas.length}
@@ -132,6 +137,7 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
                         </div>
                       )}
                       {motivos.length > 0 && <div className="mt-1 text-[11px] text-slate-500">{motivos.join(" · ")}</div>}
+                      {l.tipo === "PAGAR" && l.ramo && !motivos.some((m) => m.includes("ramo")) && <div className="mt-0.5 text-[11px] text-slate-500">Ramo: {l.ramo}</div>}
                     </td>
                     <td>
                       <select className="campo w-full min-w-40 !py-1 text-[13px]" value={e.centroCustoId ?? ""} onChange={(ev) => mudar(l.transacaoId, { centroCustoId: ev.target.value || null })}>
@@ -190,7 +196,20 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
                             </button>
                           </div>
                         </div>
-                        <p className="mt-2 text-[12px] text-slate-500">Favorecido lido do extrato: <b>{l.favorecido || "—"}</b>. Diferença de valor na baixa vira juros (a mais) ou desconto (a menos).</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-slate-600">
+                          <span>Favorecido lido do extrato: <b>{l.favorecido || "—"}</b>{l.documentoFavorecido ? ` · CPF/CNPJ ${l.documentoFavorecido}` : ""}{l.ramo ? ` · ramo ${l.ramo}` : ""}.</span>
+                          {l.tipo === "PAGAR" && l.favorecido && (
+                            <span className="inline-flex items-center gap-1">
+                              <input className="campo w-44 !py-1 text-[13px]" placeholder="CNPJ de quem recebeu" inputMode="numeric"
+                                value={cnpjs[l.transacaoId] ?? l.documentoFavorecido ?? ""} onChange={(ev) => setCnpjs((c) => ({ ...c, [l.transacaoId]: ev.target.value }))} />
+                              <button type="button" className="btn-sec !py-1 text-[13px]" disabled={pendente}
+                                onClick={() => rodar(() => informarCnpjFavorecido(l.favorecido, cnpjs[l.transacaoId] ?? l.documentoFavorecido ?? ""), l.transacaoId)}>
+                                Buscar ramo
+                              </button>
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[12px] text-slate-500">Diferença de valor na baixa vira juros (a mais) ou desconto (a menos). A lista de contas mostra também as que não conferem com o favorecido (confiança até 30%), só para escolha manual.</p>
                       </td>
                     </tr>
                   )}
