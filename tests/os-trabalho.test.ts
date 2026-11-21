@@ -45,7 +45,7 @@ describe("tempo de mão de obra da OS", () => {
     expect(r).toMatchObject({ estado: "FINALIZADO", fechadoMs: 125 * 60000 });
     expect(tr.duracao(r.fechadoMs)).toBe("2h 05min");
     const h = await prisma.osHistorico.findMany({ where: { osId }, orderBy: { createdAt: "asc" } });
-    expect(h.map((x) => x.descricao)).toEqual(["Trabalho iniciado", "Trabalho pausado (Almoço / intervalo)", "Trabalho retomado", "Trabalho finalizado: 2h 05min de mão de obra"]);
+    expect(h.map((x) => x.descricao)).toEqual(["Trabalho iniciado", "Trabalho pausado (Almoço / intervalo) · trecho 09:00–10:30 (1h 30min) · total 1h 30min", "Trabalho retomado", "Trabalho finalizado: 2h 05min de mão de obra · trecho 11:30–12:05 (35min)"]);
     // retomar depois de finalizado reabre
     await tr.iniciarTrabalho(ana, osId, mais(200));
     expect((await tr.resumoTrabalho(osId)).estado).toBe("TRABALHANDO");
@@ -56,6 +56,23 @@ describe("tempo de mão de obra da OS", () => {
     await tr.iniciarTrabalho(ana, osId, t0);
     await tr.pararTrabalho(ana, osId, { motivo: "Buscar material" }, mais(30));
     expect(await tr.pararTrabalho(ana, osId, { finalizar: true }, mais(60))).toMatchObject({ estado: "FINALIZADO", fechadoMs: 30 * 60000 });
+  });
+
+  it("trecho de segundos não aparece como 0min", () => {
+    expect(tr.duracao(20000)).toBe("menos de 1min");
+    expect(tr.duracao(0)).toBe("0min");
+    expect(tr.duracao(45000)).toBe("1min");
+  });
+
+  it("OS sem técnico: quem inicia o trabalho vira o técnico", async () => {
+    await prisma.ordemServico.update({ where: { id: osId }, data: { tecnicoIds: [], tecnicoId: null } });
+    await tr.iniciarTrabalho(ger, osId, t0);
+    expect(await prisma.ordemServico.findUnique({ where: { id: osId }, select: { tecnicoId: true, tecnicoIds: true } })).toEqual({ tecnicoId: ger.id, tecnicoIds: [ger.id] });
+    expect((await prisma.osHistorico.findMany({ where: { osId } })).map((h) => h.descricao)).toContain("Técnico definido: gerente (iniciou o trabalho)");
+    // com técnico definido, não troca
+    await tr.pararTrabalho(ger, osId, { motivo: "x" }, mais(5));
+    await tr.iniciarTrabalho(ana, osId, mais(10)).catch(() => null);
+    expect((await prisma.ordemServico.findUnique({ where: { id: osId } }))!.tecnicoIds).toEqual([ger.id]);
   });
 
   it("só técnico da OS (ou gerência) mexe no tempo", async () => {

@@ -11,6 +11,7 @@ import { descontoLinha, lerNumero, subtotalProduto, subtotalServico } from "@/li
 import { dataLocalSP, totaisOs, type DadosOs } from "@/lib/os/tipos";
 import { aposExcluirOs, aposMudarOs } from "@/lib/agenda/google";
 import { estadoEstoque } from "@/lib/os/os";
+import { resumoAlteracoes } from "@/lib/os/alteracoes";
 import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 /**
@@ -217,6 +218,31 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
       const antigas = await tx.osParcela.findMany({ where: { osId: id }, orderBy: { numero: "asc" } });
       const mudouItens = assinaturaItens(existentes.map((e) => ({ produtoId: e.produtoId, quantidade: Number(e.quantidade), localOrigemId: e.localOrigemId }))) !== assinaturaItens(novosItens);
       const mudouFin = assinaturaFin(Number(atual.total), antigas) !== assinaturaFin(tot.total, parcelas);
+      const servicosAntes = await tx.osItemServico.findMany({ where: { osId: id } });
+      const equipAntes = await tx.osEquipamento.findMany({ where: { osId: id }, orderBy: { ordem: "asc" } });
+      const nomesItens = new Map([
+        ...(await tx.produto.findMany({ where: { id: { in: [...existentes.map((e) => e.produtoId), ...produtos.map((p) => p.produtoId)] } }, select: { id: true, nome: true } })).map((p) => [`P${p.id}`, p.nome] as const),
+        ...(await tx.servico.findMany({ where: { id: { in: [...servicosAntes.map((e) => e.servicoId), ...servicos.map((p) => p.servicoId)] } }, select: { id: true, nome: true } })).map((p) => [`S${p.id}`, p.nome] as const),
+      ]);
+      const pessoasIds = [...atual.tecnicoIds, atual.tecnicoId, ...tecnicoIds].filter((x): x is string => !!x);
+      const nomesUsu = new Map((await tx.usuario.findMany({ where: { id: { in: pessoasIds } }, select: { id: true, nome: true } })).map((x) => [x.id, x.nome]));
+      const equipeIds = [atual.equipeId, t(d.equipeId)].filter((x): x is string => !!x);
+      const nomesEquipe = new Map((await tx.equipe.findMany({ where: { id: { in: equipeIds } }, select: { id: true, nome: true } })).map((x) => [x.id, x.nome]));
+      const nomeEquip = (e: { equipamento: string; marca: string | null; modelo: string | null }) => [e.equipamento, e.marca, e.modelo].filter(Boolean).join(" ");
+      const mudancas = resumoAlteracoes(
+        {
+          itens: [...existentes.map((e) => ({ chave: `P${e.produtoId}`, nome: nomesItens.get(`P${e.produtoId}`) ?? "produto", quantidade: Number(e.quantidade), valorUnit: Number(e.valorUnit) })),
+            ...servicosAntes.map((e) => ({ chave: `S${e.servicoId}`, nome: nomesItens.get(`S${e.servicoId}`) ?? "serviço", quantidade: Number(e.quantidade), valorUnit: Number(e.valorUnit) }))],
+          total: Number(atual.total), tecnicos: (atual.tecnicoIds.length ? atual.tecnicoIds : [atual.tecnicoId]).filter((x): x is string => !!x).map((x) => nomesUsu.get(x) ?? "?"),
+          equipe: atual.equipeId ? nomesEquipe.get(atual.equipeId) ?? null : null, saida: atual.saida, observacoes: atual.observacoes, equipamentos: equipAntes.map(nomeEquip),
+        },
+        {
+          itens: [...produtos.map((l) => ({ chave: `P${l.produtoId}`, nome: nomesItens.get(`P${l.produtoId}`) ?? "produto", quantidade: n(l.quantidade), valorUnit: n(l.valorUnit) })),
+            ...servicos.map((l) => ({ chave: `S${l.servicoId}`, nome: nomesItens.get(`S${l.servicoId}`) ?? "serviço", quantidade: n(l.quantidade), valorUnit: n(l.valorUnit) }))],
+          total: tot.total, tecnicos: tecnicoIds.map((x) => nomesUsu.get(x) ?? "?"), equipe: dados.equipeId ? nomesEquipe.get(dados.equipeId) ?? null : null,
+          saida: saidaEm, observacoes: dados.observacoes, equipamentos: equipamentos.map((e) => nomeEquip({ equipamento: e.equipamento.trim(), marca: t(e.marca), modelo: t(e.modelo) })),
+        },
+      );
       await tx.ordemServico.update({ where: { id }, data: { ...dados, numero } });
       await tx.osParcela.deleteMany({ where: { osId: id } });
       await tx.osParcela.createMany({ data: parcelas.map((p) => ({ ...p, osId: id })) });
@@ -232,7 +258,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
         }
         await aplicar(tx, id, estadoAtual(atual), para, { ...opts, usuarioId: u.id, refazerFinanceiro: mudouFin });
       }
-      await tx.osHistorico.create({ data: { osId: id, descricao: atual.situacaoId !== para.id ? `OS alterada e levada para "${para.nome}"` : "OS alterada", situacao: para.nome, usuarioNome: u.nome, usuarioId: u.id } });
+      await tx.osHistorico.create({ data: { osId: id, descricao: (atual.situacaoId !== para.id ? `OS alterada e levada para "${para.nome}"` : "OS alterada") + (mudancas.length ? `: ${mudancas.join("; ")}` : ""), situacao: para.nome, usuarioNome: u.nome, usuarioId: u.id } });
       return tx.ordemServico.findUniqueOrThrow({ where: { id } });
     }
 

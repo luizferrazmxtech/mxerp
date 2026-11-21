@@ -24,6 +24,7 @@ import FormItensCarro from "@/components/os/FormItensCarro";
 import DicaSaldo from "@/components/estoque/DicaSaldo";
 import { carrosDasEquipes, livreNosCarros } from "@/lib/estoque/carro";
 import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
+import { fotosDoHistorico } from "@/lib/os/historicoFotos";
 import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import BoletoParcela from "@/components/BoletoParcela";
@@ -95,8 +96,11 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   const c = cor(o.situacaoCfg?.cor ?? "cinza");
   const base = `/os/${id}`;
   const fotosInstalacao = anexos.filter((a) => a.entidade === "OS_FOTO");
+  const fotoDaLinha = fotosDoHistorico(o.historico, fotosInstalacao);
   const fotosDoItem = (itemId: string) => fotosInstalacao.filter((a) => a.referencia === itemId).map((a) => a.id);
-  const nomesTecnicos = (tecnicos.length ? o.tecnicoIds.map((t) => tecnicos.find((x) => x.id === t)?.nome) : [o.tecnico?.nome]).filter(Boolean).join(", ");
+  const nomesTecnicos = (tecnicos.length ? o.tecnicoIds.map((t) => tecnicos.find((x) => x.id === t)?.nome) : [o.tecnico?.nome]).filter(Boolean).join(", ")
+    // OS sem técnico marcado: mostra quem trabalhou nela (tempo de mão de obra)
+    || [...new Set(trabalho.trechos.map((t) => t.iniciadoPor))].join(", ");
   const ABAS = [
     { chave: "cliente", rotulo: "Cliente", icone: "pessoa", tem: true }, { chave: "produtos", rotulo: "Produtos/Peças", icone: "produtos", tem: o.produtos.length > 0 },
     { chave: "servicos", rotulo: "Serviços", icone: "servicos", tem: o.servicos.length > 0 }, { chave: "equipamentos", rotulo: "Equipamentos", icone: "os", tem: o.equipamentos.length > 0 },
@@ -143,7 +147,10 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             <a href={`https://wa.me/${fone.length >= 10 ? "55" + fone.replace(/^55/, "") : ""}?text=${encodeURIComponent(zap)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="whatsapp" size={15} /> Por WhatsApp</a>
             {zapAtivo && <LinkSuspenso href={`${base}?whatsapp=1`} icone="whatsapp">WhatsApp (MXChat)</LinkSuspenso>}
             <CopiarLink url={link} menu />
-            <a href={`${base}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> Imprimir</a>
+            <div className="mt-1 border-t px-3 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase text-slate-400">Imprimir</div>
+            <a href={`${base}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS</a>
+            <a href={`${base}/imprimir?modo=completa`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS completa</a>
+            <a href={`${base}/imprimir?modo=historico`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS completa com histórico</a>
           </Suspenso>
         </div>
       </div>
@@ -332,14 +339,26 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
 
           {aba === "historico" && (
             <div className="cartao p-4">
+              {trabalho.estado !== "NAO_INICIADO" && (
+                <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[13px]">
+                  <span><b>Mão de obra:</b> {duracao(trabalho.fechadoMs + (trabalho.abertoDesde ? Date.now() - new Date(trabalho.abertoDesde).getTime() : 0))}</span>
+                  <span className="text-slate-500">{trabalho.trechos.length} {trabalho.trechos.length === 1 ? "trecho" : "trechos"} · {{ TRABALHANDO: "trabalhando agora", PAUSADO: "pausado", FINALIZADO: "finalizado", NAO_INICIADO: "" }[trabalho.estado]}</span>
+                  {fotosInstalacao.length > 0 && <span className="text-slate-500">{fotosInstalacao.length} {fotosInstalacao.length === 1 ? "foto" : "fotos"} da instalação</span>}
+                </div>
+              )}
               <ol className="relative ml-2 border-l border-slate-200">
                 {o.historico.map((x) => {
                   const quem = x.usuarioNome ?? (x.usuarioId ? usuarios.get(x.usuarioId) : null);
+                  const foto = fotoDaLinha.get(x.id);
                   return (
                     <li key={x.id} className="mb-4 ml-4 text-[13px]">
                       <span className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full border-2 border-white bg-marca" />
                       <div>{x.descricao}{x.situacao && <span className="ml-1 text-slate-500">· {x.situacao}</span>}</div>
                       <div className="text-[11px] text-slate-500">{quem ? `Por ${quem} · ` : ""}{dataSP(x.createdAt)} • {horaSP(x.createdAt)}</div>
+                      {foto && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <a href={`/api/cadastros/anexo/${foto}`} target="_blank" className="mt-1.5 inline-block"><img src={`/api/cadastros/anexo/${foto}`} alt="Foto da instalação" loading="lazy" className="h-28 w-28 rounded border object-cover hover:opacity-90" /></a>
+                      )}
                     </li>
                   );
                 })}
