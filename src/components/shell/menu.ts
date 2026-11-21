@@ -77,9 +77,11 @@ export const MENU: ItemMenu[] = [
     rotulo: "Ordens de serviços", icone: "os", filhos: [
       { rotulo: "Gerenciar O.S.", href: "/os", icone: "gerenciar" },
       { rotulo: "Painel", href: "/os/painel", icone: "painel" },
+      { rotulo: "Tela do técnico", href: "/tecnico", icone: "celular" },
       {
         rotulo: "Opções auxiliares", href: "/os/situacoes", icone: "auxiliares", filhos: [
           { rotulo: "Situações", href: "/os/situacoes", icone: "lista" },
+          { rotulo: "Equipes", href: "/os/equipes", icone: "equipe" },
           { rotulo: "Campos extras", href: "/campos-extras?entidade=OS", icone: "ajustes" },
           { rotulo: "Mensagens", href: "/os/mensagens", icone: "email" },
           { rotulo: "Configurações", href: "/os/configuracoes", icone: "configuracoes" },
@@ -179,6 +181,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/orcamentos", rotulo: "Orçamentos", cor: "#0f8a8a", icone: "notas" },
   { prefixo: "/chamados", rotulo: "Atendimentos", cor: "#7c3aed", icone: "atendimento" },
   { prefixo: "/os", rotulo: "Ordens de serviços", cor: "#e8730c", icone: "os" },
+  { prefixo: "/tecnico", rotulo: "Técnico", cor: "#e8730c", icone: "os" },
   { prefixo: "/vendas", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/contratos", rotulo: "Contratos", cor: "#0e7490", icone: "contratos" },
   { prefixo: "/pdv", rotulo: "PDV", cor: "#2e9d4f", icone: "balcao" },
