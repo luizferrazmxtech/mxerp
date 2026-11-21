@@ -57,6 +57,13 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Trocas e devoluções", href: "/vendas/devolucoes", icone: "atualizar" },
       { rotulo: "Envios (Melhor Envio)", href: "/frete", icone: "frete" },
       {
+        rotulo: "Marketplaces", href: "/marketplaces", icone: "lojas", filhos: [
+          { rotulo: "Pedidos", href: "/marketplaces", icone: "gerenciar" },
+          { rotulo: "Anúncios", href: "/marketplaces/anuncios", icone: "etiqueta" },
+          { rotulo: "Mercado Livre", href: "/marketplaces/mercado-livre", icone: "configuracoes" },
+        ],
+      },
+      {
         rotulo: "Opções auxiliares", href: "/vendas/situacoes", icone: "auxiliares", filhos: [
           { rotulo: "Situações", href: "/vendas/situacoes", icone: "lista" },
           { rotulo: "Canais de venda", href: "/vendas/canais", icone: "lojas" },
@@ -197,6 +204,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/os", rotulo: "Ordens de serviços", cor: "#e8730c", icone: "os" },
   { prefixo: "/tecnico", rotulo: "Técnico", cor: "#e8730c", icone: "os" },
   { prefixo: "/vendas", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
+  { prefixo: "/marketplaces", rotulo: "Vendas", cor: "#2e9d4f", icone: "vendas" },
   { prefixo: "/contratos", rotulo: "Contratos", cor: "#0e7490", icone: "contratos" },
   { prefixo: "/contador", rotulo: "Fiscal", cor: "#7a4fd1", icone: "fiscal" },
   { prefixo: "/pagseguro/configuracoes", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },

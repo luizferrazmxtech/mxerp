@@ -79,7 +79,7 @@ services:
               slug=$$(basename $$(dirname "$$env"))
               grep -q '^SUSPENSO=1' "$$env" && continue
               segredo=$$(grep '^CRON_SECRET=' "$$env" | cut -d= -f2-)
-              for rota in inter/sincronizar contratos/processar dfe/sincronizar frete/sincronizar pagseguro/sincronizar contador/processar openfinance/sincronizar agenda/sincronizar; do
+              for rota in inter/sincronizar contratos/processar dfe/sincronizar frete/sincronizar pagseguro/sincronizar contador/processar openfinance/sincronizar agenda/sincronizar mercadolivre/sincronizar; do
                 echo "$$slug $$rota: $$(curl -s -m 600 -X POST -H "Authorization: Bearer $$segredo" http://app-$$slug:3000/api/$$rota)"
               done
             done

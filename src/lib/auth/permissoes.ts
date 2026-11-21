@@ -36,6 +36,9 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/migracao", papeis: ["ADMIN"] },
   // WhatsApp (MXChat): configuração e histórico de mensagens mandadas aos clientes
   { prefixo: "/whatsapp", papeis: ["ADMIN", "GERENTE"] },
+  // marketplaces geram vendas e baixam o financeiro (a conexão com a conta é só do administrador, na ação)
+  { prefixo: "/marketplaces", papeis: ["ADMIN", "GERENTE"] },
+  { prefixo: "/api/mercadolivre", papeis: ["ADMIN", "GERENTE"] },
   // contratos mexem com cobrança e financeiro
   { prefixo: "/contratos", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/financeiro", papeis: ["ADMIN", "GERENTE"] },
