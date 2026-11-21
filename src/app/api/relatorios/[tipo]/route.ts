@@ -12,10 +12,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ tipo: st
   const per = periodoRelatorio(sp);
   let linhas: unknown[][] = [];
   if (tipo === "lucro") {
-    const r = await relatorioLucro(per, (sp.por as AgruparLucro) || "documento");
+    const r = await relatorioLucro(per, (sp.por as AgruparLucro) || "documento", { vendedorId: sp.vendedor || undefined });
     linhas = [["Item", "Detalhe", "Documentos", "Quantidade", "Receita", "Custo", "Lucro", "Margem %"], ...r.linhas.map((l) => [l.rotulo, l.detalhe, l.documentos, n(l.quantidade), n(l.receita), n(l.custo), n(l.lucro), n(l.margem * 100)])];
   } else if (tipo === "curva-abc") {
-    const r = await curvaAbc(per, sp.por === "clientes" ? "clientes" : sp.por === "servicos" ? "servicos" : "produtos", (sp.criterio as CriterioAbc) || "valor");
+    const r = await curvaAbc(per, sp.por === "clientes" ? "clientes" : sp.por === "servicos" ? "servicos" : "produtos", (sp.criterio as CriterioAbc) || "valor", { vendedorId: sp.vendedor || undefined });
     linhas = [["Item", "Código", "Quantidade", "Faturamento", "Lucro", "% do total", "Acumulado %", "Classe"], ...r.linhas.map((l) => [l.rotulo, l.detalhe, n(l.quantidade), n(l.valor), n(l.lucro), n(l.pct * 100), n(l.acumulado * 100), l.classe])];
   } else if (tipo === "comissoes") {
     const r = await relatorioComissoes(per);

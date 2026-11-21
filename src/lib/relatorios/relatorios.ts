@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { sqlDaLoja } from "@/lib/empresa/loja";
 
 /**
  * Relatórios gerenciais. "Vendido" = vendas concretizadas (pela data da venda) + OS concluídas/faturadas
@@ -8,6 +9,8 @@ import { prisma } from "@/lib/db";
  * não entra (é repasse). Custo = quantidade × custo da peça gravado no item. Serviço não tem custo.
  */
 export type Periodo = { de: Date; ate: Date }; // datas civis (meia-noite UTC), inclusive
+/** Filtros comuns dos relatórios de venda. A loja vem sempre do contexto (seletor de loja do topo). */
+export type FiltroVendas = { vendedorId?: string };
 
 export type ItemVendido = {
   origem: "VENDA" | "OS"; docId: string; numero: number; data: Date; clienteId: string | null; cliente: string | null;
@@ -17,17 +20,20 @@ export type ItemVendido = {
 
 const local = (col: string) => Prisma.raw(`(${col} AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date`);
 
-export async function itensVendidos(p: Periodo): Promise<ItemVendido[]> {
+export async function itensVendidos(p: Periodo, f: FiltroVendas = {}): Promise<ItemVendido[]> {
   const fim = new Date(p.ate.getTime() + 86400000);
+  const lv = await sqlDaLoja(`v."empresaId"`), lo = await sqlDaLoja(`o."empresaId"`);
+  const vv = f.vendedorId ? Prisma.sql` AND v."vendedorId" = ${f.vendedorId}` : Prisma.empty;
+  const vo = f.vendedorId ? Prisma.sql` AND o."vendedorId" = ${f.vendedorId}` : Prisma.empty;
   const rows = await prisma.$queryRaw<ItemVendido[]>`
     WITH docs AS (
       SELECT 'VENDA' origem, v.id, v.numero, ${local("v.data")} dia, v."clienteId", v."vendedorId", NULL::text "tecnicoId", v.desconto,
              COALESCE((SELECT SUM(subtotal) FROM "VendaItem" WHERE "vendaId" = v.id), 0) + COALESCE((SELECT SUM(subtotal) FROM "VendaItemServico" WHERE "vendaId" = v.id), 0) bruto
-        FROM "Venda" v WHERE v.situacao = 'CONCLUIDA' AND ${local("v.data")} >= ${p.de}::date AND ${local("v.data")} < ${fim}::date
+        FROM "Venda" v WHERE v.situacao = 'CONCLUIDA' AND ${local("v.data")} >= ${p.de}::date AND ${local("v.data")} < ${fim}::date${lv}${vv}
       UNION ALL
       SELECT 'OS', o.id, o.numero, ${local('COALESCE(o.saida, o.entrada)')}, o."clienteId", o."vendedorId", o."tecnicoId", o.desconto,
              COALESCE((SELECT SUM(subtotal) FROM "OsItemProduto" WHERE "osId" = o.id), 0) + COALESCE((SELECT SUM(subtotal) FROM "OsItemServico" WHERE "osId" = o.id), 0)
-        FROM "OrdemServico" o WHERE o.situacao IN ('CONCLUIDA','FATURADA') AND ${local('COALESCE(o.saida, o.entrada)')} >= ${p.de}::date AND ${local('COALESCE(o.saida, o.entrada)')} < ${fim}::date
+        FROM "OrdemServico" o WHERE o.situacao IN ('CONCLUIDA','FATURADA') AND ${local('COALESCE(o.saida, o.entrada)')} >= ${p.de}::date AND ${local('COALESCE(o.saida, o.entrada)')} < ${fim}::date${lo}${vo}
     ), itens AS (
       SELECT 'VENDA' origem, i."vendaId" doc, 'PRODUTO' tipo, i."produtoId" item, i.quantidade, i.subtotal, i.quantidade * i."custoUnit" custo FROM "VendaItem" i
       UNION ALL SELECT 'VENDA', s."vendaId", 'SERVICO', s."servicoId", s.quantidade, s.subtotal, 0 FROM "VendaItemServico" s
@@ -55,8 +61,8 @@ export type LinhaLucro = { chave: string; rotulo: string; detalhe?: string; href
 export type AgruparLucro = "documento" | "cliente" | "vendedor" | "produto" | "servico";
 
 /** Lucro bruto (receita − custo das peças) do período, agrupado. */
-export async function relatorioLucro(p: Periodo, por: AgruparLucro = "documento") {
-  const itens = await itensVendidos(p);
+export async function relatorioLucro(p: Periodo, por: AgruparLucro = "documento", f: FiltroVendas = {}) {
+  const itens = await itensVendidos(p, f);
   const grupos = new Map<string, LinhaLucro & { docs: Set<string> }>();
   for (const i of itens) {
     if (por === "produto" && i.tipo !== "PRODUTO") continue;
@@ -106,8 +112,8 @@ export function classificarAbc<T extends { base: number }>(linhas: T[], limiteA 
   });
 }
 
-export async function curvaAbc(p: Periodo, por: "produtos" | "clientes" | "servicos", criterio: CriterioAbc = "valor") {
-  const itens = (await itensVendidos(p)).filter((i) => (por === "produtos" ? i.tipo === "PRODUTO" : por === "servicos" ? i.tipo === "SERVICO" : true));
+export async function curvaAbc(p: Periodo, por: "produtos" | "clientes" | "servicos", criterio: CriterioAbc = "valor", f: FiltroVendas = {}) {
+  const itens = (await itensVendidos(p, f)).filter((i) => (por === "produtos" ? i.tipo === "PRODUTO" : por === "servicos" ? i.tipo === "SERVICO" : true));
   const m = new Map<string, { chave: string; rotulo: string; detalhe?: string; valor: number; quantidade: number; lucro: number }>();
   for (const i of itens) {
     const chave = por === "clientes" ? i.clienteId ?? "-" : i.itemId;

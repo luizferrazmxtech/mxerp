@@ -8,8 +8,10 @@ const L = 640, A = 230, ESQ = 44, DIR = 8, TOPO = 10, BASE = 26;
  * Gráfico de colunas por mês (SVG renderizado no servidor). Barras lado a lado ou empilhadas,
  * linhas por cima no MESMO eixo (nunca dois eixos). Passar o mouse numa coluna mostra os valores do mês.
  */
-export function GraficoColunas({ rotulos, series, empilhar = false, formatar, titulo }: {
+export function GraficoColunas({ rotulos, series, empilhar = false, formatar, titulo, links }: {
   rotulos: string[]; series: Serie[]; empilhar?: boolean; formatar: (v: number) => string; titulo: string;
+  /** Endereço aberto ao clicar na coluna de cada mês (opcional). */
+  links?: (string | undefined)[];
 }) {
   const barras = series.filter((s) => s.tipo !== "linha");
   const linhas = series.filter((s) => s.tipo === "linha");
@@ -57,11 +59,14 @@ export function GraficoColunas({ rotulos, series, empilhar = false, formatar, ti
           </g>
         ))}
         {/* área de passar o mouse: a coluna inteira do mês */}
-        {rotulos.map((r, i) => (
-          <rect key={r} x={ESQ + larg * i} y={TOPO} width={larg} height={A - TOPO - BASE} fill="transparent" className="hover:fill-slate-500/5">
-            <title>{`${r}\n${series.map((s) => `${s.nome}: ${formatar(s.valores[i])}`).join("\n")}`}</title>
-          </rect>
-        ))}
+        {rotulos.map((r, i) => {
+          const area = (
+            <rect key={r} x={ESQ + larg * i} y={TOPO} width={larg} height={A - TOPO - BASE} fill="transparent" className={`hover:fill-slate-500/5 ${links?.[i] ? "cursor-pointer" : ""}`}>
+              <title>{`${r}\n${series.map((s) => `${s.nome}: ${formatar(s.valores[i])}`).join("\n")}${links?.[i] ? "\nClique para detalhar" : ""}`}</title>
+            </rect>
+          );
+          return links?.[i] ? <a key={r} href={links[i]}>{area}</a> : area;
+        })}
       </svg>
       <figcaption className="mt-1 flex flex-wrap gap-x-4 gap-y-1 px-2 text-[12px] text-slate-600">
         {series.map((s) => (

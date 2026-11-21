@@ -6,6 +6,8 @@ process.env.DATABASE_URL = URL;
 
 const { prisma } = await import("@/lib/db");
 const rel = await import("@/lib/relatorios/relatorios");
+const painel = await import("@/lib/relatorios/painel");
+const loja = await import("@/lib/empresa/loja");
 const { garantirPadroes, categoria } = await import("@/lib/financeiro/padroes");
 
 const per = { de: new Date("2026-10-01T00:00:00Z"), ate: new Date("2026-10-31T00:00:00Z") };
@@ -86,5 +88,44 @@ describe("relatórios", () => {
     expect(r.situacoes.map((s) => [s.situacao, s.horas])).toEqual([["Em andamento", 36], ["Em aberto", 12]]);
     expect(r.tecnicos[0]).toMatchObject({ tecnico: "Bruno Técnico", os: 1 });
     expect(rel.duracao(50.5)).toBe("2 d 2 h");
+  });
+
+  it("filtra por vendedor e pela loja do contexto", async () => {
+    const { v } = await dados();
+    expect((await rel.relatorioLucro(per, "documento", { vendedorId: vend })).totais).toMatchObject({ documentos: 1, receita: 630 });
+    expect((await rel.curvaAbc(per, "clientes", "valor", { vendedorId: vend })).linhas.map((l) => l.rotulo)).toEqual(["Condomínio Azul"]);
+    await prisma.$executeRawUnsafe(`TRUNCATE "Empresa" CASCADE`);
+    const a = (await prisma.empresa.create({ data: { razaoSocial: "LOJA A", cnpj: "12345678000195" } })).id;
+    const b = (await prisma.empresa.create({ data: { razaoSocial: "LOJA B", cnpj: "98765432000110" } })).id;
+    loja.limparCacheLojas();
+    await prisma.venda.update({ where: { id: v.id }, data: { empresaId: b } });
+    // a OS sem loja aparece em todas; a venda da loja B não aparece na A
+    const na = await loja.naLoja(a, () => rel.relatorioLucro(per, "documento"));
+    expect(na.linhas.map((l) => l.rotulo)).toEqual(["OS nº 10"]);
+    const nb = await loja.naLoja(b, () => rel.relatorioLucro(per, "documento"));
+    expect(nb.totais.receita).toBe(1130);
+    await prisma.$executeRawUnsafe(`TRUNCATE "Empresa" CASCADE`);
+    loja.limparCacheLojas();
+  });
+
+  it("painel: período anterior, 12 meses com ano anterior e maiores clientes", async () => {
+    await dados();
+    // venda de setembro (período anterior) e de outubro do ano passado
+    await prisma.venda.create({ data: { numero: 3, clienteId: cli2, vendedorId: vend, situacao: "CONCLUIDA", data: new Date("2026-09-15T15:00:00Z"), total: 100, itens: { create: [{ produtoId: pB, quantidade: 10, valorUnit: 10, custoUnit: 4, subtotal: 100 }] } } });
+    await prisma.venda.create({ data: { numero: 4, clienteId: cli, situacao: "CONCLUIDA", data: new Date("2025-10-15T15:00:00Z"), total: 400, itens: { create: [{ produtoId: pB, quantidade: 40, valorUnit: 10, custoUnit: 4, subtotal: 400 }] } } });
+    expect(painel.periodoAnterior(per)).toEqual({ de: new Date("2026-09-01T00:00:00Z"), ate: new Date("2026-09-30T00:00:00Z") });
+    expect(painel.periodoAnterior({ de: new Date("2026-10-10T00:00:00Z"), ate: new Date("2026-10-19T00:00:00Z") })).toEqual({ de: new Date("2026-09-30T00:00:00Z"), ate: new Date("2026-10-09T00:00:00Z") });
+    const d = await painel.painelRelatorios(per, {}, new Date("2026-11-21T00:00:00Z"));
+    expect(d.atual).toMatchObject({ receita: 1130, lucro: 640, documentos: 2, vendas: 630, os: 500 });
+    expect(d.anterior).toMatchObject({ receita: 100, documentos: 1 });
+    expect(painel.variacao(d.atual.receita, d.anterior.receita)).toBeCloseTo(10.3);
+    expect(d.mensal).toHaveLength(12);
+    expect(d.mensal.at(-1)!.chave).toBe("2026-10");
+    expect(d.mensal.at(-1)).toMatchObject({ receita: 1130, anoAnterior: 400 });
+    expect(d.mensal.at(-2)).toMatchObject({ chave: "2026-09", receita: 100, anoAnterior: 0 });
+    expect(d.clientes.top.map((c) => [c.rotulo, c.receita])).toEqual([["Condomínio Azul", 630], ["Padaria", 500]]);
+    expect(d.servicos.top.map((c) => c.rotulo)).toEqual(["Instalação"]);
+    expect(d.vendedores.map((x) => x.nome)).toEqual(["Ana Vendas"]);
+    expect(painel.variacao(5, 0)).toBeNull();
   });
 });

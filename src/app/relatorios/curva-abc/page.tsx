@@ -15,7 +15,7 @@ export default async function CurvaAbc({ searchParams }: { searchParams: Promise
   const por = sp.por === "clientes" ? "clientes" : sp.por === "servicos" ? "servicos" : "produtos";
   const criterio = (["valor", "quantidade", "lucro"].includes(sp.criterio ?? "") ? sp.criterio : "valor") as CriterioAbc;
   const params = paramsDe(sp);
-  const r = await curvaAbc(per, por, criterio);
+  const r = await curvaAbc(per, por, criterio, { vendedorId: sp.vendedor || undefined });
   const fmt = (v: number) => (criterio === "quantidade" ? qtd(v) : brl(v));
   return (
     <Pagina titulo="Curva ABC" icone="grafico" trilha={[{ rotulo: "Relatórios", href: "/relatorios" }, { rotulo: "Curva ABC" }]}>
