@@ -164,6 +164,14 @@ export class ClienteInter {
     return Number(j.disponivel ?? 0);
   }
 
+  /** Saldo da conta com o que está bloqueado (é o que bate com a soma do extrato): conferência de saldo. */
+  async saldoContabil(): Promise<number> {
+    const r = await this.get("/banking/v2/saldo", { dataSaldo: iso(diaSP()) });
+    if (r.status !== 200) throw new Error(`Inter: saldo não liberado (HTTP ${r.status})`);
+    const j = JSON.parse(r.corpo) as Record<string, number | string | undefined>;
+    return ["disponivel", "bloqueadoCheque", "bloqueadoJudicialmente", "bloqueadoAdministrativo"].reduce((s, k) => s + (Number(j[k] ?? 0) || 0), 0);
+  }
+
   /** Extrato do período. Usa o extrato completo (traz o id de cada transação); cai no simples se não estiver liberado. */
   async extrato(inicio: Date, fim: Date): Promise<TransacaoExtrato[]> {
     const out: TransacaoExtrato[] = [];
@@ -300,6 +308,10 @@ export async function sincronizarInter(opts: { dias?: number; cliente?: ClienteI
   try {
     const ts = await cliente.extrato(inicio, fim);
     const r = { conta: conta.nome, ...(await importarExtrato(conta.id, ts)) };
+    // saldo do banco para a conferência de saldo (sem permissão de saldo, só não grava)
+    if (typeof (cliente as { saldoContabil?: unknown }).saldoContabil === "function") {
+      await cliente.saldoContabil().then((v) => import("./saldos").then((m) => m.registrarSaldo(conta.id, fim, v, "INTER"))).catch(() => null);
+    }
     await prisma.integracaoInter.updateMany({ where: { id: "inter" }, data: { ultimaSincEm: new Date(), ultimaSincMsg: `${r.novas} novas, ${r.baixadas} baixadas` } });
     return r;
   } catch (e) {

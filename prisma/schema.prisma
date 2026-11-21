@@ -86,6 +86,7 @@ model Usuario {
   sexo              String? // M / F
   observacoes       String?
   comissao          Decimal?          @db.Decimal(6, 2)
+  salario           Decimal?          @db.Decimal(14, 2) // salário combinado (referência da folha na conciliação)
   liberacaoComissao LiberacaoComissao @default(PARCIAL)
   telefone          String?
   celular           String?
@@ -111,6 +112,7 @@ model Usuario {
   vendas              Venda[]
   movimentos          MovimentoEstoque[]
   sessoes             Sessao[]
+  pagamentosRecebidos Lancamento[]       @relation("LancamentoFuncionario")
   caixas              CaixaPdv[]
   clientesVendedor    Pessoa[]           @relation("PessoaVendedor")
   contratos           Contrato[]
@@ -1528,6 +1530,7 @@ model ContaBancaria {
   lancamentos       Lancamento[]
   transacoes        TransacaoBancaria[]
   integracoesInter  IntegracaoInter[]
+  saldos            SaldoBancario[]
   contasOpenFinance ContaOpenFinance[]
 }
 
@@ -1680,6 +1683,7 @@ model CategoriaFinanceira {
   pai         CategoriaFinanceira?  @relation("CategoriaPai", fields: [paiId], references: [id])
   filhas      CategoriaFinanceira[] @relation("CategoriaPai")
   lancamentos Lancamento[]
+  regrasConciliacao RegraConciliacao[]
   rateios     LancamentoRateio[]
 
   @@unique([nome, tipo])
@@ -1723,6 +1727,9 @@ model Lancamento {
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   avisosBoleto     AvisoBoleto[]
+  // pagamento a funcionário feito pela conciliação (folha e painel de mão de obra)
+  funcionarioId    String?
+  funcionario      Usuario?            @relation("LancamentoFuncionario", fields: [funcionarioId], references: [id], onDelete: SetNull)
 
   @@index([tipo, vencimento])
   @@index([competencia])
@@ -1738,6 +1745,7 @@ model CentroCusto {
   nome        String       @unique
   ativo       Boolean      @default(true)
   lancamentos Lancamento[]
+  regrasConciliacao RegraConciliacao[]
 }
 
 /// Divisão de um lançamento entre categorias (ex.: venda com peças e serviços): a DRE usa as frações; o lançamento continua um só (um boleto).
@@ -1904,6 +1912,41 @@ model TransacaoBancaria {
 
   @@unique([contaBancariaId, chave])
   @@index([situacao])
+}
+
+/// O que fazer com um favorecido do extrato: aprendida ao confirmar um lançamento avulso ou criada na tela de regras.
+model RegraConciliacao {
+  id            String              @id @default(cuid())
+  texto         String // favorecido lido do extrato (IGUAL) ou trecho da descrição (CONTEM), sem acento e em minúsculas
+  modo          String              @default("IGUAL") // IGUAL | CONTEM
+  tipo          TipoLancamento
+  categoriaId   String
+  categoria     CategoriaFinanceira @relation(fields: [categoriaId], references: [id], onDelete: Cascade)
+  centroCustoId String?
+  centroCusto   CentroCusto?        @relation(fields: [centroCustoId], references: [id], onDelete: SetNull)
+  descricao     String? // descrição do lançamento (vazio = a do extrato)
+  origem        String              @default("APRENDIDA") // APRENDIDA | MANUAL
+  ativa         Boolean             @default(true)
+  vezes         Int                 @default(0) // confirmações que seguiram a regra
+  ultimaEm      DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([texto, modo, tipo])
+}
+
+/// Saldo informado pelo banco (Inter na sincronização) ou digitado, para conferir com o saldo do sistema.
+model SaldoBancario {
+  id              String        @id @default(cuid())
+  contaBancariaId String
+  contaBancaria   ContaBancaria @relation(fields: [contaBancariaId], references: [id], onDelete: Cascade)
+  data            DateTime      @db.Date
+  saldo           Decimal       @db.Decimal(14, 2)
+  origem          String // INTER | MANUAL
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([contaBancariaId, data, origem])
 }
 
 enum SituacaoConciliacao {

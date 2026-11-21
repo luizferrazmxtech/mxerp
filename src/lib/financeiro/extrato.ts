@@ -182,15 +182,25 @@ export async function sugestoes(contaBancariaId?: string) {
 // ---------- ações
 
 /** Baixa os lançamentos com a data e a conta da transação. Diferença de valor vira juros (a mais) ou desconto (a menos). */
-export async function conciliarTx(tx: Tx, transacaoId: string, lancamentoIds: string[], opts: { centroCustoId?: string | null } = {}) {
+/**
+ * Baixa uma ou mais contas com uma linha do extrato. Com várias contas, a soma delas tem que bater com o valor da linha;
+ * diferença só com `aceitarDiferenca` (vira juros, se o banco mostrou mais, ou desconto, se mostrou menos).
+ */
+export async function conciliarTx(tx: Tx, transacaoId: string, lancamentoIds: string[], opts: { centroCustoId?: string | null; aceitarDiferenca?: boolean } = {}) {
   const t = await tx.transacaoBancaria.findUniqueOrThrow({ where: { id: transacaoId } });
   if (t.situacao !== "PENDENTE") throw new Error("Transação já conciliada ou ignorada");
   if (!lancamentoIds.length) throw new Error("Escolha ao menos uma conta");
-  const ls = await tx.lancamento.findMany({ where: { id: { in: lancamentoIds } } });
+  const ids = [...new Set(lancamentoIds)];
+  const ls = await tx.lancamento.findMany({ where: { id: { in: ids } } });
+  if (ls.length !== ids.length) throw new Error("Conta não encontrada");
+  if (ls.some((l) => l.pagoEm)) throw new Error("Uma das contas já está baixada");
   const tipo = Number(t.valor) < 0 ? "PAGAR" : "RECEBER";
   if (ls.some((l) => l.tipo !== tipo)) throw new Error(tipo === "PAGAR" ? "Saída do extrato só baixa contas a pagar" : "Entrada do extrato só baixa contas a receber");
   const soma = ls.reduce((s, l) => s + Number(l.valor), 0);
   const dif = Math.round((Math.abs(Number(t.valor)) - soma) * 100) / 100;
+  if (ls.length > 1 && Math.abs(dif) >= 0.01 && !opts.aceitarDiferenca) {
+    throw new Error(`A soma das ${ls.length} contas (${brl(soma)}) não bate com o valor do extrato (${brl(Math.abs(Number(t.valor)))}): diferença de ${brl(Math.abs(dif))}`);
+  }
   for (const [i, l] of ls.entries()) {
     const ajuste = i === 0 ? dif : 0; // diferença vai toda no primeiro
     await baixarLancamento(tx, l.id, { data: t.data, contaBancariaId: t.contaBancariaId, juros: Math.max(0, ajuste), desconto: Math.max(0, -ajuste) });
@@ -199,8 +209,56 @@ export async function conciliarTx(tx: Tx, transacaoId: string, lancamentoIds: st
   return tx.transacaoBancaria.update({ where: { id: transacaoId }, data: { situacao: "CONCILIADA" } });
 }
 
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+/**
+ * Várias linhas do extrato pagam uma conta só (cliente que pagou em duas vezes, por exemplo): a conta é dividida em
+ * uma parte por linha, cada parte baixada com a sua linha. A soma das linhas não pode passar do valor da conta; se
+ * ficar abaixo, só com `deixarRestante` (o que falta continua em aberto numa parte a mais).
+ */
+export async function conciliarLinhasTx(tx: Tx, transacaoIds: string[], lancamentoId: string, opts: { centroCustoId?: string | null; deixarRestante?: boolean } = {}) {
+  const ids = [...new Set(transacaoIds)];
+  if (ids.length < 2) throw new Error("Escolha duas ou mais linhas do extrato");
+  const ts = await tx.transacaoBancaria.findMany({ where: { id: { in: ids } }, orderBy: [{ data: "asc" }, { createdAt: "asc" }] });
+  if (ts.length !== ids.length) throw new Error("Linha do extrato não encontrada");
+  if (ts.some((t) => t.situacao !== "PENDENTE")) throw new Error("Uma das linhas já foi conciliada ou ignorada");
+  const l = await tx.lancamento.findUniqueOrThrow({ where: { id: lancamentoId }, include: { rateio: true } });
+  if (l.pagoEm) throw new Error("A conta já está baixada");
+  if (l.transferenciaId) throw new Error("Transferência entre contas não pode ser dividida");
+  const tipo = Number(ts[0].valor) < 0 ? "PAGAR" : "RECEBER";
+  if (ts.some((t) => (Number(t.valor) < 0 ? "PAGAR" : "RECEBER") !== tipo)) throw new Error("Junte só entradas ou só saídas");
+  if (l.tipo !== tipo) throw new Error(tipo === "PAGAR" ? "Saídas do extrato só baixam contas a pagar" : "Entradas do extrato só baixam contas a receber");
+  const valores = ts.map((t) => Math.round(Math.abs(Number(t.valor)) * 100) / 100);
+  const soma = Math.round(valores.reduce((a, b) => a + b, 0) * 100) / 100;
+  const total = Number(l.valor);
+  const resto = Math.round((total - soma) * 100) / 100;
+  if (resto <= -0.01) throw new Error(`A soma das ${ts.length} linhas (${brl(soma)}) passa do valor da conta (${brl(total)}) em ${brl(-resto)}`);
+  if (resto >= 0.01 && !opts.deixarRestante) throw new Error(`A soma das ${ts.length} linhas (${brl(soma)}) não fecha a conta (${brl(total)}): faltam ${brl(resto)}`);
+  const partes = ts.length + (resto >= 0.01 ? 1 : 0);
+  const copia = {
+    empresaId: l.empresaId, tipo: l.tipo, pessoaId: l.pessoaId, categoriaId: l.categoriaId, formaPagamentoId: l.formaPagamentoId, vencimento: l.vencimento,
+    competencia: l.competencia, parcela: l.parcela, totalParcelas: l.totalParcelas, origemTipo: l.origemTipo, origemId: l.origemId,
+    centroCustoId: opts.centroCustoId || l.centroCustoId, funcionarioId: l.funcionarioId, observacao: l.observacao,
+  };
+  const desc = (i: number) => `${l.descricao} (parte ${i}/${partes})`.slice(0, 300);
+  const novos: string[] = [];
+  for (let i = 1; i < partes; i++) {
+    const valor = i < ts.length ? valores[i] : resto;
+    const n = await tx.lancamento.create({ data: { ...copia, descricao: desc(i + 1), valor: D(valor), rateio: { create: l.rateio.map((r) => ({ categoriaId: r.categoriaId, fracao: r.fracao })) } } });
+    novos.push(n.id);
+  }
+  await tx.lancamento.update({ where: { id: l.id }, data: { descricao: desc(1), valor: D(valores[0]), ...(opts.centroCustoId ? { centroCustoId: opts.centroCustoId } : {}) } });
+  const alvos = [l.id, ...novos];
+  for (const [i, t] of ts.entries()) {
+    await baixarLancamento(tx, alvos[i], { data: t.data, contaBancariaId: t.contaBancariaId });
+    await tx.lancamento.update({ where: { id: alvos[i] }, data: { transacaoId: t.id } });
+    await tx.transacaoBancaria.update({ where: { id: t.id }, data: { situacao: "CONCILIADA" } });
+  }
+  return { partes, restante: resto >= 0.01 ? resto : 0 };
+}
+
 /** Transação sem conta correspondente (tarifa, rendimento, PIX avulso): cria o lançamento já baixado. */
-export async function lancarAvulsoTx(tx: Tx, transacaoId: string, categoriaId: string, descricao?: string, centroCustoId?: string | null, competencia?: Date | null) {
+export async function lancarAvulsoTx(tx: Tx, transacaoId: string, categoriaId: string, descricao?: string, centroCustoId?: string | null, competencia?: Date | null, funcionarioId?: string | null) {
   const t = await tx.transacaoBancaria.findUniqueOrThrow({ where: { id: transacaoId } });
   if (t.situacao !== "PENDENTE") throw new Error("Transação já conciliada ou ignorada");
   const valor = Math.abs(Number(t.valor));
@@ -210,7 +268,7 @@ export async function lancarAvulsoTx(tx: Tx, transacaoId: string, categoriaId: s
   await tx.lancamento.create({
     data: {
       tipo, descricao: (descricao || t.descricao).slice(0, 300), categoriaId, valor: D(valor), vencimento: t.data, competencia: competencia ?? t.data,
-      pagoEm: t.data, valorPago: D(valor), contaBancariaId: t.contaBancariaId, transacaoId, idLegado: `extrato:${t.id}`, centroCustoId: centroCustoId || null,
+      pagoEm: t.data, valorPago: D(valor), contaBancariaId: t.contaBancariaId, transacaoId, idLegado: `extrato:${t.id}`, centroCustoId: centroCustoId || null, funcionarioId: funcionarioId || null,
     },
   });
   return tx.transacaoBancaria.update({ where: { id: transacaoId }, data: { situacao: "CONCILIADA" } });

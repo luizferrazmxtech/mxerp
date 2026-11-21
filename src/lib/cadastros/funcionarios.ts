@@ -14,6 +14,8 @@ export type DadosFuncionario = {
   nome: string; cpf: string; rg: string; nascimento: string; sexo: string; email: string; ativo: boolean;
   acessoSistema: boolean; papel: PapelUsuario; senha: string; tecnico: boolean; vendedor: boolean; observacoes: string;
   comissao: string; liberacaoComissao: LiberacaoComissao;
+  /** salário combinado (referência da folha na conciliação); vazio = sem salário fixo */
+  salario?: string;
   telefone: string; celular: string; celular2: string;
   cep: string; logradouro: string; numero: string; complemento: string; bairro: string; cidade: string; codigoMunicipio: string; uf: string;
   lojas: string[];
@@ -36,13 +38,15 @@ export async function salvarFuncionario(d: DadosFuncionario, editor: { id: strin
   const admin = editor.papel === "ADMIN";
   const comissao = d.comissao.trim() ? Number(d.comissao.replace(",", ".")) : null;
   if (comissao !== null && !(comissao >= 0 && comissao <= 100)) throw new Error("Comissão deve ficar entre 0 e 100%");
+  const salario = d.salario?.trim() ? Number(d.salario.trim().replace(/\./g, "").replace(",", ".")) : null;
+  if (salario !== null && !(salario >= 0)) throw new Error("Salário inválido");
   const cpf = d.cpf.replace(/\D/g, "") || null;
   if (cpf && cpf.length !== 11) throw new Error("CPF deve ter 11 dígitos");
 
   const dados = {
     nome: d.nome.trim(), cpf, rg: t(d.rg), nascimento: d.nascimento ? new Date(d.nascimento + "T00:00:00Z") : null, sexo: t(d.sexo),
     email, ativo: d.ativo, observacoes: t(d.observacoes), tecnico: d.tecnico, vendedor: d.vendedor,
-    comissao, liberacaoComissao: d.liberacaoComissao,
+    comissao, liberacaoComissao: d.liberacaoComissao, ...(d.salario !== undefined ? { salario } : {}),
     telefone: t(d.telefone), celular: t(d.celular), celular2: t(d.celular2),
     cep: d.cep.replace(/\D/g, "") || null, logradouro: t(d.logradouro), numero: t(d.numero), complemento: t(d.complemento), bairro: t(d.bairro),
     cidade: t(d.cidade), codigoMunicipio: t(d.codigoMunicipio), uf: t(d.uf)?.toUpperCase().slice(0, 2) ?? null, lojas: d.lojas,

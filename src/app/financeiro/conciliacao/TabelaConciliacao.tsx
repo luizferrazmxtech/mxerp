@@ -3,10 +3,15 @@
 import { Fragment, useMemo, useState, useTransition } from "react";
 import Icone from "@/components/Icone";
 import type { LinhaAnalise, Nivel, Urgencia } from "@/lib/financeiro/conciliacao";
-import { buscarRamosAcao, confirmarLote, ignorarLote, informarCnpjFavorecido, type ItemLote } from "./actions";
+import { buscarRamosAcao, confirmarLote, ignorarLote, informarCnpjFavorecido, juntarLinhas, type ContaAberta, type ItemLote } from "./actions";
+import BuscaContas, { Somatoria } from "./BuscaContas";
 
 type Cat = { id: string; nome: string; tipo: "PAGAR" | "RECEBER" };
-type Escolha = { acao: "BAIXAR" | "LANCAR" | "REVISAR"; lancamentoId: string | null; categoriaId: string | null; centroCustoId: string | null };
+type Escolha = {
+  acao: "BAIXAR" | "LANCAR" | "REVISAR"; lancamentoId: string | null; categoriaId: string | null; centroCustoId: string | null;
+  /** várias contas com esta linha (escolhidas à mão, a soma é conferida) */
+  varias?: ContaAberta[]; aceitarDiferenca?: boolean;
+};
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dataBr = (s: string) => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
@@ -34,22 +39,40 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
   const [pendente, start] = useTransition();
   const [linhaPendente, setLinhaPendente] = useState<string | null>(null);
   const [cnpjs, setCnpjs] = useState<Record<string, string>>({});
+  const [variasAberta, setVariasAberta] = useState<string | null>(null);
+  const [juntar, setJuntar] = useState(false);
+  const [contaJuntar, setContaJuntar] = useState<ContaAberta[]>([]);
+  const [deixarRestante, setDeixarRestante] = useState(false);
 
+  const porId = useMemo(() => new Map(linhas.map((l) => [l.transacaoId, l])), [linhas]);
   const esc = (id: string) => escolhas[id] ?? inicial[id];
   const mudar = (id: string, m: Partial<Escolha>) => setEscolhas((e) => ({ ...e, [id]: { ...(e[id] ?? inicial[id]), ...m } }));
-  const pronta = (id: string) => { const e = esc(id); return (e.acao === "BAIXAR" && !!e.lancamentoId) || (e.acao === "LANCAR" && !!e.categoriaId); };
-  const porId = useMemo(() => new Map(linhas.map((l) => [l.transacaoId, l])), [linhas]);
+  const somaVarias = (e: Escolha) => Math.round((e.varias ?? []).reduce((s, c) => s + c.valor, 0) * 100) / 100;
+  const variasOk = (id: string, e: Escolha) => {
+    const v = Math.abs(porId.get(id)?.valor ?? 0);
+    return !!e.varias?.length && (e.aceitarDiferenca || Math.abs(v - somaVarias(e)) < 0.01);
+  };
+  const pronta = (id: string) => {
+    const e = esc(id);
+    if (e.acao === "BAIXAR" && e.varias?.length) return variasOk(id, e);
+    return (e.acao === "BAIXAR" && !!e.lancamentoId) || (e.acao === "LANCAR" && !!e.categoriaId);
+  };
   const item = (id: string): ItemLote => {
     const e = esc(id);
     const l = porId.get(id);
     // descrição/competência sugeridas (ex.: "Salário 10/2026 - FULANO") só valem se a categoria continua a sugerida
     const sugerida = e.acao === "LANCAR" && l && e.categoriaId === l.categoriaId && l.acao === "LANCAR";
-    return { transacaoId: id, acao: e.acao as "BAIXAR" | "LANCAR", lancamentoId: e.lancamentoId, categoriaId: e.categoriaId, centroCustoId: e.centroCustoId,
-      descricao: sugerida ? l.descricaoLancamento : null, competencia: sugerida ? l.competencia : null };
+    const varias = e.acao === "BAIXAR" && e.varias?.length ? e.varias.map((c) => c.lancamentoId) : null;
+    return { transacaoId: id, acao: e.acao as "BAIXAR" | "LANCAR", lancamentoId: varias ? null : e.lancamentoId, categoriaId: e.categoriaId, centroCustoId: e.centroCustoId,
+      descricao: sugerida ? l.descricaoLancamento : null, competencia: sugerida ? l.competencia : null,
+      lancamentoIds: varias, aceitarDiferenca: !!e.aceitarDiferenca, funcionarioId: sugerida ? l.funcionarioId : null };
   };
   const visiveis = linhas.slice(0, limite);
   const marcar = (id: string, v: boolean) => setMarcadas((s) => { const n = new Set(s); if (v) n.add(id); else n.delete(id); return n; });
   const prontasMarcadas = [...marcadas].filter(pronta);
+  const linhasMarcadas = [...marcadas].map((id) => porId.get(id)).filter((l): l is LinhaAnalise => !!l);
+  const mesmoTipo = linhasMarcadas.length >= 2 && linhasMarcadas.every((l) => l.tipo === linhasMarcadas[0].tipo);
+  const somaMarcadas = Math.round(linhasMarcadas.reduce((s, l) => s + Math.abs(l.valor), 0) * 100) / 100;
 
   function rodar(fn: () => Promise<{ ok: boolean; mensagem: string } | null>, linha?: string) {
     setLinhaPendente(linha ?? null);
@@ -58,6 +81,7 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
       setMsg(r);
       setMarcadas(new Set());
       setLinhaPendente(null);
+      if (r?.ok) { setJuntar(false); setContaJuntar([]); setDeixarRestante(false); setVariasAberta(null); }
     });
   }
 
@@ -78,6 +102,11 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
           <Icone nome="buscar" size={14} /> {linhaPendente === "ramos" ? "Consultando…" : "Buscar ramo de atividade"}
         </button>
         {marcadas.size > 0 && <button type="button" className="text-[13px] text-slate-600 underline" onClick={() => setMarcadas(new Set())}>limpar ({marcadas.size})</button>}
+        {mesmoTipo && (
+          <button type="button" className={juntar ? "btn" : "btn-sec"} title="Várias linhas do extrato que pagam uma conta só (ex.: cliente que pagou em duas vezes)" onClick={() => setJuntar((x) => !x)}>
+            Juntar {linhasMarcadas.length} linhas numa conta
+          </button>
+        )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <button type="button" className="btn-verde" disabled={pendente || !prontasMarcadas.length}
             onClick={() => rodar(() => confirmarLote(prontasMarcadas.map(item)))}>
@@ -90,6 +119,30 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
         </div>
         {msg && <p className={`w-full text-[13px] ${msg.ok ? "text-emerald-700" : "text-red-700"}`}>{msg.mensagem}</p>}
       </div>
+
+      {juntar && mesmoTipo && (() => {
+        const conta = contaJuntar[0];
+        const resto = conta ? Math.round((conta.valor - somaMarcadas) * 100) / 100 : 0;
+        const podeJuntar = !!conta && resto > -0.01 && (resto < 0.01 || deixarRestante);
+        return (
+          <div className="cartao space-y-2 p-3">
+            <div className="text-[14px] font-semibold">Juntar {linhasMarcadas.length} linhas do extrato numa conta {linhasMarcadas[0].tipo === "PAGAR" ? "a pagar" : "a receber"}</div>
+            <p className="text-[12px] text-slate-600">A conta é dividida em uma parte por linha (cada parte baixada na data da sua linha). A soma das linhas não pode passar do valor da conta.</p>
+            <BuscaContas tipo={linhasMarcadas[0].tipo} alvo={somaMarcadas} multiplo={false} escolhidas={contaJuntar} onChange={(c) => { setContaJuntar(c); setDeixarRestante(false); }} />
+            {conta && <Somatoria rotuloSoma={`Soma das ${linhasMarcadas.length} linhas`} soma={somaMarcadas} rotuloAlvo="Valor da conta" alvo={conta.valor} falta="falta pagar (pode ficar em aberto)" sobra="as linhas passam do valor da conta" />}
+            {conta && resto >= 0.01 && (
+              <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={deixarRestante} onChange={(e) => setDeixarRestante(e.target.checked)} /> Deixar os {brl(resto)} que faltam em aberto, numa parte a mais da conta</label>
+            )}
+            <div className="flex gap-2">
+              <button type="button" className="btn-verde" disabled={pendente || !podeJuntar}
+                onClick={() => rodar(() => juntarLinhas(linhasMarcadas.map((l) => l.transacaoId), conta!.lancamentoId, { centroCustoId: conta!.centroCustoId, deixarRestante }))}>
+                Baixar a conta com as {linhasMarcadas.length} linhas
+              </button>
+              <button type="button" className="btn-sec" onClick={() => { setJuntar(false); setContaJuntar([]); }}>Cancelar</button>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="cartao overflow-x-auto">
         <table className="tabela">
@@ -116,19 +169,28 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
               const avisos = l.motivos.filter((m) => !motivos.includes(m));
               const [corU, rotU] = URG[l.urgencia];
               const abertaAqui = aberta === l.transacaoId;
-              const trocada = e.acao !== l.acao || e.lancamentoId !== l.lancamentoId || (e.acao === "LANCAR" && e.categoriaId !== l.categoriaId);
+              const trocada = e.acao !== l.acao || e.lancamentoId !== l.lancamentoId || !!e.varias?.length || (e.acao === "LANCAR" && e.categoriaId !== l.categoriaId);
               const pilulaConf = e.acao === "REVISAR" ? null : trocada && !conf
                 ? <span className="pilula border-sky-300 bg-sky-50 text-sky-700">sua escolha</span>
                 : <span className={`pilula ${NIVEL[nivelDe(conf)][0]}`} title="Confiança da sugestão">{conf}% {NIVEL[nivelDe(conf)][1]}</span>;
               return (
                 <Fragment key={l.transacaoId}>
                   <tr className={l.urgencia === "urgente" ? "[&>td]:!bg-red-50/40" : undefined}>
-                    <td><input type="checkbox" aria-label="Marcar linha" disabled={!pronta(l.transacaoId)} checked={marcadas.has(l.transacaoId)} onChange={(ev) => marcar(l.transacaoId, ev.target.checked)} /></td>
+                    <td><input type="checkbox" aria-label="Marcar linha" checked={marcadas.has(l.transacaoId)} onChange={(ev) => marcar(l.transacaoId, ev.target.checked)} /></td>
                     <td className="whitespace-nowrap">{dataBr(l.data)}{l.hora && <span className="ml-1 text-[12px] text-slate-500">{l.hora}</span>}<div className="text-[11px] text-slate-500">{l.conta}</div></td>
                     <td className="min-w-48 max-w-80 break-words">{l.descricao}</td>
                     <td className={`whitespace-nowrap text-right font-semibold ${l.valor < 0 ? "text-red-600" : "text-emerald-700"}`}>{brl(l.valor)}</td>
                     <td>
-                      {e.acao === "BAIXAR" && cand ? (
+                      {e.acao === "BAIXAR" && e.varias?.length ? (
+                        <div>
+                          <span className="etiqueta mr-1 border-emerald-300 bg-emerald-50 text-emerald-700">Baixar {e.varias.length} contas</span>
+                          <span className="pilula border-sky-300 bg-sky-50 text-sky-700">sua escolha</span>
+                          {e.varias.map((c) => <div key={c.lancamentoId} className="text-[12px] text-slate-600">{c.descricao}{c.pessoa ? ` · ${c.pessoa}` : ""} · {brl(c.valor)}</div>)}
+                          <div className={`text-[12px] font-medium ${variasOk(l.transacaoId, e) ? "text-emerald-700" : "text-amber-800"}`}>
+                            Soma {brl(somaVarias(e))} {Math.abs(Math.abs(l.valor) - somaVarias(e)) < 0.01 ? "· bate com o extrato" : e.aceitarDiferenca ? "· diferença vira juros/desconto" : "· não bate com o extrato"}
+                          </div>
+                        </div>
+                      ) : e.acao === "BAIXAR" && cand ? (
                         <div>
                           <span className="etiqueta mr-1 border-emerald-300 bg-emerald-50 text-emerald-700">Baixar {l.tipo === "PAGAR" ? "conta a pagar" : "conta a receber"}</span>{pilulaConf}
                           <div className="mt-0.5 font-medium">{cand.descricao}</div>
@@ -182,7 +244,7 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
                             <select className="campo w-full" value={e.acao === "BAIXAR" ? e.lancamentoId ?? "" : ""}
                               onChange={(ev) => {
                                 const c = l.candidatos.find((x) => x.lancamentoId === ev.target.value);
-                                mudar(l.transacaoId, ev.target.value ? { acao: "BAIXAR", lancamentoId: ev.target.value, centroCustoId: c?.centroCustoId ?? e.centroCustoId } : { acao: e.categoriaId ? "LANCAR" : "REVISAR", lancamentoId: null });
+                                mudar(l.transacaoId, ev.target.value ? { acao: "BAIXAR", lancamentoId: ev.target.value, varias: [], centroCustoId: c?.centroCustoId ?? e.centroCustoId } : { acao: e.categoriaId ? "LANCAR" : "REVISAR", lancamentoId: null, varias: [] });
                               }}>
                               <option value="">{l.candidatos.length ? "— não baixar conta —" : "Nenhuma conta parecida em aberto"}</option>
                               {l.candidatos.map((c) => (
@@ -193,7 +255,7 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
                           <label className="block">
                             <span className="rotulo">Ou lançar como {l.tipo === "PAGAR" ? "despesa" : "receita"}</span>
                             <select className="campo w-full" value={e.acao === "LANCAR" ? e.categoriaId ?? "" : ""}
-                              onChange={(ev) => mudar(l.transacaoId, ev.target.value ? { acao: "LANCAR", categoriaId: ev.target.value, lancamentoId: null } : { acao: l.lancamentoId ? "BAIXAR" : "REVISAR", lancamentoId: l.lancamentoId })}>
+                              onChange={(ev) => mudar(l.transacaoId, ev.target.value ? { acao: "LANCAR", categoriaId: ev.target.value, lancamentoId: null, varias: [] } : { acao: l.lancamentoId ? "BAIXAR" : "REVISAR", lancamentoId: l.lancamentoId })}>
                               <option value="">— escolha a categoria —</option>
                               {categorias.filter((c) => c.tipo === l.tipo).map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
                             </select>
@@ -205,6 +267,28 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
                               Ignorar linha
                             </button>
                           </div>
+                        </div>
+                        <div className="mt-2">
+                          {variasAberta !== l.transacaoId ? (
+                            <button type="button" className="text-[13px] underline" onClick={() => setVariasAberta(l.transacaoId)}>
+                              {e.varias?.length ? `Alterar as ${e.varias.length} contas desta linha` : "Esta linha paga várias contas? Escolher as contas"}
+                            </button>
+                          ) : (
+                            <div className="space-y-2 rounded border border-[#dee2e6] bg-white p-2">
+                              <div className="text-[13px] font-semibold">Contas pagas por esta linha ({brl(Math.abs(l.valor))})</div>
+                              <BuscaContas tipo={l.tipo} alvo={Math.abs(l.valor)} multiplo escolhidas={e.varias ?? []}
+                                iniciais={l.candidatos.map((c) => ({ lancamentoId: c.lancamentoId, descricao: c.descricao, pessoa: c.pessoa, valor: c.valor, vencimento: c.vencimento, centroCustoId: c.centroCustoId }))}
+                                onChange={(cs) => mudar(l.transacaoId, cs.length ? { acao: "BAIXAR", varias: cs, lancamentoId: null, aceitarDiferenca: false } : { varias: [], acao: inicial[l.transacaoId].acao, lancamentoId: inicial[l.transacaoId].lancamentoId })} />
+                              {!!e.varias?.length && <Somatoria rotuloSoma={`Soma das ${e.varias.length} contas`} soma={somaVarias(e)} rotuloAlvo="Valor do extrato" alvo={Math.abs(l.valor)} falta="o banco mostra mais (vira juros)" sobra="o banco mostra menos (vira desconto)" />}
+                              {!!e.varias?.length && Math.abs(Math.abs(l.valor) - somaVarias(e)) >= 0.01 && (
+                                <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={!!e.aceitarDiferenca} onChange={(ev) => mudar(l.transacaoId, { aceitarDiferenca: ev.target.checked })} /> Aceitar a diferença como {Math.abs(l.valor) > somaVarias(e) ? "juros" : "desconto"} na primeira conta</label>
+                              )}
+                              <div className="flex gap-2">
+                                <button type="button" className="btn-sec !py-1 text-[13px]" onClick={() => setVariasAberta(null)}>Fechar</button>
+                                {!!e.varias?.length && <button type="button" className="text-[13px] underline" onClick={() => mudar(l.transacaoId, { varias: [], acao: inicial[l.transacaoId].acao, lancamentoId: inicial[l.transacaoId].lancamentoId })}>limpar</button>}
+                              </div>
+                            </div>
+                          )}
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-slate-600">
                           <span>Favorecido lido do extrato: <b>{l.favorecido || "—"}</b>{l.documentoFavorecido ? ` · CPF/CNPJ ${l.documentoFavorecido}` : ""}{l.ramo ? ` · ramo ${l.ramo}` : ""}.</span>

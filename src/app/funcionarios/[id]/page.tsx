@@ -84,7 +84,7 @@ export default async function VerFuncionario({ params, searchParams }: { params:
               <div className="cartao p-4"><h3 className="mb-2 font-semibold">Acesso ao sistema</h3>
                 <dl className="space-y-1">{linha("Acesso", liberado ? "Liberado" : "Bloqueado")}{linha("Login", u.email)}{linha("Perfil", ROTULO_PAPEL[u.papel])}</dl></div>
               <div className="cartao p-4"><h3 className="mb-2 font-semibold">Comissionamento</h3>
-                <dl className="space-y-1">{linha("Comissão", u.comissao != null ? `${String(Number(u.comissao)).replace(".", ",")}%` : "")}
+                <dl className="space-y-1">{linha("Salário combinado", u.salario != null ? Number(u.salario).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "")}{linha("Comissão", u.comissao != null ? `${String(Number(u.comissao)).replace(".", ",")}%` : "")}
                   {linha("Liberação da comissão", LIBERACOES.find((l) => l.valor === u.liberacaoComissao)?.rotulo)}
                   {linha("Vendas", vendas)}{linha("Ordens de serviço", os)}</dl></div>
               <div className="cartao p-4"><h3 className="mb-2 font-semibold">Endereço</h3>
