@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { sincronizarDfeTodas } from "@/lib/fiscal/dfe";
+import { manifestacaoAutomatica } from "@/lib/contador/contador";
 
 /**
  * Chamado pelo agendador de hora em hora: busca na SEFAZ as NF-e emitidas contra o CNPJ de cada empresa.
@@ -12,7 +13,10 @@ export async function POST(req: Request) {
   if (!segredo || req.headers.get("authorization") !== `Bearer ${segredo}`) return NextResponse.json({ erro: "não autorizado" }, { status: 401 });
   if (!(await prisma.empresa.count())) return NextResponse.json({ ignorado: "sem empresa" });
   try {
-    return NextResponse.json(await sincronizarDfeTodas());
+    const busca = await sincronizarDfeTodas();
+    // ciência automática das notas novas e confirmação das que já viraram compra (Configurações → Integrações → Contador)
+    const manifestacao = await manifestacaoAutomatica().catch((e: unknown) => ({ erro: e instanceof Error ? e.message : String(e) }));
+    return NextResponse.json({ busca, manifestacao });
   } catch (e) {
     return NextResponse.json({ erro: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }

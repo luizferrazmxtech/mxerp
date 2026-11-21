@@ -2347,3 +2347,21 @@ model TransacaoPagSeguro {
   @@index([situacao])
   @@index([dataVenda])
 }
+
+/// Pacote do mês mandado ao contador (XMLs emitidos e recebidos + resumo), um por CNPJ e competência.
+model EnvioContador {
+  id            String   @id @default(cuid())
+  empresaId     String
+  competencia   String // AAAA-MM
+  situacao      String // ENVIADO | ERRO
+  destinatarios String
+  arquivos      Int      @default(0)
+  tamanho       Int      @default(0) // bytes do .zip
+  token         String   @unique @default(cuid()) // link de download para o contador
+  erro          String?
+  automatico    Boolean  @default(false)
+  usuarioNome   String?
+  createdAt     DateTime @default(now())
+
+  @@index([empresaId, competencia])
+}
