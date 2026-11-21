@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { configOs } from "./config";
+import { definirOrigemItens } from "./itensTecnico";
+import { localDoTecnico } from "@/lib/estoque/tecnico";
 import { alterarSituacaoOrdem } from "./ordens";
 import { anexarFoto, anotarTecnico, excluirFoto, lancarItemTecnico, marcarInstalado, podeMexerNaOs, removerItemTecnico } from "./tecnico";
 
@@ -13,7 +15,7 @@ export type RespostaTecnico = { ok: boolean; mensagem: string };
 const erro = (e: unknown): RespostaTecnico => ({ ok: false, mensagem: e instanceof Error ? e.message : String(e) });
 const atualizar = (osId: string) => { revalidatePath(`/tecnico/${osId}`); revalidatePath("/tecnico"); revalidatePath(`/os/${osId}`); };
 
-export async function lancarItemAcao(osId: string, item: { tipo: "produto" | "servico"; id: string; quantidade: number; detalhes?: string; instalado?: boolean }): Promise<RespostaTecnico> {
+export async function lancarItemAcao(osId: string, item: { tipo: "produto" | "servico"; id: string; quantidade: number; detalhes?: string; instalado?: boolean; doMeuEstoque?: boolean }): Promise<RespostaTecnico> {
   const u = await exigirAcao("os.tecnicoItens");
   try {
     const r = await lancarItemTecnico(u, osId, item);
@@ -23,6 +25,19 @@ export async function lancarItemAcao(osId: string, item: { tipo: "produto" | "se
     const locais = await prisma.local.findMany({ where: { id: { in: r.alocacoes.map((a) => a.localId).filter((x): x is string => !!x) } }, select: { id: true, codigo: true } });
     const onde = r.alocacoes.map((a) => `${a.localId ? locais.find((l) => l.id === a.localId)?.codigo ?? "?" : "EM FALTA"} (${a.quantidade.toLocaleString("pt-BR")})`).join(", ");
     return { ok: true, mensagem: `Produto lançado e reservado. Pegar em: ${onde}.` };
+  } catch (e) { return erro(e); }
+}
+
+/** "Saiu do meu carro": troca de onde sai a peça (carro do técnico ou loja) e refaz a reserva. */
+export async function origemItemAcao(osId: string, itemId: string, doMeuCarro: boolean): Promise<RespostaTecnico> {
+  const u = await exigirAcao("os.tecnicoItens");
+  try {
+    if (!(await podeMexerNaOs(prisma, u, osId))) throw new Error("Você não é técnico desta OS nem da equipe dela");
+    const meu = await localDoTecnico(prisma, u.id);
+    if (!meu) throw new Error("Você não tem estoque próprio cadastrado");
+    await definirOrigemItens(osId, [{ itemId, localId: doMeuCarro ? meu : null }], u, { soDoTecnico: u.id });
+    atualizar(osId);
+    return { ok: true, mensagem: doMeuCarro ? "Marcado: a peça sai do seu carro." : "A peça volta a sair do estoque da loja." };
   } catch (e) { return erro(e); }
 }
 

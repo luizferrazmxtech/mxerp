@@ -5,6 +5,7 @@ import { useActionState, useEffect, useState } from "react";
 import Icone from "@/components/Icone";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import Busca from "@/components/ui/Busca";
+import DicaSaldo from "@/components/estoque/DicaSaldo";
 import LinhaItemBusca, { fundoEstoque } from "@/components/itens/LinhaItemBusca";
 import type { SituacaoEstoque } from "@/lib/itens/estoqueSituacao";
 import LinhaPessoaBusca from "@/components/cadastros/LinhaPessoaBusca";
@@ -23,7 +24,9 @@ type Opcoes = {
   tiposValor: { id: string; nome: string; padrao: boolean }[]; campos: { id: string; nome: string }[]; centros: string[]; canais: string[];
   tecnicos?: { id: string; nome: string }[];
   /** equipes de técnicos (só OS) */
-  equipes?: { id: string; nome: string }[];
+  equipes?: { id: string; nome: string; membros?: string[] }[];
+  /** só OS: estoques dos técnicos (carros), para marcar o item que está com o técnico */
+  estoquesTecnicos?: { tecnicoId: string; tecnicoNome: string; localId: string; nome: string }[];
 };
 
 type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; situacao?: SituacaoEstoque; minimo?: number; valores: { tipoValorId: string; valor: number }[] };
@@ -70,6 +73,10 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
   const novoProduto = (): LinhaProduto => ({ produtoId: "", nome: "", codigo: "", unidade: "", detalhes: "", quantidade: "1", tipoValorId: padrao, valorUnit: "0,00", desconto: "", descontoPct: false });
   const novoServico = (): LinhaServico => ({ servicoId: "", nome: "", codigo: "", detalhes: "", quantidade: "1", valorUnit: "0,00", desconto: "", descontoPct: false });
 
+  // técnicos desta OS (e da equipe) que têm estoque próprio: o item pode sair do carro deles
+  const daOs = new Set([...(d.tecnicoIds ?? []), ...(op.equipes?.find((q) => q.id === d.equipeId)?.membros ?? [])].filter(Boolean));
+  const carros = (atual?: string) => (op.estoquesTecnicos ?? []).filter((e) => daOs.has(e.tecnicoId) || e.localId === atual);
+
   const blocoProdutos = (
     <Bloco key="p" icone="produtos" titulo={os ? <>Adicione os <b>produtos e peças</b> {doc}</> : <>Adicione os <b>produtos</b> {doc}</>} subtitulo="Produto, quantidade, valor e desconto por linha." corpo="p-0"
       acoes={<GerenciarColunas lista={os ? "os-itens" : venda ? "venda-itens" : "orcamento-itens"} colunas={COLUNAS_ITENS} visiveis={vis.itens} titulo="Gerenciar colunas" classe="btn-icone" />}>
@@ -85,7 +92,15 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                 <td>
                   {l.produtoId ? (
                     <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}
-                      {l.disponivel != null && <span className={`block text-[11px] ${l.disponivel < (lerNumero(l.quantidade) ?? 0) ? "text-red-600" : "text-slate-500"}`}>Disponível: {l.disponivel.toLocaleString("pt-BR")} {l.unidade}</span>}</div>
+                      {l.disponivel != null && <span className={`block text-[11px] ${l.disponivel < (lerNumero(l.quantidade) ?? 0) ? "text-red-600" : "text-slate-500"}`}>Disponível: {l.disponivel.toLocaleString("pt-BR")} {l.unidade}</span>}
+                      {os && carros(l.localOrigemId).length > 0 && (
+                        <label className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">Sai de
+                          <select className={`rounded border px-1 py-0.5 text-[11px] ${l.localOrigemId ? "border-marca bg-teal-50 text-marca-escura" : "border-slate-300"}`} value={l.localOrigemId ?? ""} onChange={(e) => setProd(i, { localOrigemId: e.target.value })}>
+                            <option value="">Estoque da loja</option>
+                            {carros(l.localOrigemId).map((c) => <option key={c.localId} value={c.localId}>Com o técnico: {c.tecnicoNome}</option>)}
+                          </select>
+                        </label>
+                      )}</div>
                   ) : (
                     <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus larguraMin={560} classeLinha={(p) => fundoEstoque(p.situacao)}
                       linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} unidade={p.unidade} valor={p.valores.find((v) => v.tipoValorId === padrao)?.valor ?? p.preco} disponivel={p.disponivel} situacao={p.situacao} minimo={p.minimo} />}
@@ -94,7 +109,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                   )}
                 </td>
                 {vi("detalhes") && <td><input className="campo" value={l.detalhes} onChange={(e) => setProd(i, { detalhes: e.target.value })} /></td>}
-                <td><input className="campo text-right" value={l.quantidade} onChange={(e) => setProd(i, { quantidade: e.target.value })} /></td>
+                <td><DicaSaldo produtoId={l.produtoId || undefined}><input className="campo text-right" value={l.quantidade} onChange={(e) => setProd(i, { quantidade: e.target.value })} /></DicaSaldo></td>
                 <td>
                   <select className="campo" value={l.tipoValorId} onChange={(e) => {
                     const v = l.valores?.find((x) => x.tipoValorId === e.target.value);

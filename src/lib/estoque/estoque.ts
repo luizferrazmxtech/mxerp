@@ -13,6 +13,10 @@ import { lojaAtualId } from "@/lib/empresa/loja";
  *
  * Toda operação trava a linha do produto (SELECT ... FOR UPDATE) para que dois
  * técnicos nunca reservem a mesma peça ao mesmo tempo.
+ *
+ * Estoque do técnico: depósito com tecnicoId (o carro dele). Fica fora do disponível da loja
+ * (venda e OS comuns nunca reservam de lá); só sai dele o item de OS marcado "com o técnico"
+ * (reserva com local fixo). Para abastecer o carro, transferência de depósito, sem venda.
  */
 
 export class EstoqueError extends Error {}
@@ -30,8 +34,9 @@ export async function travarProduto(tx: Tx, produtoId: string) {
  * Disponível por local (físico do local - reservas ativas naquele local).
  * Só os locais da loja atual (depósito da loja ou sem loja): cada CNPJ vende do próprio estoque.
  */
-export async function disponivelPorLocal(tx: Tx, produtoId: string) {
+export async function disponivelPorLocal(tx: Tx, produtoId: string, opts: { incluirTecnicos?: boolean } = {}) {
   const loja = await lojaAtualId();
+  const tecnicos = !!opts.incluirTecnicos;
   const rows = await tx.$queryRaw<{ localId: string; fisico: Prisma.Decimal; reservado: Prisma.Decimal }[]>`
     SELECT s."localId",
            s.quantidade AS fisico,
@@ -42,7 +47,9 @@ export async function disponivelPorLocal(tx: Tx, produtoId: string) {
      WHERE s."produtoId" = ${produtoId}
        AND (${loja}::text IS NULL OR s."localId" IN (
              SELECT l.id FROM "Local" l JOIN "Deposito" d ON d.id = l."depositoId"
-              WHERE d."empresaId" IS NULL OR d."empresaId" = ${loja}))`;
+              WHERE d."empresaId" IS NULL OR d."empresaId" = ${loja}))
+       AND (${tecnicos} OR s."localId" NOT IN (
+             SELECT l.id FROM "Local" l JOIN "Deposito" d ON d.id = l."depositoId" WHERE d."tecnicoId" IS NOT NULL))`;
   return rows.map((r) => ({
     localId: r.localId,
     fisico: n(r.fisico),
@@ -55,7 +62,10 @@ export type ResumoEstoque = {
   fisico: number;
   reservado: number;
   falta: number;
+  /** livre para a loja vender (não conta o que está livre nos carros dos técnicos) */
   disponivel: number;
+  /** livre nos carros dos técnicos */
+  comTecnicos: number;
 };
 
 export async function resumoProduto(tx: Tx, produtoId: string): Promise<ResumoEstoque> {
@@ -65,22 +75,33 @@ export async function resumoProduto(tx: Tx, produtoId: string): Promise<ResumoEs
     SELECT SUM(quantidade) FILTER (WHERE "localId" IS NOT NULL) AS reservado,
            SUM(quantidade) FILTER (WHERE "localId" IS NULL) AS falta
       FROM "Reserva" WHERE "produtoId" = ${produtoId} AND status = 'ATIVA'`;
+  const [t] = await tx.$queryRaw<{ livre: Prisma.Decimal | null }[]>`
+    SELECT SUM(s.quantidade - COALESCE((SELECT SUM(r.quantidade) FROM "Reserva" r
+             WHERE r."produtoId" = s."produtoId" AND r."localId" = s."localId" AND r.status = 'ATIVA'), 0)) AS livre
+      FROM "Saldo" s JOIN "Local" l ON l.id = s."localId" JOIN "Deposito" d ON d.id = l."depositoId"
+     WHERE s."produtoId" = ${produtoId} AND d."tecnicoId" IS NOT NULL`;
   const fisico = n(s?.fisico);
   const reservado = n(r?.reservado);
-  return { fisico, reservado, falta: n(r?.falta), disponivel: arred(fisico - reservado) };
+  const comTecnicos = n(t?.livre);
+  return { fisico, reservado, falta: n(r?.falta), disponivel: arred(fisico - reservado - comTecnicos), comTecnicos };
 }
 
 type Origem = { origemTipo: OrigemDocumento; origemId: string; origemItemId: string };
 
-/** Reserva a quantidade de um item de documento, escolhendo as prateleiras. */
+/**
+ * Reserva a quantidade de um item de documento, escolhendo as prateleiras.
+ * Com `localId` (item "com o técnico"), reserva tudo naquele local: a peça já está com ele,
+ * então não vira falta mesmo que o sistema mostre menos no carro (o saldo do carro pode ficar negativo).
+ */
 export async function reservarItem(
   tx: Tx,
-  args: Origem & { produtoId: string; quantidade: number },
+  args: Origem & { produtoId: string; quantidade: number; localId?: string | null },
 ): Promise<Alocacao[]> {
   const prod = await travarProduto(tx, args.produtoId);
   if (!prod.controlaEstoque) return [];
-  const locais = await disponivelPorLocal(tx, args.produtoId);
-  const alocacoes = alocar(args.quantidade, locais, prod.localPadraoId);
+  const alocacoes = args.localId
+    ? [{ localId: args.localId, quantidade: arred(args.quantidade) }]
+    : alocar(args.quantidade, await disponivelPorLocal(tx, args.produtoId), prod.localPadraoId);
   await tx.reserva.createMany({
     data: alocacoes.map((a) => ({
       produtoId: args.produtoId,
@@ -221,6 +242,8 @@ export async function transferir(
   const locais = await disponivelPorLocal(tx, args.produtoId);
   const origem = locais.find((l) => l.localId === args.deLocalId);
   if (origem && origem.disponivel < 0) {
+    // para o carro do técnico as reservas não vão junto: viram falta e procuram outra prateleira da loja
+    const paraTecnico = (await tx.local.count({ where: { id: args.paraLocalId, deposito: { tecnicoId: { not: null } } } })) > 0;
     let excesso = -origem.disponivel;
     const reservas = await tx.reserva.findMany({
       where: { produtoId: args.produtoId, localId: args.deLocalId, status: "ATIVA" },
@@ -229,16 +252,18 @@ export async function transferir(
     for (const r of reservas) {
       if (excesso <= 0) break;
       const q = Math.min(excesso, n(r.quantidade));
+      const destino = paraTecnico ? null : args.paraLocalId;
       if (q >= n(r.quantidade)) {
-        await tx.reserva.update({ where: { id: r.id }, data: { localId: args.paraLocalId } });
+        await tx.reserva.update({ where: { id: r.id }, data: { localId: destino } });
       } else {
         await tx.reserva.update({ where: { id: r.id }, data: { quantidade: arred(n(r.quantidade) - q) } });
         await tx.reserva.create({
-          data: { ...r, id: undefined, quantidade: q, localId: args.paraLocalId, updatedAt: undefined },
+          data: { ...r, id: undefined, quantidade: q, localId: destino, updatedAt: undefined },
         });
       }
       excesso = arred(excesso - q);
     }
+    if (paraTecnico) await cobrirFaltas(tx, args.produtoId);
   }
 }
 

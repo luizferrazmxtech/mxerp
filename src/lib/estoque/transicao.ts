@@ -4,7 +4,8 @@ import { baixarDocumento, cobrirFaltas, estornarBaixa, liberarDocumento, reserva
 
 export type EstadoEstoque = "RESERVADO" | "BAIXADO" | "LIVRE";
 
-export type ItemDoc = { id: string; produtoId: string; quantidade: number };
+/** localId: item que sai de um local fixo (o carro do técnico). */
+export type ItemDoc = { id: string; produtoId: string; quantidade: number; localId?: string | null };
 
 /**
  * Aplica a mudança de "estado de estoque" de um documento (OS, venda):
@@ -27,7 +28,7 @@ export async function transicionarEstoque(
   if (de === para) return;
   const reservarTodos = async () => {
     for (const i of await itens())
-      await reservarItem(tx, { produtoId: i.produtoId, quantidade: i.quantidade, origemTipo, origemId, origemItemId: i.id });
+      await reservarItem(tx, { produtoId: i.produtoId, quantidade: i.quantidade, localId: i.localId, origemTipo, origemId, origemItemId: i.id });
   };
 
   if (de === "RESERVADO" && para === "BAIXADO") {

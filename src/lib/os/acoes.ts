@@ -10,6 +10,7 @@ import { emitirNfseOs, emitirNotaOs } from "@/lib/fiscal/emissao";
 import { configOs } from "./config";
 import { alterarSituacaoOrdem, clonarOrdem, excluirOrdem, salvarOrdem } from "./ordens";
 import type { DadosOs } from "./tipos";
+import { definirOrigemItens } from "./itensTecnico";
 
 export type Resultado = { ok: boolean; mensagem: string } | null;
 const ATENDE: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR", "TECNICO", "CAIXA"];
@@ -236,4 +237,16 @@ export async function salvarConfigOsAcao(_: Resultado, form: FormData): Promise<
   ]);
   revalidatePath("/os", "layout");
   return { ok: true, mensagem: "Configurações salvas." };
+}
+
+/** "Itens com o técnico" (visualização da OS): de onde sai cada peça, loja ou carro de um técnico. */
+export async function itensTecnicoOsAcao(_: Resultado, form: FormData): Promise<Resultado> {
+  const u = await exigirUsuario(ATENDE);
+  const osId = String(form.get("osId"));
+  try {
+    const origens = [...form.entries()].filter(([k]) => k.startsWith("origem_")).map(([k, v]) => ({ itemId: k.slice(7), localId: String(v) || null }));
+    const n = await definirOrigemItens(osId, origens, u);
+    revalidatePath(`/os/${osId}`); revalidatePath(`/tecnico/${osId}`);
+    return { ok: true, mensagem: n ? `${n} item(ns) atualizado(s): as reservas foram refeitas no estoque escolhido.` : "Nada mudou." };
+  } catch (e) { return erro(e); }
 }

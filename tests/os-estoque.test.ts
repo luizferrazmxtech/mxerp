@@ -40,7 +40,7 @@ describe("OS reserva estoque", () => {
       { localId: locA, quantidade: 2 },
       { localId: locB, quantidade: 1 },
     ]);
-    expect(await resumo()).toEqual({ fisico: 5, reservado: 3, falta: 0, disponivel: 2 });
+    expect(await resumo()).toEqual({ fisico: 5, reservado: 3, falta: 0, disponivel: 2, comTecnicos: 0 });
   });
 
   it("segunda OS não consegue pegar o que já está reservado", async () => {
@@ -65,11 +65,11 @@ describe("OS reserva estoque", () => {
     const o = await os.criarOs({ clienteId: cliente });
     await os.adicionarProduto(o.id, { produtoId: prod, quantidade: 3 });
     await os.alterarSituacao(o.id, "CONCLUIDA");
-    expect(await resumo()).toEqual({ fisico: 2, reservado: 0, falta: 0, disponivel: 2 });
+    expect(await resumo()).toEqual({ fisico: 2, reservado: 0, falta: 0, disponivel: 2, comTecnicos: 0 });
     const saldoA = await prisma.saldo.findUnique({ where: { produtoId_localId: { produtoId: prod, localId: locA } } });
     expect(Number(saldoA!.quantidade)).toBe(0);
     await os.alterarSituacao(o.id, "CANCELADA");
-    expect(await resumo()).toEqual({ fisico: 5, reservado: 0, falta: 0, disponivel: 5 });
+    expect(await resumo()).toEqual({ fisico: 5, reservado: 0, falta: 0, disponivel: 5, comTecnicos: 0 });
   });
 
   it("reabrir OS concluída estorna e reserva de novo", async () => {
@@ -77,10 +77,10 @@ describe("OS reserva estoque", () => {
     await os.adicionarProduto(o.id, { produtoId: prod, quantidade: 2 });
     await os.alterarSituacao(o.id, "CONCLUIDA");
     await os.alterarSituacao(o.id, "EM_ANDAMENTO");
-    expect(await resumo()).toEqual({ fisico: 5, reservado: 2, falta: 0, disponivel: 3 });
+    expect(await resumo()).toEqual({ fisico: 5, reservado: 2, falta: 0, disponivel: 3, comTecnicos: 0 });
     await os.alterarSituacao(o.id, "CONCLUIDA");
     await os.alterarSituacao(o.id, "EM_ANDAMENTO");
-    expect(await resumo()).toEqual({ fisico: 5, reservado: 2, falta: 0, disponivel: 3 });
+    expect(await resumo()).toEqual({ fisico: 5, reservado: 2, falta: 0, disponivel: 3, comTecnicos: 0 });
   });
 
   it("cancelar libera e a peça vai para a OS que estava em falta", async () => {

@@ -46,6 +46,7 @@ export default async function MinhasOs({ searchParams }: { searchParams: Promise
           <Link href={link({ ver: "todas" })} className={`px-4 py-2 ${sp.ver === "todas" ? "bg-topo text-white" : ""}`}>Últimos 30 dias</Link>
         </div>
         {gerencia && <SeletorTecnico atual={sp.tec ?? ""} tecnicos={tecnicos} />}
+        <Link href={`/tecnico/estoque${gerencia && sp.tec ? `?tec=${sp.tec}` : ""}`} className="ml-auto flex items-center gap-1 rounded-md border bg-white px-3 py-2 text-[14px]"><Icone nome="estoque" size={16} /> {gerencia && sp.tec ? "Estoque do técnico" : "Meu estoque"}</Link>
       </div>
 
       <ul className="space-y-2">

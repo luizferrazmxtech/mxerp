@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { entrada, saida, transferir } from "@/lib/estoque/estoque";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { lerNumero } from "@/lib/itens/tipos";
+import { criarEstoqueTecnico } from "@/lib/estoque/tecnico";
 
 const num = (v: FormDataEntryValue | null) => lerNumero(String(v ?? "")) ?? NaN;
 // toda ação exige login (o middleware só olha o caminho da página, e uma ação pode ser chamada de qualquer página)
@@ -98,4 +99,13 @@ export async function salvarFiscalProduto(form: FormData) {
     },
   });
   revalidatePath(`/estoque/produto/${produtoId}`);
+}
+
+/** Cria o estoque do técnico (o carro dele): depósito próprio, fora do disponível da loja. */
+export async function criarEstoqueTecnicoAcao(form: FormData) {
+  await exigirUsuario(["ADMIN", "GERENTE", "OPERADOR"]);
+  const tecnicoId = String(form.get("tecnicoId") || "");
+  if (!tecnicoId) return;
+  await criarEstoqueTecnico(tecnicoId, String(form.get("nome") || "") || undefined);
+  revalidatePath("/estoque/locais");
 }

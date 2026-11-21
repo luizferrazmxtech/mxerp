@@ -45,7 +45,7 @@ async function travar(tx: Tx, osId: string) {
 }
 
 const itensDoc = (tx: Tx, osId: string) => async () =>
-  (await tx.osItemProduto.findMany({ where: { osId } })).map((i) => ({ id: i.id, produtoId: i.produtoId, quantidade: Number(i.quantidade) }));
+  (await tx.osItemProduto.findMany({ where: { osId } })).map((i) => ({ id: i.id, produtoId: i.produtoId, quantidade: Number(i.quantidade), localId: i.localOrigemId }));
 
 const estadoAtual = (o: { situacao: SituacaoOs; situacaoCfg: SituacaoOsConfig | null }) => (o.situacaoCfg ? estadoDe(o.situacaoCfg.estoque) : estadoEstoque(o.situacao));
 
@@ -170,8 +170,9 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
     total: D(tot.total), exibirTotal: d.exibirTotal, condicao: d.condicao, formaPagamentoId: t(d.formaPagamentoId), intervaloDias: Math.trunc(n(d.intervaloDias)) || 30,
     observacoes: t(d.observacoes), observacaoInterna: t(d.observacaoInterna), camposExtras: (d.camposExtras ?? {}) as Prisma.InputJsonValue,
   };
-  const assinaturaItens = (l: { produtoId: string; quantidade: number }[]) => l.map((x) => `${x.produtoId}:${x.quantidade}`).sort().join("|");
-  const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, quantidade: n(l.quantidade) }));
+  // o local de origem (item com o técnico) também muda a reserva
+  const assinaturaItens = (l: { produtoId: string; quantidade: number; localOrigemId: string | null }[]) => l.map((x) => `${x.produtoId}:${x.quantidade}:${x.localOrigemId ?? ""}`).sort().join("|");
+  const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, quantidade: n(l.quantidade), localOrigemId: t(l.localOrigemId) }));
   const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null }[]) =>
     `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}`).join("|")}`;
 
@@ -182,7 +183,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
       await tx.osItemProduto.deleteMany({ where: { osId } });
       for (const [i, l] of produtos.entries()) {
         const antigo = casar(l.id, l.produtoId);
-        const novo = await tx.osItemProduto.create({ data: { osId, ordem: i, produtoId: l.produtoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), custoUnit: custos.get(l.produtoId) ?? 0, desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)), ...antigo?.marcas } });
+        const novo = await tx.osItemProduto.create({ data: { osId, ordem: i, produtoId: l.produtoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), custoUnit: custos.get(l.produtoId) ?? 0, desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)), ...antigo?.marcas, localOrigemId: t(l.localOrigemId) } });
         if (antigo) await moverFotos(tx, osId, antigo.id, novo.id);
       }
     };
@@ -210,7 +211,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
       if (numero !== atual.numero && (await tx.ordemServico.findUnique({ where: { numero } }))) throw new OsError(`Já existe a OS nº ${numero}`);
       const existentes = await tx.osItemProduto.findMany({ where: { osId: id } });
       const antigas = await tx.osParcela.findMany({ where: { osId: id }, orderBy: { numero: "asc" } });
-      const mudouItens = assinaturaItens(existentes.map((e) => ({ produtoId: e.produtoId, quantidade: Number(e.quantidade) }))) !== assinaturaItens(novosItens);
+      const mudouItens = assinaturaItens(existentes.map((e) => ({ produtoId: e.produtoId, quantidade: Number(e.quantidade), localOrigemId: e.localOrigemId }))) !== assinaturaItens(novosItens);
       const mudouFin = assinaturaFin(Number(atual.total), antigas) !== assinaturaFin(tot.total, parcelas);
       await tx.ordemServico.update({ where: { id }, data: { ...dados, numero } });
       await tx.osParcela.deleteMany({ where: { osId: id } });

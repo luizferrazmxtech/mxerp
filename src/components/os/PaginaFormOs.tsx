@@ -4,6 +4,7 @@ import { usuarioAtual } from "@/lib/auth/atual";
 import { colunasVisiveis } from "@/lib/ui/colunas";
 import { proximoNumeroOs, situacaoPadraoOs } from "@/lib/os/ordens";
 import { configOs } from "@/lib/os/config";
+import { estoquesDosTecnicos } from "@/lib/estoque/tecnico";
 import { Pagina } from "@/components/ui/Pagina";
 import FormOrcamento, { type InicialOrcamento } from "@/components/orcamentos/FormOrcamento";
 import { canalLista } from "@/components/orcamentos/PaginaFormOrcamento";
@@ -29,8 +30,9 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
     configOs(),
     prisma.canalVenda.findMany({ orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
     situacaoPadraoOs(),
-    prisma.equipe.findMany({ where: { ativo: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
+    prisma.equipe.findMany({ where: { ativo: true }, select: { id: true, nome: true, membros: true }, orderBy: { nome: "asc" } }),
   ]);
+  const estoquesTecnicos = await estoquesDosTecnicos();
   const agora = isoLocalSP(new Date());
   let inicial: InicialOrcamento = {
     tipo: "SERVICO", numero: "", clienteId: "", clienteNome: "", data: hoje(), validade: "", vendedorId: u?.id ?? "", prazoEntrega: "",
@@ -63,7 +65,7 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
       vendedorId: o.vendedorId ?? "", prazoEntrega: "", aosCuidados: "", canal: o.canal, centroCusto: o.centroCusto ?? "", introducao: "", situacaoId: o.situacaoId ?? padrao.id,
       produtos: o.produtos.map((l) => ({ id: l.id, produtoId: l.produtoId, nome: l.produto.nome, codigo: l.produto.codigo, unidade: l.produto.unidade, detalhes: l.detalhes ?? "",
         quantidade: qt(l.quantidade), tipoValorId: l.tipoValorId ?? tiposValor[0]?.id ?? "", valorUnit: n2(l.valorUnit), desconto: Number(l.desconto) ? n2(l.desconto) : "", descontoPct: false,
-        valores: l.produto.valores.map((x) => ({ tipoValorId: x.tipoValorId, valor: Number(x.valor) })) })),
+        valores: l.produto.valores.map((x) => ({ tipoValorId: x.tipoValorId, valor: Number(x.valor) })), localOrigemId: l.localOrigemId ?? "" })),
       servicos: o.servicos.map((l) => ({ id: l.id, servicoId: l.servicoId, nome: l.servico.nome, codigo: l.servico.codigo, detalhes: l.detalhes ?? "",
         quantidade: qt(l.quantidade), valorUnit: n2(l.valorUnit), desconto: Number(l.desconto) ? n2(l.desconto) : "", descontoPct: false })),
       transportadoraId: o.transportadoraId ?? "", transportadoraNome: o.transportadora?.nome ?? "", frete: n2(o.frete), mostrarEntrega: o.mostrarEntrega, enderecoEntregaId: o.enderecoEntregaId ?? "",
@@ -83,7 +85,7 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
   return (
     <Pagina titulo={`${acao} OS`} trilha={[{ rotulo: "Ordens de serviços", href: "/os" }, { rotulo: acao }]}>
       <FormOrcamento inicial={inicial} modo="os"
-        op={{ vendedores: usuarios, tecnicos: tecnicos.length ? tecnicos : usuarios, equipes, situacoes: situacoes.map((s) => ({ id: s.id, nome: `${s.nome} (${avisoSituacaoOs(s)})` })), formas, tiposValor, campos,
+        op={{ vendedores: usuarios, tecnicos: tecnicos.length ? tecnicos : usuarios, equipes, estoquesTecnicos, situacoes: situacoes.map((s) => ({ id: s.id, nome: `${s.nome} (${avisoSituacaoOs(s)})` })), formas, tiposValor, campos,
           centros: centros.map((c) => c.centroCusto!), canais: canalLista(canais.map((c) => c.nome), inicial.canal) }}
         vis={{
           dados: colunasVisiveis(u?.preferencias, "os-campos", CAMPOS_OS, CAMPOS_OS.map((c) => c.chave)),

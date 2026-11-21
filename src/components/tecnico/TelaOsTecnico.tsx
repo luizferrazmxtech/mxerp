@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Icone from "@/components/Icone";
-import { anotarAcao, enviarFotoAcao, excluirFotoAcao, lancarItemAcao, marcarInstaladoAcao, removerItemAcao, situacaoTecnicoAcao, type RespostaTecnico } from "@/lib/os/acoesTecnico";
+import { anotarAcao, enviarFotoAcao, excluirFotoAcao, lancarItemAcao, marcarInstaladoAcao, origemItemAcao, removerItemAcao, situacaoTecnicoAcao, type RespostaTecnico } from "@/lib/os/acoesTecnico";
 
 export type FotoTecnico = { id: string; nome: string; minha: boolean };
 export type ItemTecnico = {
   id: string; tipo: "produto" | "servico"; nome: string; codigo: string; quantidade: string; detalhes: string;
   onde: string; emFalta: boolean; instalado: boolean; instaladoInfo: string; podeRemover: boolean; fotos: FotoTecnico[];
+  /** produto: saiu do carro deste técnico? null = não dá para trocar (OS fechada ou sem estoque próprio) */
+  comigo?: boolean | null;
 };
 type Achado = { id: string; codigo: string; nome: string; unidade?: string; disponivel?: number | null };
 
@@ -33,6 +35,8 @@ export default function TelaOsTecnico(props: {
   editavel: boolean; motivoBloqueio: string; podeItens: boolean; podeFotos: boolean;
   situacao: { atual: string; opcoes: { id: string; nome: string }[] } | null;
   anotacoes: { id: string; texto: string; autor: string; quando: string }[];
+  /** estoque do próprio técnico (carro): livre por produto; null = não tem estoque próprio */
+  meuEstoque: Record<string, number> | null;
 }) {
   const { osId, itens, editavel, podeItens, podeFotos } = props;
   const router = useRouter();
@@ -110,6 +114,12 @@ export default function TelaOsTecnico(props: {
                   <div className="text-[12px] text-slate-500">{i.tipo === "servico" ? "Serviço" : i.codigo} · Qtd {i.quantidade}</div>
                   {i.detalhes && <div className="text-[13px] text-slate-700">{i.detalhes}</div>}
                   {i.onde && <div className={`mt-1 text-[13px] ${i.emFalta ? "font-semibold text-red-600" : "text-slate-700"}`}><Icone nome="locais" size={13} className="mr-1 inline" />{i.onde}</div>}
+                  {i.comigo != null && (
+                    <button className={`mt-1 rounded-full border px-3 py-1 text-[12px] ${i.comigo ? "border-marca bg-teal-50 font-semibold text-marca-escura" : "border-slate-300 text-slate-600"}`} disabled={ocupado}
+                      onClick={() => rodar(() => origemItemAcao(osId, i.id, !i.comigo))}>
+                      {i.comigo ? "Saiu do meu carro ✓" : "Saiu do meu carro?"}
+                    </button>
+                  )}
                 </div>
                 {i.podeRemover && (
                   <button className="btn-icone h-9 w-9 text-red-600" aria-label={`Tirar ${i.nome}`} disabled={ocupado}
@@ -188,7 +198,7 @@ export default function TelaOsTecnico(props: {
         <AdicionarItem
           fechar={() => setAdicionando(false)}
           lancar={(item) => rodar(() => lancarItemAcao(osId, item), () => setAdicionando(false))}
-          ocupado={ocupado}
+          ocupado={ocupado} meuEstoque={props.meuEstoque}
         />
       )}
 
@@ -225,9 +235,9 @@ function Miniaturas({ fotos, abrir, excluir }: { fotos: FotoTecnico[]; abrir: (i
 }
 
 /** Painel de baixo para cima: busca o produto/serviço, escolhe a quantidade e lança (já instalado, se quiser). */
-function AdicionarItem({ fechar, lancar, ocupado }: {
-  fechar: () => void; ocupado: boolean;
-  lancar: (item: { tipo: "produto" | "servico"; id: string; quantidade: number; detalhes?: string; instalado?: boolean }) => void;
+function AdicionarItem({ fechar, lancar, ocupado, meuEstoque }: {
+  fechar: () => void; ocupado: boolean; meuEstoque: Record<string, number> | null;
+  lancar: (item: { tipo: "produto" | "servico"; id: string; quantidade: number; detalhes?: string; instalado?: boolean; doMeuEstoque?: boolean }) => void;
 }) {
   const [tipo, setTipo] = useState<"produto" | "servico">("produto");
   const [q, setQ] = useState("");
@@ -236,6 +246,8 @@ function AdicionarItem({ fechar, lancar, ocupado }: {
   const [escolhido, setEscolhido] = useState<Achado | null>(null);
   const [qtd, setQtd] = useState("1");
   const [detalhes, setDetalhes] = useState("");
+  const [doCarro, setDoCarro] = useState(false);
+  const noCarro = (id: string) => meuEstoque?.[id] ?? 0;
   const campo = useRef<HTMLInputElement>(null);
 
   useEffect(() => { campo.current?.focus(); }, [tipo]);
@@ -254,7 +266,7 @@ function AdicionarItem({ fechar, lancar, ocupado }: {
 
   const quantidade = Number(qtd.replace(",", "."));
   const mudar = (d: number) => setQtd(String(Math.max(1, (Number.isFinite(quantidade) ? quantidade : 1) + d)).replace(".", ","));
-  const enviar = (instalado: boolean) => escolhido && quantidade > 0 && lancar({ tipo, id: escolhido.id, quantidade, detalhes, instalado });
+  const enviar = (instalado: boolean) => escolhido && quantidade > 0 && lancar({ tipo, id: escolhido.id, quantidade, detalhes, instalado, doMeuEstoque: tipo === "produto" && doCarro });
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-black/40" onClick={fechar}>
@@ -275,11 +287,12 @@ function AdicionarItem({ fechar, lancar, ocupado }: {
             <ul className="mt-2 min-h-0 flex-1 overflow-y-auto">
               {achados.map((a) => (
                 <li key={a.id}>
-                  <button className="flex w-full items-center gap-2 border-b px-1 py-3 text-left active:bg-slate-50" onClick={() => { setEscolhido(a); setQtd("1"); }}>
+                  <button className="flex w-full items-center gap-2 border-b px-1 py-3 text-left active:bg-slate-50" onClick={() => { setEscolhido(a); setQtd("1"); setDoCarro(tipo === "produto" && noCarro(a.id) > 0); }}>
                     <div className="min-w-0 flex-1">
                       <div className="text-[15px] leading-tight">{a.nome}</div>
                       <div className="text-[12px] text-slate-500">{a.codigo}</div>
                     </div>
+                    {tipo === "produto" && noCarro(a.id) > 0 && <span className="whitespace-nowrap rounded bg-teal-50 px-1 text-[12px] font-semibold text-marca-escura">{noCarro(a.id).toLocaleString("pt-BR")} no carro</span>}
                     {tipo === "produto" && a.disponivel != null && (
                       <span className={`whitespace-nowrap text-[12px] font-semibold ${a.disponivel > 0 ? "text-emerald-700" : "text-red-600"}`}>
                         {a.disponivel > 0 ? `${a.disponivel.toLocaleString("pt-BR")} ${a.unidade ?? ""} disp.` : "Sem estoque"}
@@ -307,7 +320,16 @@ function AdicionarItem({ fechar, lancar, ocupado }: {
             </div>
             <span className="rotulo">Detalhes (opcional)</span>
             <input className="campo mb-3 h-11 text-[15px]" value={detalhes} onChange={(e) => setDetalhes(e.target.value)} placeholder="Ex.: instalado no rack da sala 2" />
-            {tipo === "produto" && escolhido.disponivel != null && quantidade > escolhido.disponivel && (
+            {tipo === "produto" && meuEstoque && (
+              <label className="mb-3 flex items-center gap-3 rounded border px-3 py-3 text-[15px]">
+                <input type="checkbox" className="h-5 w-5" checked={doCarro} onChange={(e) => setDoCarro(e.target.checked)} />
+                <span>Saiu do meu carro <span className="block text-[12px] text-slate-500">{noCarro(escolhido.id).toLocaleString("pt-BR")} livre no seu estoque</span></span>
+              </label>
+            )}
+            {tipo === "produto" && doCarro && quantidade > noCarro(escolhido.id) && (
+              <p className="mb-2 rounded bg-amber-50 px-3 py-2 text-[13px] text-amber-900">O sistema mostra menos no seu carro: lança assim mesmo e o escritório acerta o seu estoque.</p>
+            )}
+            {tipo === "produto" && !doCarro && escolhido.disponivel != null && quantidade > escolhido.disponivel && (
               <p className="mb-2 rounded bg-amber-50 px-3 py-2 text-[13px] text-amber-900">Estoque não cobre tudo: o que faltar fica reservado como EM FALTA para o escritório comprar.</p>
             )}
             <div className="flex gap-2">

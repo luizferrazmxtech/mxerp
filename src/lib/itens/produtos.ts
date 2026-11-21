@@ -168,15 +168,32 @@ export async function ajustarValoresEmMassa(where: Prisma.ProdutoWhereInput, op:
   return n;
 }
 
-/** Estoque por produto (físico, reservado) para as listas. */
+/**
+ * Estoque por produto para as listas. físico/reservado contam tudo (loja e carros dos técnicos);
+ * `tecnicos` é o que está livre nos carros, que não serve para venda/OS da loja: disponível = físico − reservado − tecnicos.
+ */
 export async function estoquesDe(ids: string[]) {
-  if (!ids.length) return new Map<string, { fisico: number; reservado: number }>();
-  const [s, r] = await Promise.all([
+  if (!ids.length) return new Map<string, { fisico: number; reservado: number; tecnicos: number }>();
+  const [s, r, t] = await Promise.all([
     prisma.saldo.groupBy({ by: ["produtoId"], where: { produtoId: { in: ids } }, _sum: { quantidade: true } }),
     prisma.reserva.groupBy({ by: ["produtoId"], where: { produtoId: { in: ids }, status: "ATIVA", localId: { not: null } }, _sum: { quantidade: true } }),
+    livreComTecnicos(ids),
   ]);
-  const m = new Map(ids.map((i) => [i, { fisico: 0, reservado: 0 }]));
+  const m = new Map(ids.map((i) => [i, { fisico: 0, reservado: 0, tecnicos: 0 }]));
   for (const x of s) m.get(x.produtoId)!.fisico = Number(x._sum.quantidade ?? 0);
   for (const x of r) m.get(x.produtoId)!.reservado = Number(x._sum.quantidade ?? 0);
+  for (const [id, q] of t) m.get(id)!.tecnicos = q;
   return m;
+}
+
+/** Livre nos carros dos técnicos (saldo − reservas de OS lá), por produto. */
+export async function livreComTecnicos(ids: string[]) {
+  if (!ids.length) return new Map<string, number>();
+  const rows = await prisma.$queryRaw<{ produtoId: string; livre: number }[]>`
+    SELECT s."produtoId", SUM(s.quantidade - COALESCE((SELECT SUM(r.quantidade) FROM "Reserva" r
+             WHERE r."produtoId" = s."produtoId" AND r."localId" = s."localId" AND r.status = 'ATIVA'), 0))::float8 AS livre
+      FROM "Saldo" s JOIN "Local" l ON l.id = s."localId" JOIN "Deposito" d ON d.id = l."depositoId"
+     WHERE d."tecnicoId" IS NOT NULL AND s."produtoId" = ANY(${ids})
+     GROUP BY s."produtoId"`;
+  return new Map(rows.map((x) => [x.produtoId, Number(x.livre)]));
 }
