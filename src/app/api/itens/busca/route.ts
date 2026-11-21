@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   const est = await estoquesDe(l.map((p) => p.id));
   return NextResponse.json(ids.map((i) => m.get(i.id)!).filter(Boolean).map((p) => {
     const e = est.get(p.id)!;
-    const disponivel = p.controlaEstoque ? e.fisico - e.reservado : null;
+    const disponivel = p.controlaEstoque ? e.fisico - e.reservado - e.tecnicos : null;
     const minimo = Number(p.estoqueMinimo);
     const maximo = p.estoqueMaximo == null ? null : Number(p.estoqueMaximo);
     return {

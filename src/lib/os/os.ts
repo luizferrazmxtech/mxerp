@@ -162,7 +162,7 @@ async function alterarItemProdutoTx(tx: Tx, osId: string, itemId: string, mudar:
     data: { quantidade, valorUnit: D(valor), subtotal: D(valor * quantidade - Number(item.desconto)) },
   });
   const alocacoes = mudouQtd
-    ? await reservarItem(tx, { produtoId: item.produtoId, quantidade, origemTipo: "OS", origemId: osId, origemItemId: itemId })
+    ? await reservarItem(tx, { produtoId: item.produtoId, quantidade, localId: item.localOrigemId, origemTipo: "OS", origemId: osId, origemItemId: itemId })
     : [];
   await recalcularTotais(tx, osId);
   return alocacoes;
@@ -304,7 +304,7 @@ export async function alterarSituacaoTx(
   const de = estadoEstoque(os.situacao);
   const para = estadoEstoque(nova);
   await transicionarEstoque(tx, "OS", osId, de, para, async () =>
-    (await tx.osItemProduto.findMany({ where: { osId } })).map((i) => ({ id: i.id, produtoId: i.produtoId, quantidade: Number(i.quantidade) })),
+    (await tx.osItemProduto.findMany({ where: { osId } })).map((i) => ({ id: i.id, produtoId: i.produtoId, quantidade: Number(i.quantidade), localId: i.localOrigemId })),
     opts,
   );
 

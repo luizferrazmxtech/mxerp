@@ -14,6 +14,8 @@ export type LinhaEstoque = {
   reservado: number;
   falta: number;
   disponivel: number;
+  /** livre nos carros dos técnicos (fora do disponível da loja) */
+  comTecnicos: number;
   locais: string | null; // "A-01 (2), B-02 (3)"
   minimo: number;
   maximo: number | null;
@@ -36,19 +38,28 @@ export async function buscarEstoque(termo = "", limite = 100): Promise<LinhaEsto
              SUM(quantidade) FILTER (WHERE "localId" IS NOT NULL) reservado,
              SUM(quantidade) FILTER (WHERE "localId" IS NULL) falta
         FROM "Reserva" WHERE status = 'ATIVA' GROUP BY "produtoId"
+    ), t AS (
+      SELECT sa."produtoId", SUM(sa.quantidade - COALESCE((SELECT SUM(rr.quantidade) FROM "Reserva" rr
+               WHERE rr."produtoId" = sa."produtoId" AND rr."localId" = sa."localId" AND rr.status = 'ATIVA'), 0)) livre
+        FROM "Saldo" sa JOIN "Local" l ON l.id = sa."localId" JOIN "Deposito" d ON d.id = l."depositoId"
+       WHERE d."tecnicoId" IS NOT NULL AND (${loja}::text IS NULL OR d."empresaId" IS NULL OR d."empresaId" = ${loja})
+       GROUP BY sa."produtoId"
     )
     SELECT p.id, p.codigo, p.nome, p.unidade, p."precoVenda", p."controlaEstoque", p."estoqueMinimo", p."estoqueMaximo",
            COALESCE(s.fisico,0) fisico, COALESCE(r.reservado,0) reservado,
-           COALESCE(r.falta,0) falta, s.locais
+           COALESCE(r.falta,0) falta, COALESCE(t.livre,0) tecnicos, s.locais
       FROM "Produto" p
       LEFT JOIN s ON s."produtoId" = p.id
       LEFT JOIN r ON r."produtoId" = p.id
+      LEFT JOIN t ON t."produtoId" = p.id
      WHERE p.ativo AND (p.gtin = ${termo.trim()} OR ${wherePalavras(termo, [Prisma.sql`p.nome`, Prisma.sql`p.codigo`, Prisma.sql`p.gtin`])})
      ORDER BY (lower(p.codigo) = ${termo.trim().toLowerCase()} OR p.gtin = ${termo.trim()}) DESC, p.nome
      LIMIT ${limite}`);
   return rows.map((r) => {
     const fisico = Number(r.fisico);
     const reservado = Number(r.reservado);
+    const comTecnicos = Number(r.tecnicos);
+    const disponivel = fisico - reservado - comTecnicos;
     const minimo = Number(r.estoqueMinimo ?? 0);
     const maximo = r.estoqueMaximo == null ? null : Number(r.estoqueMaximo);
     return {
@@ -60,10 +71,11 @@ export async function buscarEstoque(termo = "", limite = 100): Promise<LinhaEsto
       fisico,
       reservado,
       falta: Number(r.falta),
-      disponivel: fisico - reservado,
+      disponivel,
+      comTecnicos,
       locais: (r.locais as string) ?? null,
       minimo, maximo,
-      situacao: situacaoEstoque(r.controlaEstoque === false ? null : fisico - reservado, minimo, maximo),
+      situacao: situacaoEstoque(r.controlaEstoque === false ? null : disponivel, minimo, maximo),
     };
   });
 }

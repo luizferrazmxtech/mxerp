@@ -1,6 +1,6 @@
 import { Prisma, type PapelUsuario } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
-import { entrada, saida, transferir } from "@/lib/estoque/estoque";
+import { disponivelPorLocal, entrada, saida, transferir } from "@/lib/estoque/estoque";
 import { proximoNumero } from "@/lib/sequencia";
 import { lojaAtualId } from "@/lib/empresa/loja";
 import { parseDia } from "@/lib/datas";
@@ -121,13 +121,15 @@ export async function zerarEstoque(u: Usuario, observacao = "Estoque zerado") {
 export type DadosTransferencia = { origemDepositoId: string; destinoDepositoId: string; observacoes: string; itens: { produtoId: string; nome?: string; quantidade: string }[] };
 
 export async function criarTransferencia(d: DadosTransferencia, u: Usuario) {
-  if (!d.origemDepositoId || !d.destinoDepositoId) throw new DocEstoqueError("Informe a loja de origem e a de destino");
+  if (!d.origemDepositoId || !d.destinoDepositoId) throw new DocEstoqueError("Informe o estoque de origem e o de destino");
   if (d.origemDepositoId === d.destinoDepositoId) throw new DocEstoqueError("A origem e o destino precisam ser diferentes");
   const itens = d.itens.filter((i) => i.produtoId);
   if (!itens.length) throw new DocEstoqueError("Adicione ao menos um produto");
   return prisma.$transaction(async (tx) => {
     const destinoPadrao = (await tx.local.findFirst({ where: { depositoId: d.destinoDepositoId }, orderBy: { codigo: "asc" } }))?.id;
-    if (!destinoPadrao) throw new DocEstoqueError("A loja de destino não tem nenhum local de estoque cadastrado");
+    if (!destinoPadrao) throw new DocEstoqueError("O estoque de destino não tem nenhum local cadastrado");
+    // do carro do técnico só sai o que não está separado para uma OS dele
+    const origemTecnico = await tx.deposito.findFirst({ where: { id: d.origemDepositoId, tecnicoId: { not: null } }, select: { id: true } });
     const numero = await proximoNumero(tx, "TRANSFERENCIA");
     let total = 0;
     const linhas = [];
@@ -135,9 +137,13 @@ export async function criarTransferencia(d: DadosTransferencia, u: Usuario) {
       const q = n(i.quantidade);
       if (!(q > 0)) throw new DocEstoqueError(`Informe a quantidade de ${i.nome || "todos os produtos"}`);
       const p = await tx.produto.findUniqueOrThrow({ where: { id: i.produtoId }, select: { id: true, nome: true, custo: true, localPadraoId: true, localPadrao: { select: { depositoId: true } } } });
-      const saldos = (await saldosPorLocal(tx, p.id, d.origemDepositoId)).filter((s) => s.quantidade > 0);
+      let saldos = (await saldosPorLocal(tx, p.id, d.origemDepositoId)).filter((s) => s.quantidade > 0);
+      if (origemTecnico) {
+        const disp = new Map((await disponivelPorLocal(tx, p.id, { incluirTecnicos: true })).map((x) => [x.localId, x.disponivel]));
+        saldos = saldos.map((s) => ({ ...s, quantidade: Math.min(s.quantidade, disp.get(s.localId) ?? s.quantidade) })).filter((s) => s.quantidade > 0);
+      }
       const tem = saldos.reduce((s, x) => s + x.quantidade, 0);
-      if (tem + 1e-9 < q) throw new DocEstoqueError(`${p.nome}: a loja de origem só tem ${tem.toLocaleString("pt-BR")}`);
+      if (tem + 1e-9 < q) throw new DocEstoqueError(`${p.nome}: ${origemTecnico ? "o estoque do técnico só tem livre" : "o estoque de origem só tem"} ${tem.toLocaleString("pt-BR")}${origemTecnico ? " (o resto está separado para OS)" : ""}`);
       const para = p.localPadrao?.depositoId === d.destinoDepositoId && p.localPadraoId ? p.localPadraoId : destinoPadrao;
       let resta = q;
       for (const s of saldos) {

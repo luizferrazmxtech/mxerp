@@ -22,7 +22,7 @@ export default async function ProdutoEstoque({ params }: { params: Promise<{ id:
 
   const [resumo, porLocal, locais, reservas, movimentos] = await Promise.all([
     prisma.$transaction((tx) => resumoProduto(tx, id)),
-    prisma.$transaction((tx) => disponivelPorLocal(tx, id)),
+    prisma.$transaction((tx) => disponivelPorLocal(tx, id, { incluirTecnicos: true })),
     prisma.local.findMany({ where: { ativo: true }, orderBy: { codigo: "asc" } }),
     prisma.reserva.findMany({ where: { produtoId: id, status: "ATIVA" }, include: { local: true }, orderBy: { createdAt: "asc" } }),
     prisma.movimentoEstoque.findMany({ where: { produtoId: id }, include: { local: true, usuario: { select: { nome: true } } }, orderBy: { createdAt: "desc" }, take: 30 }),
@@ -51,7 +51,7 @@ export default async function ProdutoEstoque({ params }: { params: Promise<{ id:
       <Resumo cartoes={[
         { rotulo: "Físico", valor: `${qtd(resumo.fisico)} ${produto.unidade}`, legenda: `em ${comSaldo.length} local(is)`, icone: "estoque", cor: "tinta", pct: 100 },
         { rotulo: "Reservado", valor: qtd(resumo.reservado), legenda: "separado para OS e vendas", icone: "hoje", cor: "amarelo", pct: (resumo.reservado / total) * 100 },
-        { rotulo: "Disponível", valor: qtd(resumo.disponivel), legenda: "livre para vender", icone: "confirmado", cor: resumo.disponivel > 0 ? "verde" : "vermelho", pct: resumo.fisico > 0 ? (Math.max(0, resumo.disponivel) / total) * 100 : 0 },
+        { rotulo: "Disponível", valor: qtd(resumo.disponivel), legenda: resumo.comTecnicos ? `livre na loja (+${qtd(resumo.comTecnicos)} com técnicos)` : "livre para vender", icone: "confirmado", cor: resumo.disponivel > 0 ? "verde" : "vermelho", pct: resumo.fisico > 0 ? (Math.max(0, resumo.disponivel) / total) * 100 : 0 },
         { rotulo: "Em falta", valor: qtd(resumo.falta), legenda: "pedidos aguardando estoque", icone: "alerta", cor: resumo.falta ? "vermelho" : "cinza" },
       ]} />
 

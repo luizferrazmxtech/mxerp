@@ -1,4 +1,5 @@
 import Link from "next/link";
+import DicaSaldo from "@/components/estoque/DicaSaldo";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -183,7 +184,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
                 <thead><tr><th>Produto</th><th>Estoque</th><th className="text-right">Quant.</th><th className="text-right">Valor</th><th className="text-right">Desconto</th><th className="text-right">Subtotal</th></tr></thead>
                 <tbody>{v.itens.map((l) => <tr key={l.id}><td><Link href={`/produtos/${l.produto.id}`} className="hover:underline"><span className="font-mono text-[11px] text-slate-500">{l.produto.codigo}</span> {l.produto.nome}</Link>{l.detalhes && <div className="text-[11px] text-slate-500">{l.detalhes}</div>}</td>
                   <td className="text-[12px] text-slate-600">{ondeItem(l.id) || "—"}</td>
-                  <td className="text-right">{qtd(l.quantidade)} {l.produto.unidade}</td><td className="text-right">{num2(l.valorUnit)}</td><td className="text-right">{Number(l.desconto) ? num2(l.desconto) : ""}</td><td className="text-right font-semibold">{num2(l.subtotal)}</td></tr>)}</tbody>
+                  <td className="text-right"><DicaSaldo produtoId={l.produto.id}>{qtd(l.quantidade)} {l.produto.unidade}</DicaSaldo></td><td className="text-right">{num2(l.valorUnit)}</td><td className="text-right">{Number(l.desconto) ? num2(l.desconto) : ""}</td><td className="text-right font-semibold">{num2(l.subtotal)}</td></tr>)}</tbody>
                 <tfoot><tr><td colSpan={5} className="text-right">Total de produtos</td><td className="text-right font-semibold">{num2(v.itens.reduce((s, i) => s + Number(i.subtotal), 0))}</td></tr></tfoot>
               </table>
             </div>

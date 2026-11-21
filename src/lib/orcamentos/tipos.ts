@@ -3,7 +3,9 @@ import { lerNumero } from "@/lib/itens/tipos";
 
 export { lerNumero };
 
-export type LinhaProduto = { id?: string; produtoId: string; nome: string; codigo: string; unidade: string; detalhes: string; quantidade: string; tipoValorId: string; valorUnit: string; desconto: string; descontoPct: boolean; valores?: { tipoValorId: string; valor: number }[]; disponivel?: number | null };
+export type LinhaProduto = { id?: string; produtoId: string; nome: string; codigo: string; unidade: string; detalhes: string; quantidade: string; tipoValorId: string; valorUnit: string; desconto: string; descontoPct: boolean; valores?: { tipoValorId: string; valor: number }[]; disponivel?: number | null;
+  /** só OS: a peça sai deste local (o carro do técnico) em vez do estoque da loja; vazio = loja */
+  localOrigemId?: string };
 export type LinhaServico = { id?: string; servicoId: string; nome: string; codigo: string; detalhes: string; quantidade: string; valorUnit: string; desconto: string; descontoPct: boolean };
 export type Parcela = { vencimento: string; valor: string; formaPagamentoId: string; observacao: string };
 

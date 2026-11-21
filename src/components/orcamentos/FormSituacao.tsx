@@ -6,9 +6,11 @@ import { alterarSituacaoAcao, gerarVendaAcao, type Resultado } from "@/lib/orcam
 import BotaoAcao from "@/components/ui/BotaoAcao";
 
 /** Painel "Alterar situação" (abre pela lista ou pela visualização). */
-export default function FormSituacao({ id, numero, atual, situacoes, voltar, acao: acaoServidor, rotulo = "do orçamento" }: {
+export default function FormSituacao({ id, numero, atual, situacoes, voltar, acao: acaoServidor, rotulo = "do orçamento", depois }: {
   id: string; numero: number; atual: string; situacoes: { id: string; nome: string; geraVenda?: boolean; aviso?: string }[]; voltar: string;
   acao?: (r: Resultado, f: FormData) => Promise<Resultado>; rotulo?: string;
+  /** próximo passo sugerido depois de salvar (OS: marcar os itens que estão com o técnico) */
+  depois?: { href: string; texto: string };
 }) {
   const [r, acao, pendente] = useActionState<Resultado, FormData>(acaoServidor ?? alterarSituacaoAcao, null);
   return (
@@ -24,6 +26,7 @@ export default function FormSituacao({ id, numero, atual, situacoes, voltar, aca
       </form>
       {r && <div className={`mt-3 rounded px-3 py-2 text-[13px] ${r.ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>
         {r.mensagem}
+        {r.ok && depois && <div className="mt-1"><Link href={depois.href} className="font-semibold underline">{depois.texto}</Link></div>}
         {r.sugerirVenda && <div className="mt-2 flex items-center gap-2">Deseja gerar a venda deste orçamento agora?
           <BotaoAcao acao={gerarVendaAcao.bind(null, id)} className="btn py-1" icone="carrinho">Gerar venda</BotaoAcao></div>}
       </div>}

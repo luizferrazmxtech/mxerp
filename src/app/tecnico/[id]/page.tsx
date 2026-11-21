@@ -6,6 +6,7 @@ import { pode } from "@/lib/auth/permissoesAcao";
 import { estadoDe } from "@/lib/os/ordens";
 import { estadoEstoque } from "@/lib/os/os";
 import { ehGerencia, podeMexerNaOs } from "@/lib/os/tecnico";
+import { localDoTecnico, saldoDoTecnico } from "@/lib/estoque/tecnico";
 import { cor } from "@/lib/orcamentos/tipos";
 import { rotuloPrioridade } from "@/lib/os/tipos";
 import Icone from "@/components/Icone";
@@ -41,13 +42,15 @@ export default async function OsDoTecnico({ params }: { params: Promise<{ id: st
       </div>
     );
   }
-  const [reservas, fotos, anotacoes, situacoes, podeItens, podeFotos, podeSituacao] = await Promise.all([
+  const [reservas, fotos, anotacoes, situacoes, podeItens, podeFotos, podeSituacao, meuLocal] = await Promise.all([
     prisma.reserva.findMany({ where: { origemTipo: "OS", origemId: id, status: { in: ["ATIVA", "BAIXADA"] } }, include: { local: { select: { codigo: true } } } }),
     prisma.anexo.findMany({ where: { entidade: "OS_FOTO", entidadeId: id }, select: { id: true, nome: true, referencia: true, usuarioId: true, createdAt: true }, orderBy: { createdAt: "asc" } }),
     prisma.anotacao.findMany({ where: { entidade: "OS", entidadeId: id }, orderBy: { createdAt: "desc" }, take: 20 }),
     prisma.situacaoOsConfig.findMany({ where: { exibir: true }, orderBy: { ordem: "asc" }, select: { id: true, nome: true, cor: true, bloqueados: true } }),
     pode(u.papel, "os.tecnicoItens"), pode(u.papel, "os.tecnicoFotos"), pode(u.papel, "os.situacao"),
+    localDoTecnico(prisma, u.id),
   ]);
+  const meuEstoque = meuLocal ? Object.fromEntries((await saldoDoTecnico(u.id)).map((x) => [x.produtoId, x.livre])) : null;
   const idsUsuarios = [...new Set([...o.tecnicoIds, ...(o.equipe?.membros ?? []), ...anotacoes.map((a) => a.usuarioId), ...o.produtos.map((p) => p.instaladoPorId), ...o.servicos.map((p) => p.instaladoPorId)].filter((x): x is string => !!x))];
   const nomes = new Map((await prisma.usuario.findMany({ where: { id: { in: idsUsuarios } }, select: { id: true, nome: true } })).map((x) => [x.id, x.nome]));
   const estado = o.situacaoCfg ? estadoDe(o.situacaoCfg.estoque) : estadoEstoque(o.situacao);
@@ -66,6 +69,7 @@ export default async function OsDoTecnico({ params }: { params: Promise<{ id: st
       onde: reservas.filter((r) => r.origemItemId === p.id).map((r) => `${r.local?.codigo ?? "EM FALTA"} (${qtd(r.quantidade)})${r.status === "BAIXADA" ? " · saiu" : ""}`).join(", "),
       emFalta: reservas.some((r) => r.origemItemId === p.id && r.status === "ATIVA" && !r.localId),
       fotos: fotosDe(p.id), ...marca(p),
+      comigo: meuLocal && editavel && podeItens && (!p.localOrigemId || p.localOrigemId === meuLocal) ? p.localOrigemId === meuLocal : null,
     })),
     ...o.servicos.map((s) => ({
       id: s.id, tipo: "servico" as const, nome: s.servico.nome, codigo: s.servico.codigo, quantidade: qtd(s.quantidade), detalhes: s.detalhes ?? "", onde: "", emFalta: false,
@@ -122,6 +126,7 @@ export default async function OsDoTecnico({ params }: { params: Promise<{ id: st
         editavel={editavel} motivoBloqueio={editavel ? "" : estado === "BAIXADO" ? "OS concluída: para lançar itens, peça ao escritório para reabrir." : o.situacaoCfg?.financeiro ? "A OS já lançou o financeiro: lançar itens é com o escritório." : `OS em "${o.situacaoCfg?.nome ?? o.situacao}": não permite lançar itens.`}
         podeItens={podeItens} podeFotos={podeFotos}
         situacao={podeSituacao && !(o.situacaoCfg?.bloqueados.includes(u.papel)) ? { atual: o.situacaoId ?? "", opcoes: situacoes.map((s) => ({ id: s.id, nome: s.nome })) } : null}
+        meuEstoque={meuEstoque}
         anotacoes={anotacoes.map((a) => ({ id: a.id, texto: a.texto, autor: a.usuarioId ? nomes.get(a.usuarioId) ?? "" : "", quando: quando(a.createdAt) }))}
       />
     </div>

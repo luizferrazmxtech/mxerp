@@ -4,6 +4,7 @@ import { liberarItem, reservarItem } from "@/lib/estoque/estoque";
 import type { Alocacao } from "@/lib/estoque/alocacao";
 import { estadoDe, OsError } from "@/lib/os/ordens";
 import { estadoEstoque } from "@/lib/os/os";
+import { localDoTecnico } from "@/lib/estoque/tecnico";
 
 /**
  * Tela do técnico (celular/tablet): o técnico vê as OS em que é técnico ou cuja equipe integra,
@@ -112,7 +113,7 @@ const qtdTxt = (q: number) => q.toLocaleString("pt-BR", { maximumFractionDigits:
 export async function lancarItemTecnico(
   u: UsuarioTecnico,
   osId: string,
-  item: { tipo: "produto" | "servico"; id: string; quantidade: number; detalhes?: string; instalado?: boolean },
+  item: { tipo: "produto" | "servico"; id: string; quantidade: number; detalhes?: string; instalado?: boolean; doMeuEstoque?: boolean },
 ): Promise<{ itemId: string; alocacoes: Alocacao[] }> {
   if (!(item.quantidade > 0)) throw new OsError("Informe a quantidade");
   return prisma.$transaction(async (tx) => {
@@ -128,12 +129,15 @@ export async function lancarItemTecnico(
       const prod = await tx.produto.findUnique({ where: { id: item.id } });
       if (!prod?.ativo) throw new OsError("Produto não encontrado ou inativo");
       const valor = Number(prod.precoVenda);
+      // "saiu do meu carro": reserva e baixa do estoque do técnico, não da loja
+      const localOrigemId = item.doMeuEstoque ? await localDoTecnico(tx, u.id) : null;
+      if (item.doMeuEstoque && !localOrigemId) throw new OsError("Você não tem estoque próprio cadastrado. Peça ao escritório em Estoque › Locais.");
       const criado = await tx.osItemProduto.create({
-        data: { osId, ordem, produtoId: prod.id, quantidade: new Prisma.Decimal(item.quantidade), valorUnit: D(valor), custoUnit: prod.custo, subtotal: D(valor * item.quantidade), ...marcas },
+        data: { osId, ordem, produtoId: prod.id, quantidade: new Prisma.Decimal(item.quantidade), valorUnit: D(valor), custoUnit: prod.custo, subtotal: D(valor * item.quantidade), localOrigemId, ...marcas },
       });
       itemId = criado.id;
-      nome = prod.nome;
-      alocacoes = await reservarItem(tx, { produtoId: prod.id, quantidade: item.quantidade, origemTipo: "OS", origemId: osId, origemItemId: criado.id });
+      nome = prod.nome + (localOrigemId ? " (do carro)" : "");
+      alocacoes = await reservarItem(tx, { produtoId: prod.id, quantidade: item.quantidade, localId: localOrigemId, origemTipo: "OS", origemId: osId, origemItemId: criado.id });
     } else {
       const serv = await tx.servico.findUnique({ where: { id: item.id } });
       if (!serv?.ativo) throw new OsError("Serviço não encontrado ou inativo");
