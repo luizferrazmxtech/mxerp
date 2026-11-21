@@ -12,7 +12,8 @@ import { LinkSuspenso, urlCom } from "@/components/ui/BarraLista";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import Icone from "@/components/Icone";
 import { formatarDoc } from "./ListaPessoas";
-import { BotaoAreaCliente, FormAnexo, FormAnotacao } from "./FormsVer";
+import { FormAnexo, FormAnotacao } from "./FormsVer";
+import { BotaoAreaCliente } from "./AreaCliente";
 import { cadaPalavra, contem } from "@/lib/busca/palavras";
 import { boletoAbrivel } from "@/lib/financeiro/lista";
 import { ATIVOS } from "@/lib/financeiro/boletos";
@@ -103,7 +104,8 @@ export default async function VerPessoa({ papel, id, sp }: { papel: PapelPessoa;
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
           <Link href={`${base}/editar`} className="btn-laranja"><Icone nome="editar" size={15} /> Editar cadastro</Link>
-          {papel === "cliente" && <BotaoAreaCliente id={id} habilitada={p.areaCliente} />}
+          {papel === "cliente" && <BotaoAreaCliente id={id} habilitada={p.areaCliente} temSenha={!!p.portalSenhaHash} nome={p.fantasia || p.nome} email={p.email} celular={p.celular}
+            ultimoAcesso={p.portalUltimoAcesso ? p.portalUltimoAcesso.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" }) : null} />}
           <Suspenso direita classe="btn-sec px-2" botao={<Icone nome="opcoes" size={15} />}>
             {papel === "cliente" && <LinkSuspenso href={`/vendas/adicionar?cliente=${id}`} icone="vendas">Nova venda</LinkSuspenso>}
             {papel === "cliente" && <LinkSuspenso href={`/os/adicionar?cliente=${id}`} icone="os">Nova OS</LinkSuspenso>}

@@ -42,7 +42,7 @@ export const AUDITADOS: Record<string, { rotulo: string; titulo?: (r: Record<str
 };
 
 const IGNORAR = new Set(["updatedAt", "createdAt", "foto", "fotoTipo", "preferencias", "xml", "bytes"]);
-const SECRETO = /senha|secret|cifrad|token|csc|chavePix|pfx/i;
+const SECRETO = /senha|secret|cifrad|token|csc|chavePix|pfx|hash/i;
 
 export type Contexto = { usuarioId: string | null; usuarioNome: string | null; ip: string | null };
 const contexto = new AsyncLocalStorage<{ desligado?: boolean; usuario?: Contexto }>();
