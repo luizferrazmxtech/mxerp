@@ -6,6 +6,8 @@ import { menuDoPapel } from "@/components/shell/menu";
 import { sair } from "./login/actions";
 import { lojasDoUsuario, lojaAtual, nomeLoja } from "@/lib/empresa/atual";
 import { trocarLoja } from "./empresas/actions";
+import { licencaAtual } from "@/lib/licenca/licenca";
+import FaixaLicenca from "@/components/licenca/FaixaLicenca";
 
 export const metadata: Metadata = {
   title: { default: "MXTECH · Gestão", template: "%s · MXTECH" },
@@ -18,6 +20,7 @@ const cnpjFmt = (c: string) => c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const usuario = await usuarioAtual();
   const [empresa, lojas] = usuario ? await Promise.all([lojaAtual(), lojasDoUsuario()]) : [null, []];
+  const licenca = usuario ? await licencaAtual() : null;
   return (
     <html lang="pt-BR">
       <head>
@@ -38,6 +41,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             trocarLoja={trocarLoja}
             sair={sair}
           >
+            {licenca && <FaixaLicenca l={licenca} />}
             {children}
           </AppShell>
         )}

@@ -8,6 +8,7 @@ RAIZ="$(dirname "$VPS")"
 CLIENTES="$VPS/clientes"
 GERADO="$VPS/gerado"
 IMAGEM="mxerp:atual"
+CENTRAL="$VPS/central"
 
 verde() { printf '\033[32m%s\033[0m\n' "$*"; }
 vermelho() { printf '\033[31m%s\033[0m\n' "$*" >&2; }
@@ -17,6 +18,7 @@ segredo() { openssl rand -hex "${1:-24}"; }
 dc() { docker compose --project-directory "$VPS" -f "$VPS/docker-compose.yml" -f "$GERADO/docker-compose.clientes.yml" "$@"; }
 psql_admin() { dc exec -T db psql -v ON_ERROR_STOP=1 -U postgres "$@"; }
 valor() { grep -m1 "^$2=" "$CLIENTES/$1/cliente.env" 2>/dev/null | cut -d= -f2- || true; }
+geral() { grep -m1 "^$1=" "$VPS/.env" 2>/dev/null | cut -d= -f2- || true; }
 clientes() {
   # a MXTECH vai sempre primeiro (é quem testa as versões novas)
   local l="" f
@@ -32,6 +34,10 @@ gerar() {
   {
     echo "# GERADO pelo ./vps/mxerp.sh — não edite (é refeito a cada mudança)"
     [ -n "$email" ] && printf '{\n\temail %s\n}\n' "$email"
+    local dc_central; dc_central=$(geral DOMINIO_CENTRAL)
+    if [ -n "$dc_central" ] && [ -f "$CENTRAL/central.env" ]; then
+      printf '\n%s {\n\tencode zstd gzip\n\treverse_proxy central:3000\n}\n' "$dc_central"
+    fi
     for c in $(clientes); do
       local dominios; dominios=$(valor "$c" DOMINIOS | tr ',' ' ')
       [ -z "$dominios" ] && continue
@@ -71,9 +77,13 @@ gerar() {
       start_period: 120s
 EOF
     done
+    # a MXTECH aparece na Central como cliente da casa (sem cobrança), para acompanhar os backups dela
+    if [ -f "$CLIENTES/mxtech/cliente.env" ]; then
+      printf '  central:\n    environment:\n      CLIENTE_ZERO_SLUG: mxtech\n      CLIENTE_ZERO_DOMINIO: "%s"\n' "$(valor mxtech DOMINIOS | cut -d, -f1)"
+    fi
   } > "$GERADO/docker-compose.clientes.yml"
   # compose não aceita "services:" vazio
-  grep -q '^  app-' "$GERADO/docker-compose.clientes.yml" || echo "services: {}" > "$GERADO/docker-compose.clientes.yml"
+  grep -q '^  [a-z]' "$GERADO/docker-compose.clientes.yml" || echo "services: {}" > "$GERADO/docker-compose.clientes.yml"
 }
 
 aplicar() {
@@ -94,16 +104,47 @@ esperar_saude() {
 }
 
 construir() {
-  [ "${MXERP_SEM_BUILD:-}" = 1 ] && return 0  # só para testes: usa a imagem que já existe
-  verde "Montando a versão nova do sistema (leva alguns minutos)..."
+  [ "${MXERP_SEM_BUILD:-}" = 1 ] && return 0  # só para testes: usa as imagens que já existem
+  verde "Montando a versão nova do sistema e da Central (leva alguns minutos)..."
   docker image inspect "$IMAGEM" >/dev/null 2>&1 && docker tag "$IMAGEM" mxerp:anterior
   docker build -t "$IMAGEM" "$RAIZ"
+  docker build -t mxerp-central:atual "$RAIZ/central"
+  # o operador só é montado na instalação (ele mesmo roda a atualização e não pode se trocar no meio)
+  docker image inspect mxerp-operador:atual >/dev/null 2>&1 || docker build -t mxerp-operador:atual "$VPS/operador"
+}
+
+# Central MXTECH: banco "central", sistema de revenda e o operador que executa os pedidos dela na VPS
+garantir_central() {
+  grep -q '^RAIZ=' "$VPS/.env" || echo "RAIZ=$RAIZ" >> "$VPS/.env"
+  grep -q '^DOMINIO_CENTRAL=' "$VPS/.env" || echo "DOMINIO_CENTRAL=${MXERP_DOMINIO_CENTRAL:-}" >> "$VPS/.env"
+  [ -f "$CENTRAL/central.env" ] && return 0
+  mkdir -p "$CENTRAL"
+  local senha; senha=$(segredo)
+  cat > "$CENTRAL/central.env" <<EOF
+# Central MXTECH — gerado em $(date '+%d/%m/%Y %H:%M'). Não vai para o GitHub.
+DATABASE_URL=postgresql://central:$senha@db:5432/central?schema=public
+CRON_SECRET=$(segredo)
+CHAVE_SEGREDOS=$(segredo 32)
+URL_SISTEMAS_MODELO=http://app-{slug}:3000
+PASTA_BACKUPS=/backups
+TZ=America/Sao_Paulo
+EOF
+  chmod 600 "$CENTRAL/central.env"
+  dc up -d db
+  until dc exec -T db pg_isready -U postgres </dev/null >/dev/null 2>&1; do sleep 2; done
+  psql_admin <<EOF
+CREATE ROLE central LOGIN PASSWORD '$senha';
+CREATE DATABASE central OWNER central;
+REVOKE ALL ON DATABASE central FROM PUBLIC;
+EOF
+  verde "Central criada."
 }
 
 cmd_instalar() {
   command -v docker >/dev/null || falhar "Docker não instalado. Rode antes: sudo ./vps/preparar-servidor.sh"
   if [ ! -f "$VPS/.env" ]; then
     read -rp "E-mail para os avisos do certificado HTTPS (Let's Encrypt): " email
+    read -rp "Endereço da Central de revenda (ex.: central.mxtech.inf.br; vazio = depois): " MXERP_DOMINIO_CENTRAL
     cat > "$VPS/.env" <<EOF
 # Configuração geral da VPS (gerada na instalação). Não vai para o GitHub.
 DB_SENHA_ADMIN=$(segredo)
@@ -114,6 +155,10 @@ MEMORIA_POR_CLIENTE=768m
 DIAS_BACKUP=30
 # destino da cópia externa (rclone), ex.: b2:mxerp-backups — veja docs/instalar-vps.md
 DESTINO_BACKUP=
+# pasta do sistema (o operador da Central trabalha nela)
+RAIZ=$RAIZ
+# endereço da Central de revenda
+DOMINIO_CENTRAL=$MXERP_DOMINIO_CENTRAL
 EOF
     chmod 600 "$VPS/.env"
   fi
@@ -122,6 +167,7 @@ EOF
   construir
   dc up -d db
   until dc exec -T db pg_isready -U postgres </dev/null >/dev/null 2>&1; do sleep 2; done
+  garantir_central
   if [ ! -f "$CLIENTES/mxtech/cliente.env" ]; then
     read -rp "Endereço do sistema da MXTECH (ex.: erp.mxtech.inf.br): " dominio
     echo "Se você já usa o MXERP no PC, abra C:\\mxerp\\.env e copie os valores abaixo (assim o Inter e os"
@@ -132,6 +178,8 @@ EOF
   fi
   aplicar
   verde "Pronto. Confira: ./vps/mxerp.sh status"
+  [ -n "$(geral DOMINIO_CENTRAL)" ] && verde "Central: https://$(geral DOMINIO_CENTRAL) (a primeira tela cria o administrador)"
+  true
 }
 
 criar_cliente() {
@@ -151,7 +199,10 @@ criar_cliente() {
 DOMINIOS=$dominio
 SUSPENSO=0
 # horários das cópias automáticas deste cliente (HHMM separados por vírgula)
-BACKUP_HORARIOS=0300,1230,1930
+BACKUP_HORARIOS=${MXERP_HORARIOS:-0300,1230,1930}
+# licença (plano, limites e cobrança) vem da Central; vazio = sem limites (a própria MXTECH)
+CENTRAL_URL=${MXERP_LICENCA_TOKEN:+http://central:3000}
+LICENCA_TOKEN=${MXERP_LICENCA_TOKEN:-}
 DATABASE_URL=postgresql://$c:$senha@db:5432/$c?schema=public
 CRON_SECRET=$cron
 CHAVE_SEGREDOS=$chave
@@ -185,7 +236,8 @@ cmd_restaurar() {
   [ $# -ge 2 ] || falhar "uso: ./vps/mxerp.sh restaurar CLIENTE ARQUIVO.dump"
   local c=$1 arq=$2; existe "$c"
   [ -f "$arq" ] || falhar "Arquivo não encontrado: $arq"
-  read -rp "Isto SUBSTITUI todos os dados de '$c' pelos do arquivo $(basename "$arq"). Digite RESTAURAR: " ok
+  local ok=${MXERP_CONFIRMAR:-}
+  [ -n "$ok" ] || read -rp "Isto SUBSTITUI todos os dados de '$c' pelos do arquivo $(basename "$arq"). Digite RESTAURAR: " ok
   [ "$ok" = RESTAURAR ] || { echo "Cancelado."; exit 0; }
   verde "Cópia de segurança do estado atual antes de restaurar..."
   dc exec -T backup sh /scripts/backup-todos.sh antes-de-restaurar "$c"
@@ -209,8 +261,10 @@ cmd_atualizar() {
   cmd_backup || falhar "A cópia falhou: não atualizo."
   git -C "$RAIZ" pull --ff-only
   construir
+  garantir_central
   gerar
-  dc up -d --remove-orphans db caddy backup agendador
+  dc up -d --remove-orphans db caddy backup agendador central
+  dc exec -T caddy caddy reload --config /etc/caddy/Caddyfile </dev/null >/dev/null 2>&1 || true
   for c in $(clientes); do
     [ "$(valor "$c" SUSPENSO)" = "1" ] && continue
     echo "Atualizando $c..."
@@ -240,6 +294,19 @@ cmd_status() {
 cmd_suspender() { existe "$1"; sed -i 's/^SUSPENSO=.*/SUSPENSO=1/' "$CLIENTES/$1/cliente.env"; aplicar; verde "$1 suspenso (dados guardados)."; }
 cmd_reativar() { existe "$1"; sed -i 's/^SUSPENSO=.*/SUSPENSO=0/' "$CLIENTES/$1/cliente.env"; aplicar; esperar_saude "$1" && verde "$1 reativado."; }
 
+cmd_horarios() {
+  existe "$1"; [[ "${2:-}" =~ ^[0-9]{4}(,[0-9]{4})*$ ]] || falhar "uso: ./vps/mxerp.sh horarios CLIENTE 0300,1230,1930"
+  sed -i "s/^BACKUP_HORARIOS=.*/BACKUP_HORARIOS=$2/" "$CLIENTES/$1/cliente.env"
+  verde "Backups de $1 às $2."
+}
+
+cmd_dominio() {
+  existe "$1"; [[ "${2:-}" =~ ^[a-z0-9.,-]+$ ]] || falhar "uso: ./vps/mxerp.sh dominio CLIENTE endereco[,outro]"
+  sed -i "s/^DOMINIOS=.*/DOMINIOS=$2/" "$CLIENTES/$1/cliente.env"
+  aplicar
+  verde "$1 agora responde em $2 (o HTTPS sai sozinho quando o DNS apontar para a VPS)."
+}
+
 cmd_admin() {
   [ $# -ge 3 ] || falhar 'uso: ./vps/mxerp.sh admin CLIENTE email@empresa.com.br "Nome"'
   existe "$1"; dc exec "app-$1" npm run usuario:admin -- "$2" "$3"
@@ -264,6 +331,8 @@ MXERP na VPS — comandos (rode como root na pasta do sistema):
   ./vps/mxerp.sh restaurar CLIENTE ARQUIVO      volta uma cópia (também serve para trazer o banco do PC)
   ./vps/mxerp.sh novo-cliente NOME ENDERECO     cria um cliente com banco próprio
   ./vps/mxerp.sh suspender|reativar CLIENTE     tira do ar / volta (os dados ficam)
+  ./vps/mxerp.sh horarios CLIENTE 0300,1230     horários dos backups automáticos
+  ./vps/mxerp.sh dominio CLIENTE ENDERECO       troca o endereço (pode ser domínio próprio do cliente)
   ./vps/mxerp.sh admin CLIENTE EMAIL "NOME"     cria ou redefine a senha de um administrador
   ./vps/mxerp.sh logs CLIENTE                   últimas mensagens do sistema do cliente
   ./vps/mxerp.sh copia-externa configurar|ligar|desligar
@@ -284,6 +353,8 @@ case "$cmd" in
   suspender) cmd_suspender "${1:?informe o cliente}" ;;
   reativar) cmd_reativar "${1:?informe o cliente}" ;;
   admin) cmd_admin "$@" ;;
+  horarios) cmd_horarios "$@" ;;
+  dominio) cmd_dominio "$@" ;;
   logs) existe "${1:?informe o cliente}"; dc logs --tail 100 "app-$1" ;;
   aplicar) aplicar ;;
   copia-externa) cmd_copia_externa "$@" ;;

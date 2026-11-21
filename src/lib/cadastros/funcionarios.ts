@@ -1,4 +1,5 @@
 import type { LiberacaoComissao, PapelUsuario } from "@prisma/client";
+import { conferirLimiteUsuarios } from "@/lib/licenca/licenca";
 import { prisma } from "@/lib/db";
 import { hashSenha } from "@/lib/auth/senha";
 
@@ -57,6 +58,8 @@ export async function salvarFuncionario(d: DadosFuncionario, editor: { id: strin
   } else if (!id) {
     acesso = { acessoSistema: false };
   }
+  // passa a ter acesso agora: conta no limite de usuários do plano
+  if (d.ativo && (acesso.acessoSistema ?? atual?.acessoSistema) && !(atual?.ativo && atual.acessoSistema)) await conferirLimiteUsuarios(id);
   const u = id
     ? await prisma.usuario.update({ where: { id }, data: { ...dados, ...acesso } })
     : await prisma.usuario.create({ data: { ...dados, ...acesso } });

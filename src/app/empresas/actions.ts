@@ -1,5 +1,6 @@
 "use server";
 
+import { conferirLimiteEmpresas } from "@/lib/licenca/licenca";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -111,6 +112,7 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
     const primeira = !(await prisma.empresa.count());
     const outra = await prisma.empresa.findUnique({ where: { cnpj } });
     if (outra && outra.id !== id) throw new Error(`O CNPJ já está cadastrado na loja ${outra.nomeFantasia || outra.razaoSocial}`);
+    if (!id) await conferirLimiteEmpresas();
     const e = id
       ? await prisma.empresa.update({ where: { id }, data: { ...dados, ...cert } })
       : await prisma.empresa.create({ data: { ...dados, ...cert } });
