@@ -11,6 +11,9 @@ import { configOs } from "./config";
 import { alterarSituacaoOrdem, clonarOrdem, excluirOrdem, salvarOrdem } from "./ordens";
 import type { DadosOs } from "./tipos";
 import { definirOrigemItens } from "./itensCarro";
+import { avisoAutomaticoOs } from "@/lib/whatsapp/os";
+
+const situacaoAtual = async (id: string | undefined) => (id ? (await prisma.ordemServico.findUnique({ where: { id }, select: { situacaoId: true } }))?.situacaoId ?? null : null);
 
 export type Resultado = { ok: boolean; mensagem: string } | null;
 const ATENDE: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR", "TECNICO", "CAIXA"];
@@ -22,8 +25,10 @@ export async function salvarOsForm(_: Resultado, form: FormData): Promise<Result
   let destino: string;
   try {
     const d = JSON.parse(String(form.get("dados"))) as DadosOs & { id?: string };
+    const antes = await situacaoAtual(d.id);
     const o = await salvarOrdem(d, u, d.id, { permitirNegativo: (await configOs()).estoqueNegativo });
     await boletosDoDocumento({ origemTipo: "OS", origemId: o.id });
+    await avisoAutomaticoOs(o.id, antes, u);
     const anexos = form.getAll("anexos").filter((a): a is File => a instanceof File && a.size > 0);
     for (const a of anexos) {
       if (a.size > 5 * 1024 * 1024) throw new Error(`O anexo ${a.name} passa de 5 MB`);
@@ -38,10 +43,12 @@ export async function salvarOsForm(_: Resultado, form: FormData): Promise<Result
 export async function alterarSituacaoOsAcao(_: Resultado, form: FormData): Promise<Resultado> {
   const u = await exigirAcao("os.situacao");
   try {
+    const antes = await situacaoAtual(String(form.get("id")));
     const r = await alterarSituacaoOrdem(String(form.get("id")), String(form.get("situacaoId")), u, { observacao: String(form.get("observacao") ?? ""), forcar: form.get("forcar") === "1", permitirNegativo: (await configOs()).estoqueNegativo });
     const bol = avisoBoletos(await boletosDoDocumento({ origemTipo: "OS", origemId: String(form.get("id")) }));
+    const zap = await avisoAutomaticoOs(String(form.get("id")), antes, u);
     revalidatePath("/os", "layout");
-    return { ok: true, mensagem: `Situação alterada para ${r.para.nome}.${bol ? ` ${bol}` : ""}` };
+    return { ok: true, mensagem: `Situação alterada para ${r.para.nome}.${bol ? ` ${bol}` : ""}${zap ? ` ${zap}` : ""}` };
   } catch (e) { return erro(e); }
 }
 
@@ -52,7 +59,13 @@ export async function situacaoOsEmMassaAcao(_: Resultado, form: FormData): Promi
   const sit = String(form.get("situacaoId") ?? "");
   if (!sit) return { ok: false, mensagem: "Escolha a situação" };
   let ok = 0; const falhas: string[] = [];
-  for (const id of ids) { try { await alterarSituacaoOrdem(id, sit, u, { permitirNegativo: true }); await boletosDoDocumento({ origemTipo: "OS", origemId: id }); ok++; } catch (e) { falhas.push(e instanceof Error ? e.message : String(e)); } }
+  for (const id of ids) {
+    try {
+      const antes = await situacaoAtual(id);
+      await alterarSituacaoOrdem(id, sit, u, { permitirNegativo: true }); await boletosDoDocumento({ origemTipo: "OS", origemId: id }); ok++;
+      await avisoAutomaticoOs(id, antes, u);
+    } catch (e) { falhas.push(e instanceof Error ? e.message : String(e)); }
+  }
   revalidatePath("/os", "layout");
   return { ok: true, mensagem: `${ok} OS alterada(s).${falhas.length ? ` ${falhas.length} não puderam: ${falhas[0]}` : ""}` };
 }
@@ -204,7 +217,8 @@ export async function salvarMensagemOsAcao(_: Resultado, form: FormData): Promis
   if (sms.length > 120) return { ok: false, mensagem: "A mensagem de SMS tem no máximo 120 caracteres" };
   await prisma.$transaction(async (tx) => {
     if (padrao) await tx.modeloMensagem.updateMany({ where: { tipo: "OS" }, data: { padrao: false } });
-    const dados = { tipo: "OS", assunto, email, sms: sms || null, padrao };
+    const whatsapp = String(form.get("whatsapp") ?? "").trim();
+    const dados = { tipo: "OS", assunto, email, sms: sms || null, whatsapp: whatsapp || null, padrao };
     if (id) await tx.modeloMensagem.update({ where: { id }, data: dados });
     else await tx.modeloMensagem.create({ data: dados });
   });

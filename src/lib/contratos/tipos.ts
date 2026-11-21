@@ -31,6 +31,7 @@ export type DadosContrato = {
   servicos: LinhaServico[]; desconto: string; descontoPct: boolean;
   formaPagamentoId: string; diasAntecedencia: string; enviarBoleto: boolean; lembrete: boolean; diasLembrete: string; emitirNota: boolean;
   emailCobranca: string; observacoes: string; observacaoInterna: string;
+  canalEmail: boolean; canalWhatsapp: boolean; whatsappCobranca: string;
 };
 
 const arred = (v: number) => Math.round(v * 100) / 100;

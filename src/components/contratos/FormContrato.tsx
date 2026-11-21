@@ -18,7 +18,7 @@ const n2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 /** Formulário "Adicionar/Editar contrato" (no Gestão Click: Assinaturas). */
-export default function FormContrato({ inicial, op, proximoNumero, interAtivo }: { inicial: DadosContrato; op: Opcoes; proximoNumero: number; interAtivo: boolean }) {
+export default function FormContrato({ inicial, op, proximoNumero, interAtivo, whatsappAtivo = false }: { inicial: DadosContrato; op: Opcoes; proximoNumero: number; interAtivo: boolean; whatsappAtivo?: boolean }) {
   const [d, setD] = useState(inicial);
   const [editNumero, setEditNumero] = useState(false);
   const [estado, acao, pendente] = useActionState<Resultado, FormData>(salvarContratoForm, null);
@@ -160,15 +160,26 @@ export default function FormContrato({ inicial, op, proximoNumero, interAtivo }:
             dias antes do vencimento
           </div>
           {forma?.boletoInter && !interAtivo && <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">O boleto só é registrado com o Banco Inter configurado em <Link href="/financeiro/conciliacao/inter" className="underline">Configurações → Banco Inter</Link>.</p>}
-          <label className="flex items-center gap-2"><input type="checkbox" checked={d.enviarBoleto} onChange={(e) => set("enviarBoleto", e.target.checked)} /> Enviar a cobrança{forma?.boletoInter ? " com o boleto" : ""} por e-mail assim que for gerada</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={d.enviarBoleto} onChange={(e) => set("enviarBoleto", e.target.checked)} /> Enviar a cobrança{forma?.boletoInter ? " com o boleto" : ""} assim que for gerada</label>
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-2"><input type="checkbox" checked={d.lembrete} onChange={(e) => set("lembrete", e.target.checked)} /> Enviar lembrete de pagamento</label>
             {d.lembrete && <><input className="campo w-16 text-center" inputMode="numeric" value={d.diasLembrete} onChange={(e) => set("diasLembrete", e.target.value)} /> dias antes do vencimento (se ainda não foi pago)</>}
           </div>
           <label className="flex items-center gap-2"><input type="checkbox" checked={d.emitirNota} onChange={(e) => set("emitirNota", e.target.checked)} /> Emitir a nota fiscal de serviço (NFS-e) automaticamente</label>
-          <Campo rotulo="E-mail de cobrança (vazio = e-mail do cadastro do cliente; separe vários com vírgula)" className="max-w-xl">
-            <input className="campo" value={d.emailCobranca} onChange={(e) => set("emailCobranca", e.target.value)} placeholder="financeiro@cliente.com.br" />
-          </Campo>
+          <div className="flex flex-wrap items-center gap-4">
+            <span className="font-semibold">Mandar a cobrança e o lembrete por:</span>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={d.canalEmail} onChange={(e) => set("canalEmail", e.target.checked)} /> E-mail</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={d.canalWhatsapp} onChange={(e) => set("canalWhatsapp", e.target.checked)} /> WhatsApp (MXChat){forma?.boletoInter ? ", com o boleto em PDF" : ""}</label>
+          </div>
+          {d.canalWhatsapp && !whatsappAtivo && <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">O WhatsApp só sai com o MXChat ligado em <Link href="/whatsapp" className="underline">Configurações → WhatsApp (MXChat)</Link>.</p>}
+          <div className="grid max-w-3xl gap-3 md:grid-cols-2">
+            {d.canalEmail && <Campo rotulo="E-mail de cobrança (vazio = e-mail do cadastro; separe vários com vírgula)">
+              <input className="campo" value={d.emailCobranca} onChange={(e) => set("emailCobranca", e.target.value)} placeholder="financeiro@cliente.com.br" />
+            </Campo>}
+            {d.canalWhatsapp && <Campo rotulo="WhatsApp de cobrança (vazio = celular do cadastro do cliente)">
+              <input className="campo" value={d.whatsappCobranca} onChange={(e) => set("whatsappCobranca", e.target.value)} placeholder="(11) 98765-4321" inputMode="tel" />
+            </Campo>}
+          </div>
         </div>
       </Bloco>
 

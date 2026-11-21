@@ -10,6 +10,7 @@ import { emitirNfseVenda, type DependenciasNfse } from "@/lib/fiscal/emissao";
 import { salvarPedido } from "@/lib/vendas/pedidos";
 import { descontoLinha, subtotalServico, type DadosOrcamento } from "@/lib/orcamentos/tipos";
 import { enviarEmail, preencher, type Transporte } from "@/lib/email/email";
+import { enviarWhatsapp, numeroDaPessoa, numeroWhatsapp, type TransporteWhatsapp } from "@/lib/whatsapp/mxchat";
 import { configContratos, situacaoVendaContrato } from "./config";
 import { n, primeiroVencimento, referencia, totaisContrato, vencimentoSeguinte, type DadosContrato, type PeriodicidadeContrato } from "./tipos";
 
@@ -67,6 +68,10 @@ export async function salvarContrato(d: DadosContrato, u: Usuario, id?: string) 
   if (d.termino === "VEZES" && !(totalCobrancas! > 0)) throw new ContratoError("Informe quantas cobranças o contrato tem");
   const email = t(d.emailCobranca);
   if (email && email.split(/[;,]/).some((e) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e.trim()))) throw new ContratoError("E-mail de cobrança inválido");
+  const canalEmail = d.canalEmail ?? true, canalWhatsapp = !!d.canalWhatsapp;
+  if ((d.enviarBoleto || diasLembrete != null) && !canalEmail && !canalWhatsapp) throw new ContratoError("Escolha por onde a cobrança vai: e-mail, WhatsApp ou os dois");
+  const zap = t(d.whatsappCobranca);
+  if (zap && !numeroWhatsapp(zap)) throw new ContratoError("WhatsApp de cobrança inválido: use DDD + número");
 
   const dados = {
     clienteId: d.clienteId, vendedorId: t(d.vendedorId), situacao: d.situacao, canal: t(d.canal) ?? "Presencial", centroCusto: t(d.centroCusto),
@@ -75,6 +80,7 @@ export async function salvarContrato(d: DadosContrato, u: Usuario, id?: string) 
     totalServicos: D(tot.servicos), desconto: D(tot.desconto), descontoPercentual: d.descontoPct ? new Prisma.Decimal(n(d.desconto)) : null, total: D(tot.total),
     formaPagamentoId: t(d.formaPagamentoId), diasAntecedencia: antecedencia, enviarBoleto: d.enviarBoleto, diasLembrete, emitirNota: d.emitirNota,
     emailCobranca: email, observacoes: t(d.observacoes), observacaoInterna: t(d.observacaoInterna),
+    canalEmail, canalWhatsapp, whatsappCobranca: zap ? numeroWhatsapp(zap) : null,
   };
   const linhas = (contratoId: string) => servicos.map((l, i) => ({
     contratoId, ordem: i, servicoId: l.servicoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), valorUnit: D(n(l.valorUnit)),
@@ -147,7 +153,7 @@ async function abrirCobrancas(tx: Tx, contratoId: string, hoje: Date, agora = fa
   return abertas;
 }
 
-type Deps = { hoje?: Date; cliente?: ClienteInter; transporte?: Transporte; nfse?: DependenciasNfse };
+type Deps = { hoje?: Date; cliente?: ClienteInter; transporte?: Transporte; transporteWhatsapp?: TransporteWhatsapp; nfse?: DependenciasNfse };
 
 /** Gera a venda de serviços de uma cobrança aberta (ou que deu erro). Pega a cobrança antes, para dois processos não gerarem duas vendas. */
 /** Gera a venda da cobrança na loja (CNPJ) do contrato, mesmo quando roda pelo agendador ou por outra loja. */
@@ -207,19 +213,37 @@ async function notaDaCobranca(cobrancaId: string, deps: Deps) {
   }
 }
 
-// ───────────────────────── e-mails
+// ───────────────────────── e-mails e WhatsApp
+
+export type Canal = "EMAIL" | "WHATSAPP";
+type CobrancaEnvio = { boletoEnviadoEm: Date | null; lembreteEnviadoEm: Date | null; boletoWhatsEm: Date | null; lembreteWhatsEm: Date | null };
+type ContratoCanais = { canalEmail: boolean; canalWhatsapp: boolean };
+const COLUNA: Record<"BOLETO" | "LEMBRETE", Record<Canal, keyof CobrancaEnvio>> = {
+  BOLETO: { EMAIL: "boletoEnviadoEm", WHATSAPP: "boletoWhatsEm" },
+  LEMBRETE: { EMAIL: "lembreteEnviadoEm", WHATSAPP: "lembreteWhatsEm" },
+};
+const canaisDo = (c: ContratoCanais): Canal[] => [...(c.canalEmail ? ["EMAIL" as const] : []), ...(c.canalWhatsapp ? ["WHATSAPP" as const] : [])];
+/** Canais do contrato que ainda não mandaram a cobrança/lembrete. */
+export const canaisPendentes = (cob: CobrancaEnvio, c: ContratoCanais, tipo: "BOLETO" | "LEMBRETE") => canaisDo(c).filter((k) => !cob[COLUNA[tipo][k]]);
+/** Quando a cobrança/lembrete saiu pela primeira vez (em qualquer canal). */
+const enviadoEm = (cob: CobrancaEnvio, tipo: "BOLETO" | "LEMBRETE") =>
+  [cob[COLUNA[tipo].EMAIL], cob[COLUNA[tipo].WHATSAPP]].filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
 
 /**
- * Manda o e-mail de cobrança (boleto) ou o lembrete. Espera o boleto ficar pronto quando a forma é boleto do Inter.
- * Devolve "ENVIADO", "AGUARDANDO" (boleto em processamento) ou lança o erro.
+ * Manda a cobrança (boleto) ou o lembrete pelos canais do contrato (e-mail e/ou WhatsApp pelo MXChat), só pelos que
+ * ainda não mandaram (ou pelos `canais` pedidos, no "Reenviar"). Espera o boleto ficar pronto quando a forma é boleto
+ * do Inter. Devolve "ENVIADO", "AGUARDANDO" (boleto em processamento), "PAGO" ou lança o erro (o canal que deu
+ * certo fica marcado, para não repetir).
  */
-export async function enviarEmailCobranca(cobrancaId: string, tipo: "BOLETO" | "LEMBRETE", deps: Deps = {}) {
+export async function enviarCobranca(cobrancaId: string, tipo: "BOLETO" | "LEMBRETE", deps: Deps = {}, opts: { canais?: Canal[]; usuarioNome?: string } = {}) {
   const cob = await prisma.contratoCobranca.findUniqueOrThrow({ where: { id: cobrancaId }, include: { contrato: { include: { cliente: true } } } });
   if (!cob.vendaId) throw new ContratoError("A cobrança ainda não gerou a venda");
   const c = cob.contrato;
+  const canais = opts.canais ?? canaisPendentes(cob, c, tipo);
+  if (!canais.length) return "ENVIADO" as const;
   const lanc = await prisma.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: cob.vendaId, tipo: "RECEBER" }, include: { formaPagamento: true, boletos: { orderBy: { createdAt: "desc" } } }, orderBy: { parcela: "asc" } });
   if (!lanc.length) throw new ContratoError("A venda gerada não tem contas a receber (confira a situação usada em Contratos → Configurações)");
-  if (tipo === "LEMBRETE" && lanc.every((l) => l.pagoEm)) return "PAGO" as const;
+  if (lanc.every((l) => l.pagoEm) && (tipo === "LEMBRETE" || !opts.canais)) return "PAGO" as const; // pago: não cobra de novo (o "Reenviar" ainda manda a cobrança)
   const l = lanc.find((x) => !x.pagoEm) ?? lanc[0];
   const boleto = l.boletos.find((b) => ATIVOS.includes(b.situacao));
   const ctx = l.formaPagamento?.boletoInter ? await contextoBoletos(deps.cliente) : null;
@@ -231,8 +255,6 @@ export async function enviarEmailCobranca(cobrancaId: string, tipo: "BOLETO" | "
     }
     if (!boleto.linhaDigitavel) return "AGUARDANDO" as const;
   }
-  const para = c.emailCobranca ?? c.cliente.email;
-  if (!para) throw new ContratoError(`O cliente ${c.cliente.nome} não tem e-mail: preencha no cadastro ou no campo "E-mail de cobrança" do contrato`);
 
   const cfg = await configContratos();
   const emp = await empresaDoDocumento(c.empresaId);
@@ -242,19 +264,44 @@ export async function enviarEmailCobranca(cobrancaId: string, tipo: "BOLETO" | "
     linha_digitavel: boleto?.linhaDigitavel ?? "-", pix_copia_cola: boleto?.pixCopiaECola ?? "-",
     link_boleto: boleto && base ? `${base}/cobranca/boleto/${boleto.token}` : "-", nome_empresa: emp?.nomeFantasia || emp?.razaoSocial || "",
   };
-  const anexos: { nome: string; conteudo: Buffer; tipo: string }[] = [];
+  let pdf: { nome: string; conteudo: Buffer; tipo: string } | null = null;
   if (boleto?.codigoSolicitacao) {
-    try { anexos.push({ nome: `boleto-${boleto.seuNumero}.pdf`, conteudo: await pdfBoleto(boleto.id, ctx ?? (await contextoBoletos(deps.cliente))), tipo: "application/pdf" }); } catch { /* vai sem o PDF; a linha digitável e o Pix estão no texto */ }
+    try { pdf = { nome: `boleto-${boleto.seuNumero}.pdf`, conteudo: await pdfBoleto(boleto.id, ctx ?? (await contextoBoletos(deps.cliente))), tipo: "application/pdf" }; } catch { /* vai sem o PDF; a linha digitável e o Pix estão no texto */ }
   }
-  const assunto = preencher(tipo === "BOLETO" ? cfg.assuntoBoleto : cfg.assuntoLembrete, valores);
-  const texto = preencher(tipo === "BOLETO" ? cfg.textoBoleto : cfg.textoLembrete, valores);
-  await enviarEmail({ para, assunto, texto, anexos }, { transporte: deps.transporte });
-  await prisma.$transaction([
-    prisma.contratoCobranca.update({ where: { id: cob.id }, data: { [tipo === "BOLETO" ? "boletoEnviadoEm" : "lembreteEnviadoEm"]: new Date(), envioErro: null } }),
-    prisma.contratoHistorico.create({ data: { contratoId: c.id, descricao: `${tipo === "BOLETO" ? "Cobrança" : "Lembrete de pagamento"} ${cob.referencia} enviado para ${para}` } }),
-  ]);
+  const nome = tipo === "BOLETO" ? "Cobrança" : "Lembrete de pagamento";
+  const erros: string[] = [];
+  for (const canal of canais) {
+    try {
+      let para: string;
+      if (canal === "EMAIL") {
+        const email = c.emailCobranca ?? c.cliente.email;
+        if (!email) throw new ContratoError(`O cliente ${c.cliente.nome} não tem e-mail: preencha no cadastro ou no campo "E-mail de cobrança" do contrato`);
+        const assunto = preencher(tipo === "BOLETO" ? cfg.assuntoBoleto : cfg.assuntoLembrete, valores);
+        const texto = preencher(tipo === "BOLETO" ? cfg.textoBoleto : cfg.textoLembrete, valores);
+        await enviarEmail({ para: email, assunto, texto, anexos: pdf ? [pdf] : [] }, { transporte: deps.transporte });
+        para = email;
+      } else {
+        const numero = c.whatsappCobranca ?? numeroDaPessoa(c.cliente);
+        if (!numero) throw new ContratoError(`O cliente ${c.cliente.nome} não tem celular: preencha no cadastro ou no campo "WhatsApp de cobrança" do contrato`);
+        const texto = preencher(tipo === "BOLETO" ? cfg.whatsBoleto : cfg.whatsLembrete, valores);
+        const m = await enviarWhatsapp({ numero, texto, arquivo: tipo === "BOLETO" && pdf ? pdf : undefined, entidade: "CONTRATO", entidadeId: c.id, pessoaId: c.clienteId, automatica: !opts.usuarioNome, usuarioNome: opts.usuarioNome }, { transporte: deps.transporteWhatsapp });
+        para = `WhatsApp ${m.numero}`;
+      }
+      await prisma.$transaction([
+        prisma.contratoCobranca.update({ where: { id: cob.id }, data: { [COLUNA[tipo][canal]]: new Date() } }),
+        prisma.contratoHistorico.create({ data: { contratoId: c.id, descricao: `${nome} ${cob.referencia} enviado para ${para}`, usuarioNome: opts.usuarioNome ?? null } }),
+      ]);
+    } catch (e) {
+      erros.push(canais.length > 1 ? `${canal === "EMAIL" ? "E-mail" : "WhatsApp"}: ${msg(e)}` : msg(e));
+    }
+  }
+  if (erros.length) throw new ContratoError(erros.join(" | "));
+  await prisma.contratoCobranca.update({ where: { id: cob.id }, data: { envioErro: null } });
   return "ENVIADO" as const;
 }
+
+/** Nome antigo (só e-mail); hoje manda por todos os canais do contrato. */
+export const enviarEmailCobranca = enviarCobranca;
 
 // ───────────────────────── rotina
 
@@ -262,7 +309,7 @@ export type ResumoContratos = { abertas: number; vendas: number; notas: number; 
 
 export function textoResumo(r: ResumoContratos) {
   const partes = [
-    r.vendas ? `${r.vendas} venda(s) gerada(s)` : "", r.boletosEnviados ? `${r.boletosEnviados} cobrança(s) enviada(s) por e-mail` : "",
+    r.vendas ? `${r.vendas} venda(s) gerada(s)` : "", r.boletosEnviados ? `${r.boletosEnviados} cobrança(s) enviada(s)` : "",
     r.lembretes ? `${r.lembretes} lembrete(s) enviado(s)` : "", r.notas ? `${r.notas} NFS-e tentada(s)` : "",
   ].filter(Boolean);
   return `${partes.length ? partes.join(", ") : "Nada a fazer agora"}.${r.erros.length ? ` Atenção: ${r.erros[0]}${r.erros.length > 1 ? ` (+${r.erros.length - 1})` : ""}` : ""}`;
@@ -299,25 +346,30 @@ export async function processarContratos(deps: Deps = {}): Promise<ResumoContrat
   const semNota = await prisma.contratoCobranca.findMany({ where: { vendaId: { not: null }, notaTentadaEm: null, contrato: { emitirNota: true } }, select: { id: true } });
   for (const s of semNota) { await notaDaCobranca(s.id, deps); r.notas++; }
 
-  // 4) e-mails: cobrança (boleto) e lembrete, no dia certo, só para o que não foi pago
+  // 4) cobrança (boleto) e lembrete por e-mail/WhatsApp, no dia certo, só para o que não foi pago
   const abertas = await prisma.contratoCobranca.findMany({
-    where: { vendaId: { not: null }, vencimento: { gte: somarDias(hoje, -5) }, OR: [{ boletoEnviadoEm: null, contrato: { enviarBoleto: true } }, { lembreteEnviadoEm: null, contrato: { diasLembrete: { not: null } } }] },
-    include: { contrato: { select: { numero: true, enviarBoleto: true, diasLembrete: true } } },
+    where: {
+      vendaId: { not: null }, vencimento: { gte: somarDias(hoje, -5) }, contrato: { OR: [{ enviarBoleto: true }, { diasLembrete: { not: null } }] },
+      OR: [{ boletoEnviadoEm: null }, { boletoWhatsEm: null }, { lembreteEnviadoEm: null }, { lembreteWhatsEm: null }],
+    },
+    include: { contrato: { select: { numero: true, enviarBoleto: true, diasLembrete: true, canalEmail: true, canalWhatsapp: true } } },
   });
   for (const a of abertas) {
     const onde = `Contrato ${a.contrato.numero} (${a.referencia})`;
     try {
-      if (a.contrato.enviarBoleto && !a.boletoEnviadoEm) {
-        const s = await enviarEmailCobranca(a.id, "BOLETO", deps);
+      const faltaBoleto = a.contrato.enviarBoleto ? canaisPendentes(a, a.contrato, "BOLETO") : [];
+      if (faltaBoleto.length) {
+        const s = await enviarCobranca(a.id, "BOLETO", deps);
         if (s === "ENVIADO") r.boletosEnviados++;
         if (s === "AGUARDANDO") continue; // o lembrete espera o boleto
       }
       const dl = a.contrato.diasLembrete;
-      if (dl != null && !a.lembreteEnviadoEm && somarDias(a.vencimento, -dl) <= hoje && a.vencimento >= hoje) {
-        // a cobrança que só saiu já dentro do prazo do lembrete basta: não manda os dois e-mails colados
-        const recente = await prisma.contratoCobranca.findUniqueOrThrow({ where: { id: a.id }, select: { boletoEnviadoEm: true } });
-        if (recente.boletoEnviadoEm && diaSP(recente.boletoEnviadoEm) >= somarDias(a.vencimento, -dl)) continue;
-        if ((await enviarEmailCobranca(a.id, "LEMBRETE", deps)) === "ENVIADO") r.lembretes++;
+      if (dl != null && canaisPendentes(a, a.contrato, "LEMBRETE").length && somarDias(a.vencimento, -dl) <= hoje && a.vencimento >= hoje) {
+        // a cobrança que só saiu já dentro do prazo do lembrete basta: não manda as duas mensagens coladas
+        const recente = await prisma.contratoCobranca.findUniqueOrThrow({ where: { id: a.id } });
+        const saiu = enviadoEm(recente, "BOLETO");
+        if (saiu && diaSP(saiu) >= somarDias(a.vencimento, -dl)) continue;
+        if ((await enviarCobranca(a.id, "LEMBRETE", deps)) === "ENVIADO") r.lembretes++;
       }
     } catch (e) {
       const m = msg(e);

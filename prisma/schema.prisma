@@ -1978,12 +1978,13 @@ model Anotacao {
 
 /// Modelos de mensagem (e-mail, SMS, WhatsApp) por módulo: OR = orçamento, VE = venda, OS.
 model ModeloMensagem {
-  id      String  @id @default(cuid())
-  tipo    String
-  assunto String
-  padrao  Boolean @default(false)
-  email   String
-  sms     String?
+  id       String  @id @default(cuid())
+  tipo     String
+  assunto  String
+  padrao   Boolean @default(false)
+  email    String
+  sms      String?
+  whatsapp String? // texto do WhatsApp (MXChat); vazio = gerado a partir do e-mail
 }
 
 /// Configurações gerais por chave (textos padrão, formato de impressão, o que aparece nos documentos).
@@ -2044,6 +2045,9 @@ model Contrato {
   diasLembrete       Int? // lembrete de pagamento N dias antes do vencimento (vazio = não manda)
   emitirNota         Boolean             @default(false) // emite a NFS-e da venda gerada
   emailCobranca      String? // e-mail para a cobrança (vazio = e-mail do cliente)
+  canalEmail         Boolean             @default(true) // cobrança e lembrete por e-mail
+  canalWhatsapp      Boolean             @default(false) // cobrança e lembrete por WhatsApp (MXChat)
+  whatsappCobranca   String? // número para o WhatsApp (vazio = celular do cliente)
   observacoes        String? // vai na venda gerada
   observacaoInterna  String?
   criadoPorId        String?
@@ -2086,6 +2090,8 @@ model ContratoCobranca {
   notaTentadaEm     DateTime?
   boletoEnviadoEm   DateTime?
   lembreteEnviadoEm DateTime?
+  boletoWhatsEm     DateTime? // cobrança mandada por WhatsApp
+  lembreteWhatsEm   DateTime?
   envioErro         String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -2218,4 +2224,23 @@ model AliquotaSimples {
   updatedAt   DateTime @updatedAt
 
   @@unique([empresaId, competencia, cnae])
+}
+
+/// Histórico de mensagens de WhatsApp mandadas pelo MXChat (OS, cobranças dos contratos, testes).
+model MensagemWhatsapp {
+  id          String   @id @default(cuid())
+  numero      String // 55DDDNUMERO
+  texto       String
+  arquivoNome String? // anexo (ex.: boleto em PDF)
+  entidade    String // OS | CONTRATO | TESTE
+  entidadeId  String?
+  pessoaId    String?
+  situacao    String // ENVIADA | ERRO
+  erro        String?
+  automatica  Boolean  @default(false) // mandada pelo sistema (situação da OS, rotina dos contratos)
+  usuarioNome String?
+  createdAt   DateTime @default(now())
+
+  @@index([entidade, entidadeId])
+  @@index([createdAt])
 }

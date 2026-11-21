@@ -94,7 +94,7 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Gerenciar contratos", href: "/contratos", icone: "gerenciar" },
       {
         rotulo: "Opções auxiliares", href: "/contratos/configuracoes", icone: "auxiliares", filhos: [
-          { rotulo: "Configurações e e-mail", href: "/contratos/configuracoes", icone: "configuracoes" },
+          { rotulo: "Configurações, e-mail e WhatsApp", href: "/contratos/configuracoes", icone: "configuracoes" },
         ],
       },
     ],
@@ -170,6 +170,7 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Usuários e permissões", href: "/usuarios", icone: "funcionarios" },
       { rotulo: "Registro de auditoria", href: "/auditoria", icone: "lista" },
       { rotulo: "Banco Inter (API)", href: "/financeiro/conciliacao/inter", icone: "conciliacao" },
+      { rotulo: "WhatsApp (MXChat)", href: "/whatsapp", icone: "whatsapp" },
       { rotulo: "Migração", href: "/migracao", icone: "migracao" },
       { rotulo: "Minha senha", href: "/conta", icone: "senha" },
     ],
@@ -209,6 +210,7 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/usuarios", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/migracao", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
   { prefixo: "/conta", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
+  { prefixo: "/whatsapp", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
 ];
 
 export function menuDoPapel(papel: PapelUsuario): ItemMenu[] {
