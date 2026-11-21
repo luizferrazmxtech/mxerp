@@ -63,3 +63,27 @@ export async function receitaDocumento(tx: Tx, totalProdutos: number, totalServi
   const fp = Math.round((totalProdutos / soma) * 1e8) / 1e8;
   return { categoriaId: fp >= 0.5 ? prod.id : serv.id, rateio: [{ categoriaId: prod.id, fracao: fp }, { categoriaId: serv.id, fracao: Math.round((1 - fp) * 1e8) / 1e8 }] };
 }
+
+/** Subcategorias de pagamento a funcionários (filhas de "Salários e encargos"), usadas pela conciliação. */
+export const CATEGORIAS_PESSOAL = {
+  SALARIO: { codigo: "2.05.01", nome: "Salários" },
+  ADIANTAMENTO: { codigo: "2.05.02", nome: "Adiantamento salarial" },
+  FERIAS: { codigo: "2.05.03", nome: "Férias" },
+  DECIMO: { codigo: "2.05.04", nome: "13º salário" },
+  OUTROS: { codigo: "2.05.09", nome: "Outros pagamentos a funcionários" },
+} as const;
+export type TipoPagamentoPessoal = keyof typeof CATEGORIAS_PESSOAL;
+
+export async function garantirCategoriasPessoal(tx: Tx) {
+  const pai = await tx.categoriaFinanceira.findUnique({ where: { nome_tipo: { nome: "Salários e encargos", tipo: "PAGAR" } } });
+  const out = {} as Record<TipoPagamentoPessoal, string>;
+  for (const [k, c] of Object.entries(CATEGORIAS_PESSOAL) as [TipoPagamentoPessoal, { codigo: string; nome: string }][]) {
+    const r = await tx.categoriaFinanceira.upsert({
+      where: { nome_tipo: { nome: c.nome, tipo: "PAGAR" } },
+      create: { nome: c.nome, tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL", codigo: c.codigo, paiId: pai?.id ?? null },
+      update: {},
+    });
+    out[k] = r.id;
+  }
+  return out;
+}

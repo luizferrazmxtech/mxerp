@@ -200,7 +200,7 @@ export async function conciliarTx(tx: Tx, transacaoId: string, lancamentoIds: st
 }
 
 /** Transação sem conta correspondente (tarifa, rendimento, PIX avulso): cria o lançamento já baixado. */
-export async function lancarAvulsoTx(tx: Tx, transacaoId: string, categoriaId: string, descricao?: string, centroCustoId?: string | null) {
+export async function lancarAvulsoTx(tx: Tx, transacaoId: string, categoriaId: string, descricao?: string, centroCustoId?: string | null, competencia?: Date | null) {
   const t = await tx.transacaoBancaria.findUniqueOrThrow({ where: { id: transacaoId } });
   if (t.situacao !== "PENDENTE") throw new Error("Transação já conciliada ou ignorada");
   const valor = Math.abs(Number(t.valor));
@@ -209,7 +209,7 @@ export async function lancarAvulsoTx(tx: Tx, transacaoId: string, categoriaId: s
   if (cat.tipo !== tipo) throw new Error(`Categoria de ${cat.tipo === "PAGAR" ? "despesa" : "receita"} não serve para ${tipo === "PAGAR" ? "uma saída" : "uma entrada"}`);
   await tx.lancamento.create({
     data: {
-      tipo, descricao: (descricao || t.descricao).slice(0, 300), categoriaId, valor: D(valor), vencimento: t.data, competencia: t.data,
+      tipo, descricao: (descricao || t.descricao).slice(0, 300), categoriaId, valor: D(valor), vencimento: t.data, competencia: competencia ?? t.data,
       pagoEm: t.data, valorPago: D(valor), contaBancariaId: t.contaBancariaId, transacaoId, idLegado: `extrato:${t.id}`, centroCustoId: centroCustoId || null,
     },
   });

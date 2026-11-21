@@ -2,6 +2,7 @@ import { todasAsLojas } from "@/lib/empresa/loja";
 import { prisma } from "@/lib/db";
 import { diaSP } from "@/lib/datas";
 import { normalizar } from "@/lib/migracao/planilha";
+import { CATEGORIAS_PESSOAL, garantirCategoriasPessoal, type TipoPagamentoPessoal } from "./padroes";
 
 /**
  * Análise do extrato para a conciliação: para cada linha pendente diz o que fazer (baixar uma conta em aberto ou
@@ -52,6 +53,12 @@ export type LinhaAnalise = {
   centroCustoId: string | null;
   urgencia: Urgencia;
   pontosUrgencia: number;
+  /** funcionário cadastrado que recebeu (saída) e o tipo do pagamento */
+  funcionario: string | null;
+  tipoPessoal: string | null;
+  /** descrição e competência (AAAA-MM-DD) do lançamento avulso sugerido, quando diferem do padrão */
+  descricaoLancamento: string | null;
+  competencia: string | null;
   /** ramo de atividade do favorecido, quando conhecido ("6920-6/01 contabilidade / jurídico") */
   ramo: string | null;
   /** CNPJ/CPF do favorecido, quando conhecido */
@@ -175,6 +182,57 @@ const REGRAS: { re: RegExp; tipo: "PAGAR" | "RECEBER"; categoria: string }[] = [
   { re: /\b(das|simples nacional|darf|icms|iss|issqn)\b/, tipo: "PAGAR", categoria: "Impostos sobre vendas (DAS/ICMS/ISS)" },
   { re: /\b(rendimento|remuneracao|rend pago|aplicacao|cdb|juros recebidos)\b/, tipo: "RECEBER", categoria: "Receitas financeiras" },
 ];
+
+// ---------- pagamento a funcionários
+
+export type FuncionarioAnalise = { id: string; nome: string; cpf: string | null; salarioRef: number | null };
+export type PessoalAnalise = { funcionarios: FuncionarioAnalise[]; categorias: Record<TipoPagamentoPessoal, string> };
+
+const LIGACOES = /^(de|da|do|das|dos|e)$/;
+/**
+ * Nome de pessoa física no extrato confere com o funcionário: todas as palavras do nome que o banco mostra (no mínimo
+ * duas, sobrenomes inclusive) estão no nome completo do cadastro. "Joao Silva" confere com "João da Silva Santos";
+ * "Joao Pereira" não.
+ */
+export function nomePessoaConfere(extrato: string, nomeCadastro: string) {
+  const fav = favorecido(extrato).split(" ").filter((p) => p.length >= 2 && !LIGACOES.test(p));
+  const cad = new Set(normalizar(nomeCadastro).split(" ").filter((p) => p.length >= 2 && !LIGACOES.test(p)));
+  return fav.length >= 2 && fav.every((p) => cad.has(p));
+}
+
+export function funcionarioDaLinha(t: { descricao: string; documento?: string | null; contraparteDocumento?: string | null }, funcionarios: FuncionarioAnalise[]) {
+  const docs = [...(t.contraparteDocumento ? [t.contraparteDocumento] : []), ...documentosNoTexto(t.descricao, t.documento)];
+  for (const f of funcionarios) if (f.cpf && docs.includes(f.cpf)) return { funcionario: f, por: "CPF confere" };
+  const porNome = funcionarios.filter((f) => nomePessoaConfere(t.descricao, f.nome));
+  return porNome.length === 1 ? { funcionario: porNome[0], por: "nome confere" } : null;
+}
+
+const ROTULO_PESSOAL: Record<TipoPagamentoPessoal, string> = { SALARIO: "Salário", ADIANTAMENTO: "Adiantamento", FERIAS: "Férias", DECIMO: "13º salário", OUTROS: "Pagamento" };
+const mesAno = (d: Date) => `${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
+
+/**
+ * O que é o pagamento ao funcionário, pela descrição e pela data:
+ *  - "férias", "13º", "adiantamento/vale", "rescisão" escritos no extrato mandam;
+ *  - dia 1 a 10: salário do mês anterior (5º dia útil); dia 26 em diante: salário do próprio mês;
+ *  - dia 11 a 25: adiantamento (até 70% do último salário, ou sem salário conhecido), férias quando passa de 125% do salário;
+ *  - o resto: outros (confira).
+ */
+export function classificarPagamento(data: Date, valor: number, descricao: string, salarioRef: number | null): { tipo: TipoPagamentoPessoal; motivo: string; competencia: Date } {
+  const d = normalizar(descricao);
+  const dia = data.getUTCDate();
+  const mesmo = new Date(Date.UTC(data.getUTCFullYear(), data.getUTCMonth(), 1));
+  const anterior = new Date(Date.UTC(data.getUTCFullYear(), data.getUTCMonth() - 1, 1));
+  const v = Math.abs(valor);
+  if (/\bferias\b/.test(d)) return { tipo: "FERIAS", motivo: "\"férias\" na descrição", competencia: mesmo };
+  if (/\b(13|decimo|13o)\b/.test(d)) return { tipo: "DECIMO", motivo: "\"13º\" na descrição", competencia: mesmo };
+  if (/\b(adiantamento|adiant|vale)\b/.test(d)) return { tipo: "ADIANTAMENTO", motivo: "\"adiantamento\" na descrição", competencia: mesmo };
+  if (/\b(rescisao|rescisorio)\b/.test(d)) return { tipo: "OUTROS", motivo: "rescisão na descrição", competencia: mesmo };
+  if (dia <= 10) return { tipo: "SALARIO", motivo: `pago dia ${dia}: salário de ${mesAno(anterior)}`, competencia: anterior };
+  if (dia >= 26) return { tipo: "SALARIO", motivo: `pago dia ${dia}: salário de ${mesAno(mesmo)}`, competencia: mesmo };
+  if (salarioRef && v >= salarioRef * 1.25) return { tipo: "FERIAS", motivo: `pago dia ${dia}, acima do salário (${salarioRef.toFixed(2).replace(".", ",")}): férias`, competencia: mesmo };
+  if (!salarioRef || v <= salarioRef * 0.7) return { tipo: "ADIANTAMENTO", motivo: `pago dia ${dia}: adiantamento (vale)`, competencia: mesmo };
+  return { tipo: "OUTROS", motivo: `pago dia ${dia}, fora das datas de salário e vale: confira (pode ser férias)`, competencia: mesmo };
+}
 
 // ---------- ramo de atividade (CNAE) → categoria de despesa
 
@@ -300,6 +358,7 @@ export function analisar(
   categorias: { id: string; nome: string; tipo: "PAGAR" | "RECEBER" }[],
   hoje: Date = diaSP(),
   ramos: Map<string, RamoFavorecido> = new Map(),
+  pessoal: PessoalAnalise | null = null,
 ): LinhaAnalise[] {
   // o que já foi lançado para empresas de cada ramo (classe CNAE de 4 dígitos) ensina mais que a tabela fixa
   const porCnae = new Map<string, Map<string, number>>();
@@ -371,9 +430,21 @@ export function analisar(
       }
     }
 
+    // pagamento a funcionário cadastrado: vale mais que histórico e ramo
+    let func: { nome: string; tipo: TipoPagamentoPessoal; descricao: string; competencia: Date } | null = null;
+    if (tipo === "PAGAR" && pessoal?.funcionarios.length) {
+      const m = funcionarioDaLinha(t, pessoal.funcionarios);
+      if (m) {
+        const c = classificarPagamento(t.data, t.valor, t.descricao, m.funcionario.salarioRef);
+        const nomeFunc = m.funcionario.nome.toUpperCase();
+        func = { nome: m.funcionario.nome, tipo: c.tipo, competencia: c.competencia, descricao: c.tipo === "OUTROS" ? `Pagamento a funcionário - ${nomeFunc}` : `${ROTULO_PESSOAL[c.tipo]} ${mesAno(c.competencia)} - ${nomeFunc}` };
+        avulso = { categoriaId: pessoal.categorias[c.tipo], confianca: (m.por === "CPF confere" ? 95 : 85) - (c.tipo === "OUTROS" ? 20 : 0), motivo: `funcionário ${m.funcionario.nome} (${m.por}) · ${c.motivo}` };
+      }
+    }
+
     let acao: Acao = "REVISAR", confianca = 0, motivos: string[] = [], lancamentoId: string | null = null, categoriaId: string | null = null;
     // favorecido que sempre foi lançado avulso (tarifa, assinatura) não vira baixa de conta parecida por acaso
-    const sempreAvulso = !!hist && hist.avulsos >= hist.n && hist.n >= 2;
+    const sempreAvulso = (!!hist && hist.avulsos >= hist.n && hist.n >= 2) || !!func;
     if (melhor && melhor.confianca >= 60 && !(sempreAvulso && avulso && avulso.confianca > melhor.confianca)) {
       acao = "BAIXAR"; confianca = melhor.confianca; motivos = melhor.motivos; lancamentoId = melhor.lancamentoId;
     } else if (avulso && avulso.confianca >= 50) {
@@ -422,6 +493,8 @@ export function analisar(
 
     return {
       transacaoId: t.id, data: iso(t.data), hora: horaSP(t.dataHora), ordem: `${iso(t.data)}|${horaSP(t.dataHora) ?? "00:00"}|${t.criadaEm?.toISOString() ?? ""}`, valor: t.valor, descricao: t.descricao, favorecido: f, conta: t.conta, contaBancariaId: t.contaBancariaId, tipo,
+      funcionario: func?.nome ?? null, tipoPessoal: func ? (func.tipo === "OUTROS" ? "Outros" : ROTULO_PESSOAL[func.tipo]) : null,
+      descricaoLancamento: func && acao === "LANCAR" ? func.descricao : null, competencia: func && acao === "LANCAR" ? iso(func.competencia) : null,
       ramo: ramos.get(f)?.cnae ? `${ramos.get(f)!.cnae.replace(/^(\d{4})(\d)(\d{2})$/, "$1-$2/$3")}${ramoDoCnae(ramos.get(f)!.cnae) ? ` ${ramoDoCnae(ramos.get(f)!.cnae)!.ramo}` : ""}` : null,
       documentoFavorecido: ramos.get(f)?.documento ?? null,
       acao, confianca, nivel: nivelDe(confianca), motivos: [...motivos, ...avisos], candidatos, lancamentoId, categoriaId, centroCustoId,
@@ -503,6 +576,7 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
     conciliadas.map((t) => ({ descricao: t.descricao, lancamentos: t.lancamentos.map((l) => ({ ...l, avulso: l.idLegado === `extrato:${t.id}` })) })),
     comCentro,
   );
+  const pessoal = await carregarPessoal();
   const docs = await documentosDosFavorecidos([...ts, ...conciliadas]);
   const ramos = new Map<string, RamoFavorecido>();
   for (const [f, d] of docs) if (d.documento || d.cnae) ramos.set(f, { cnae: d.cnae ?? "", documento: d.documento });
@@ -517,8 +591,29 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
       pessoaNomes: l.pessoa ? [l.pessoa.nome, l.pessoa.fantasia].filter((x): x is string => !!x) : [], pessoaDocumento: l.pessoa?.documento ?? null,
       boletos: l.boletos.flatMap((b) => [b.nossoNumero, b.txid]).filter((x): x is string => !!x),
     })),
-    h, categorias, diaSP(), ramos,
+    h, categorias, diaSP(), ramos, pessoal,
   );
+}
+
+/** Funcionários cadastrados (ativos) com o último salário lançado pela conciliação, e as categorias de pessoal. */
+export async function carregarPessoal(): Promise<PessoalAnalise | null> {
+  const funcs = await prisma.usuario.findMany({ where: { ativo: true }, select: { id: true, nome: true, cpf: true } });
+  if (!funcs.length) return null;
+  const categorias = await prisma.$transaction((tx) => garantirCategoriasPessoal(tx));
+  // salário de referência: o último "Salário MM/AAAA - NOME" lançado
+  const salarios = await todasAsLojas(() => prisma.lancamento.findMany({
+    where: { categoriaId: categorias.SALARIO, descricao: { startsWith: `${CATEGORIAS_PESSOAL.SALARIO.nome.slice(0, 7)} ` } },
+    orderBy: { competencia: "desc" }, take: 500, select: { descricao: true, valor: true },
+  }));
+  const ref = new Map<string, number>();
+  for (const l of salarios) {
+    const nome = l.descricao.split(" - ").slice(1).join(" - ").trim();
+    if (nome && !ref.has(nome)) ref.set(nome, Number(l.valor));
+  }
+  return {
+    categorias,
+    funcionarios: funcs.map((f) => ({ id: f.id, nome: f.nome, cpf: f.cpf?.replace(/\D/g, "") || null, salarioRef: ref.get(f.nome.toUpperCase()) ?? null })),
+  };
 }
 
 /**

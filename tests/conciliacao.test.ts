@@ -240,3 +240,63 @@ describe("dados do banco", async () => {
     expect([r.acao, r.lancamentoId, r.motivos[0]]).toEqual(["BAIXAR", "l1", "CPF/CNPJ confere"]);
   });
 });
+
+describe("pagamento a funcionários", () => {
+  const cats = { SALARIO: "sal", ADIANTAMENTO: "adi", FERIAS: "fer", DECIMO: "dec", OUTROS: "out" } as const;
+  const func = (salarioRef: number | null = null) => ({ id: "u1", nome: "Marcos Antonio da Silva Souza", cpf: "52998224725", salarioRef });
+
+  it("nome completo da pessoa: todas as palavras do extrato no cadastro", () => {
+    expect(conc.nomePessoaConfere("Pix enviado - Marcos Silva", "Marcos Antonio da Silva Souza")).toBe(true);
+    expect(conc.nomePessoaConfere("Pix enviado - Marcos Pereira", "Marcos Antonio da Silva Souza")).toBe(false);
+    expect(conc.nomePessoaConfere("Pix enviado - Marcos", "Marcos Antonio da Silva Souza")).toBe(false);
+  });
+
+  it("classifica pela data e pela descrição, com a competência certa", () => {
+    const c = (data: string, valor: number, desc = "Pix enviado - Marcos Silva", ref: number | null = 2000) => conc.classificarPagamento(dia(data), -valor, desc, ref);
+    expect(c("2026-11-05", 2000)).toMatchObject({ tipo: "SALARIO" });
+    expect(c("2026-11-05", 2000).competencia.toISOString().slice(0, 10)).toBe("2026-10-01");
+    expect(c("2026-11-30", 2000).competencia.toISOString().slice(0, 10)).toBe("2026-11-01");
+    expect(c("2026-11-20", 800)).toMatchObject({ tipo: "ADIANTAMENTO" });
+    expect(c("2026-11-20", 800, undefined, null)).toMatchObject({ tipo: "ADIANTAMENTO" });
+    expect(c("2026-11-18", 2700)).toMatchObject({ tipo: "FERIAS" });
+    expect(c("2026-11-18", 1800)).toMatchObject({ tipo: "OUTROS" });
+    expect(c("2026-11-05", 2700, "Pix enviado - Marcos Silva - ferias")).toMatchObject({ tipo: "FERIAS" });
+    expect(c("2026-11-28", 1000, "Pix enviado - 13o salario Marcos Silva")).toMatchObject({ tipo: "DECIMO" });
+  });
+
+  it("linha de funcionário vira lançamento na subcategoria, mesmo com histórico de outra categoria", () => {
+    const t = (id: string, data: string, valor: number, descricao: string, extra = {}) => ({ id, data: dia(data), valor, descricao, conta: "INTER", contaBancariaId: "c", ...extra });
+    const h = conc.montarHistorico([{ descricao: "Pix enviado - Marcos Silva", lancamentos: [{ pessoaId: null, categoriaId: "outra", centroCustoId: null, avulso: true }] }], []);
+    const [sal, adi, outro] = conc.analisar(
+      [t("t1", "2026-11-05", -2000, "Pix enviado - Marcos Silva"), t("t2", "2026-11-20", -700, "Pix enviado - M S", { contraparteDocumento: "52998224725" }), t("t3", "2026-11-05", -50, "Pix enviado - Joao Pereira")],
+      [], h, [], dia("2026-11-21"), new Map(), { funcionarios: [func(2000)], categorias: { ...cats } },
+    );
+    expect([sal.acao, sal.categoriaId, sal.tipoPessoal, sal.competencia]).toEqual(["LANCAR", "sal", "Salário", "2026-10-01"]);
+    expect(sal.descricaoLancamento).toBe("Salário 10/2026 - MARCOS ANTONIO DA SILVA SOUZA");
+    expect(sal.motivos[0]).toContain("nome confere");
+    expect([adi.categoriaId, adi.confianca]).toEqual(["adi", 95]); // CPF mandado pelo banco
+    expect(outro.funcionario).toBeNull();
+  });
+
+  it("no banco: cria as subcategorias, sugere e lança com a competência do mês anterior", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "Lancamento","TransacaoBancaria","CategoriaFinanceira","ContaBancaria","FavorecidoExtrato" CASCADE`);
+    await prisma.$transaction((tx) => garantirPadroes(tx));
+    const conta = (await prisma.contaBancaria.create({ data: { nome: "INTER" } })).id;
+    await prisma.usuario.upsert({ where: { email: "marcos@func.test" }, create: { nome: "Marcos Antonio da Silva Souza", email: "marcos@func.test", cpf: "529.982.247-25" }, update: { ativo: true } });
+    await ext.importarExtrato(conta, [{ data: dia("2026-11-06"), valor: -2100, descricao: "Pix enviado - Marcos Silva", chave: "s1", contraparteDocumento: "52998224725" }], { baixarAutomatico: false });
+    const [l] = await conc.analisarExtrato();
+    const sal = await prisma.categoriaFinanceira.findFirstOrThrow({ where: { nome: "Salários", tipo: "PAGAR" }, include: { pai: true } });
+    expect(sal.pai?.nome).toBe("Salários e encargos");
+    expect([l.acao, l.categoriaId, l.competencia]).toEqual(["LANCAR", sal.id, "2026-10-01"]);
+    await prisma.$transaction((tx) => ext.lancarAvulsoTx(tx, l.transacaoId, l.categoriaId!, l.descricaoLancamento!, null, new Date(`${l.competencia}T00:00:00Z`)));
+    const lanc = await prisma.lancamento.findFirstOrThrow({ where: { transacaoId: l.transacaoId } });
+    expect(lanc.descricao).toBe("Salário 10/2026 - MARCOS ANTONIO DA SILVA SOUZA");
+    expect(lanc.competencia.toISOString().slice(0, 10)).toBe("2026-10-01");
+    expect(lanc.pagoEm?.toISOString().slice(0, 10)).toBe("2026-11-06");
+    // o próximo pagamento do mesmo funcionário usa esse salário como referência (dia 18, 2.800 = férias)
+    await ext.importarExtrato(conta, [{ data: dia("2026-11-18"), valor: -2800, descricao: "Pix enviado - Marcos Silva", chave: "s2" }], { baixarAutomatico: false });
+    const [f] = await conc.analisarExtrato();
+    expect(f.tipoPessoal).toBe("Férias");
+    await prisma.usuario.update({ where: { email: "marcos@func.test" }, data: { ativo: false } });
+  });
+});
