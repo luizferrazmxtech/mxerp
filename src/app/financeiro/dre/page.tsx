@@ -1,6 +1,8 @@
 import { Pagina } from "@/components/ui/Pagina";
 import { calcularDre, type Regime } from "@/lib/financeiro/dre";
 import { prisma } from "@/lib/db";
+import { GraficoColunas } from "@/components/inicio/Graficos";
+import { brl } from "@/lib/ui/format";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +14,8 @@ export default async function Dre({ searchParams }: { searchParams: Promise<{ an
   const ano = Number(sp.ano) || new Date().getFullYear();
   const regime: Regime = sp.regime === "CAIXA" ? "CAIXA" : "COMPETENCIA";
   const [dre, centros] = await Promise.all([calcularDre(ano, regime, sp.centro || undefined), prisma.centroCusto.findMany({ orderBy: { nome: "asc" } })]);
+  const linha = (k: string) => dre.linhas.find((l) => l.chave === k)?.meses ?? Array(12).fill(0);
+  const rl = linha("RL"), liq = linha("RLIQ");
   return (
     <Pagina titulo={`DRE gerencial ${ano}`} icone="dre" trilha={[{ rotulo: "Financeiro", href: "/financeiro" }, { rotulo: "DRE gerencial" }]}>
     <div className="space-y-4">
@@ -38,6 +42,14 @@ export default async function Dre({ searchParams }: { searchParams: Promise<{ an
           )}
           <button className="btn-sec">Ver</button>
         </form>
+      </div>
+      <div className="cartao p-4">
+        <h3 className="mb-2 text-[14px] font-semibold text-slate-700">Receita, custos e resultado mês a mês</h3>
+        <GraficoColunas titulo="Receita, custos e resultado mês a mês" rotulos={MESES} formatar={brl} series={[
+          { nome: "Receita líquida", cor: "#018e83", valores: rl },
+          { nome: "Custos e despesas", cor: "#e8730c", valores: rl.map((x, i) => x - liq[i]) },
+          { nome: "Resultado líquido", cor: "#1e293b", tipo: "linha", valores: liq },
+        ]} />
       </div>
       <div className="cartao overflow-x-auto">
         <table className="tabela whitespace-nowrap">

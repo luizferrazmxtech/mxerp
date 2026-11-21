@@ -18,6 +18,7 @@ const RELATORIOS = [
   { href: "/relatorios/curva-abc", icone: "grafico", titulo: "Curva ABC", texto: "Produtos, serviços ou clientes que fazem 80% (A), 15% (B) e 5% (C) do faturamento, da quantidade ou do lucro." },
   { href: "/relatorios/comissoes", icone: "percentual", titulo: "Comissões", texto: "Comissão de vendedores e técnicos pelo % do cadastro, com o valor já liberado conforme o recebimento." },
   { href: "/relatorios/tempo-os", icone: "relogio", titulo: "Situação × tempo das OS", texto: "Quanto tempo as OS ficam em cada situação, tempo total por técnico e OS entregues fora da previsão." },
+  { href: "/relatorios/financeiro", icone: "financeiro", titulo: "Painel financeiro", texto: "Saldo projetado de 90 dias, inadimplência por atraso, despesas por categoria e mão de obra sobre a receita." },
   { href: "/financeiro/dre", icone: "dre", titulo: "DRE gerencial", texto: "Resultado mês a mês por competência ou caixa, com filtro por centro de custo." },
   { href: "/financeiro/fluxo", icone: "financeiro", titulo: "Fluxo de caixa", texto: "Saldo, entradas e saídas realizadas e previstas por dia e por mês." },
   { href: "/estoque/custos", icone: "estoque", titulo: "Custos e margens", texto: "Custo, preço e margem de cada produto em estoque." },
