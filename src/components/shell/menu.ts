@@ -162,7 +162,9 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Comissões", href: "/relatorios/comissoes", icone: "percentual" },
       { rotulo: "Tempo das OS", href: "/relatorios/tempo-os", icone: "relogio" },
       { rotulo: "Operação e clientes", href: "/relatorios/operacao", icone: "os" },
+      { rotulo: "Comparar meses", href: "/relatorios/comparar", icone: "comparar" },
       { rotulo: "Painel financeiro", href: "/relatorios/financeiro", icone: "financeiro" },
+      { rotulo: "Resumo no WhatsApp", href: "/relatorios/resumo-whatsapp", icone: "whatsapp" },
     ],
   },
   {

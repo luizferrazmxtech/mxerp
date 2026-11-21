@@ -101,7 +101,7 @@ const transporteMxchat: TransporteWhatsapp = async (e) => {
 
 export type Envio = {
   numero: string; texto: string; arquivo?: Arquivo;
-  entidade: "OS" | "CONTRATO" | "TESTE" | "CONCILIACAO"; entidadeId?: string | null; pessoaId?: string | null;
+  entidade: "OS" | "CONTRATO" | "TESTE" | "CONCILIACAO" | "RELATORIO"; entidadeId?: string | null; pessoaId?: string | null;
   automatica?: boolean; usuarioNome?: string | null;
 };
 

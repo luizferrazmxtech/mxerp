@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Favoritos from "@/components/relatorios/Favoritos";
 import { Pagina } from "@/components/ui/Pagina";
 import SeletorPeriodo from "@/components/ui/SeletorPeriodo";
 import { GraficoColunas } from "@/components/inicio/Graficos";
@@ -28,7 +29,7 @@ export default async function Operacao({ searchParams }: { searchParams: Promise
     <Pagina titulo="Operação e clientes" icone="grafico" trilha={[{ rotulo: "Relatórios", href: "/relatorios" }, { rotulo: "Operação e clientes" }]}>
       <div className="no-print mb-3 flex flex-wrap items-center gap-2">
         <span className="text-[13px] text-slate-600">{per.rotulo} · canais e OS no período; estoque e clientes sempre até hoje</span>
-        <div className="ml-auto flex items-center gap-2"><BotaoImprimir /><SeletorPeriodo base="/relatorios/operacao" params={params} /></div>
+        <div className="ml-auto flex items-center gap-2"><Favoritos /><BotaoImprimir /><SeletorPeriodo base="/relatorios/operacao" params={params} /></div>
       </div>
 
       <div className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
