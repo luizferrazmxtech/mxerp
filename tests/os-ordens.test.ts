@@ -91,6 +91,10 @@ describe("ordens de serviço (situações configuráveis)", () => {
     const o = await ord.salvarOrdem(dados({ condicao: "AVISTA", parcelas: [] }), u);
     await ord.salvarOrdem(dados({ produtos: [{ ...dados().produtos[0], quantidade: "3" }], condicao: "AVISTA", parcelas: [] }), u, o.id);
     expect(await estoque()).toMatchObject({ reservado: 3 });
+    // o histórico diz o que mudou
+    const alt = await prisma.osHistorico.findFirst({ where: { osId: o.id, descricao: { startsWith: "OS alterada" } } });
+    expect(alt?.descricao).toMatch(/quantidade \d+ → 3/);
+    expect(alt?.descricao).toMatch(/total R\$/);
     await expect(ord.salvarOrdem(dados({ parcelas: gerarParcelas(300, 2, "2026-12-01", 30, "") }), u)).rejects.toThrow(/não fecha/);
   });
 

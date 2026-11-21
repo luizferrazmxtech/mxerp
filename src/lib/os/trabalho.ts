@@ -1,5 +1,6 @@
 import { prisma, type Tx } from "@/lib/db";
 import { OsError } from "@/lib/os/ordens";
+import { horaSP } from "@/lib/ui/format";
 import { podeMexerNaOs, type UsuarioTecnico } from "@/lib/os/tecnico";
 
 /**
@@ -34,8 +35,9 @@ export async function resumoTrabalho(osId: string, db: Tx | typeof prisma = pris
   };
 }
 
-/** "2h 05min" */
+/** "2h 05min"; um trecho de segundos aparece como "menos de 1min" (e não "0min"). */
 export function duracao(ms: number) {
+  if (ms > 0 && ms < 30000) return "menos de 1min";
   const min = Math.max(0, Math.round(ms / 60000));
   const h = Math.floor(min / 60), m = min % 60;
   return h ? `${h}h ${String(m).padStart(2, "0")}min` : `${m}min`;
@@ -56,9 +58,13 @@ export function iniciarTrabalho(u: UsuarioTecnico, osId: string, agora = new Dat
   return prisma.$transaction(async (tx) => {
     if (await travar(tx, u, osId)) throw new OsError("O trabalho já está em andamento");
     const antes = await tx.osTrabalho.count({ where: { osId } });
+    const os = await tx.ordemServico.findUniqueOrThrow({ where: { id: osId }, select: { tecnicoId: true, tecnicoIds: true } });
     await tx.osTrabalho.create({ data: { osId, inicio: agora, iniciadoPor: u.nome, iniciadoPorId: u.id } });
-    await tx.ordemServico.update({ where: { id: osId }, data: { trabalhoFinalizadoEm: null } });
+    // OS sem técnico: quem começa a trabalhar passa a ser o técnico dela
+    const semTecnico = !os.tecnicoId && !os.tecnicoIds.length;
+    await tx.ordemServico.update({ where: { id: osId }, data: { trabalhoFinalizadoEm: null, ...(semTecnico ? { tecnicoId: u.id, tecnicoIds: [u.id] } : {}) } });
     await historico(tx, osId, u, antes ? "Trabalho retomado" : "Trabalho iniciado");
+    if (semTecnico) await historico(tx, osId, u, `Técnico definido: ${u.nome} (iniciou o trabalho)`);
     return { primeiro: !antes };
   });
 }
@@ -73,7 +79,9 @@ export function pararTrabalho(u: UsuarioTecnico, osId: string, opts: { finalizar
     if (aberto) await tx.osTrabalho.update({ where: { id: aberto.id }, data: { fim: agora < aberto.inicio ? aberto.inicio : agora, motivo, encerradoPor: u.nome } });
     if (opts.finalizar) await tx.ordemServico.update({ where: { id: osId }, data: { trabalhoFinalizadoEm: agora } });
     const r = await resumoTrabalho(osId, tx);
-    await historico(tx, osId, u, opts.finalizar ? `Trabalho finalizado: ${duracao(r.fechadoMs)} de mão de obra` : `Trabalho pausado (${motivo})`);
+    const fim = agora < (aberto?.inicio ?? agora) ? aberto!.inicio : agora;
+    const trecho = aberto ? ` · trecho ${horaSP(aberto.inicio)}–${horaSP(fim)} (${duracao(fim.getTime() - aberto.inicio.getTime())})` : "";
+    await historico(tx, osId, u, opts.finalizar ? `Trabalho finalizado: ${duracao(r.fechadoMs)} de mão de obra${trecho}` : `Trabalho pausado (${motivo})${trecho} · total ${duracao(r.fechadoMs)}`);
     return r;
   });
 }
