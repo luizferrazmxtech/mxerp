@@ -16,6 +16,11 @@ export function BarraRelatorio({ base, params, opcoes, csv }: {
         </div>
       ))}
       <div className="ml-auto flex items-center gap-2">
+        {params.vendedor && (
+          <Link href={(() => { const p = new URLSearchParams(params); p.delete("vendedor"); return `${base}?${p}`; })()} className="btn-sec" title="Tirar o filtro de vendedor">
+            Filtrado por vendedor ✕
+          </Link>
+        )}
         <BotaoImprimir />
         {csv && <a className="btn-verde" href={csv}>Exportar</a>}
         <SeletorPeriodo base={base} params={params} />

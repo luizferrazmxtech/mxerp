@@ -15,7 +15,7 @@ export default async function Lucro({ searchParams }: { searchParams: Promise<Re
   const per = periodoRelatorio(sp);
   const por = (POR.find(([k]) => k === sp.por)?.[0] ?? "documento") as AgruparLucro;
   const params = paramsDe(sp);
-  const r = await relatorioLucro(per, por);
+  const r = await relatorioLucro(per, por, { vendedorId: sp.vendedor || undefined });
   const t = r.totais;
   return (
     <Pagina titulo="Lucro das vendas e OS" icone="dinheiro" trilha={[{ rotulo: "Relatórios", href: "/relatorios" }, { rotulo: "Lucro" }]}>
