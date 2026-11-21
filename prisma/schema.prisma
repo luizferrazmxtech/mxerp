@@ -1888,17 +1888,19 @@ model Sequencia {
  * Linha do extrato bancário importado (OFX/CSV), casada com um lançamento na conciliação.
  */
 model TransacaoBancaria {
-  id              String              @id @default(cuid())
-  contaBancariaId String
-  contaBancaria   ContaBancaria       @relation(fields: [contaBancariaId], references: [id])
-  data            DateTime            @db.Date
-  valor           Decimal             @db.Decimal(14, 2) // positivo = entrada, negativo = saída
-  descricao       String
-  documento       String?
-  chave           String // FITID do OFX ou hash da linha do CSV
-  situacao        SituacaoConciliacao @default(PENDENTE)
-  lancamentos     Lancamento[]
-  createdAt       DateTime            @default(now())
+  id                   String              @id @default(cuid())
+  contaBancariaId      String
+  contaBancaria        ContaBancaria       @relation(fields: [contaBancariaId], references: [id])
+  data                 DateTime            @db.Date
+  valor                Decimal             @db.Decimal(14, 2) // positivo = entrada, negativo = saída
+  descricao            String
+  documento            String?
+  chave                String // FITID do OFX ou hash da linha do CSV
+  dataHora             DateTime? // data e hora do lançamento no banco, quando o extrato traz (ordena a conciliação)
+  contraparteDocumento String? // CPF/CNPJ de quem pagou/recebeu, quando o banco manda (Inter: detalhes da transação)
+  situacao             SituacaoConciliacao @default(PENDENTE)
+  lancamentos          Lancamento[]
+  createdAt            DateTime            @default(now())
 
   @@unique([contaBancariaId, chave])
   @@index([situacao])

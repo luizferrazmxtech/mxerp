@@ -116,7 +116,7 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
                 <Fragment key={l.transacaoId}>
                   <tr className={l.urgencia === "urgente" ? "[&>td]:!bg-red-50/40" : undefined}>
                     <td><input type="checkbox" aria-label="Marcar linha" disabled={!pronta(l.transacaoId)} checked={marcadas.has(l.transacaoId)} onChange={(ev) => marcar(l.transacaoId, ev.target.checked)} /></td>
-                    <td className="whitespace-nowrap">{dataBr(l.data)}<div className="text-[11px] text-slate-500">{l.conta}</div></td>
+                    <td className="whitespace-nowrap">{dataBr(l.data)}{l.hora && <span className="ml-1 text-[12px] text-slate-500">{l.hora}</span>}<div className="text-[11px] text-slate-500">{l.conta}</div></td>
                     <td className="min-w-48 max-w-80 break-words">{l.descricao}</td>
                     <td className={`whitespace-nowrap text-right font-semibold ${l.valor < 0 ? "text-red-600" : "text-emerald-700"}`}>{brl(l.valor)}</td>
                     <td>

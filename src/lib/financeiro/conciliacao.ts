@@ -33,6 +33,9 @@ export type Candidato = {
 export type LinhaAnalise = {
   transacaoId: string;
   data: string; // AAAA-MM-DD
+  hora: string | null; // HH:MM (Brasília), quando o banco manda
+  /** chave de ordenação: data, hora e ordem de chegada */
+  ordem: string;
   valor: number;
   descricao: string;
   favorecido: string;
@@ -230,7 +233,10 @@ export function ramoDoCnae(cnae: string) {
 
 // ---------- análise
 
-export type TransacaoAnalise = { id: string; data: Date; valor: number; descricao: string; documento?: string | null; conta: string; contaBancariaId: string };
+export type TransacaoAnalise = {
+  id: string; data: Date; valor: number; descricao: string; documento?: string | null; conta: string; contaBancariaId: string;
+  dataHora?: Date | null; contraparteDocumento?: string | null; criadaEm?: Date;
+};
 export type AbertoAnalise = {
   id: string; tipo: "PAGAR" | "RECEBER"; valor: number; vencimento: Date; descricao: string; pessoa: string | null; pessoaId: string | null; categoriaId: string; centroCustoId: string | null;
   /** nome e fantasia separados (cada um é comparado sozinho) */
@@ -244,6 +250,7 @@ export type AbertoAnalise = {
 export type RamoFavorecido = { cnae: string; documento: string | null };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
+const horaSP = (d: Date | null | undefined) => (d ? d.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }) : null);
 const nivelDe = (c: number): Nivel => (c >= 80 ? "alta" : c >= 60 ? "media" : "baixa");
 
 /** Pontua um par extrato × conta em aberto (0 a 99) e diz por quê. Null quando o valor não serve. */
@@ -263,7 +270,7 @@ export function pontuar(t: TransacaoAnalise, l: AbertoAnalise, h: Historico, f: 
 
   // quem é: o valor sozinho nunca basta. Precisa de algo que ligue a linha do extrato a esta conta.
   const hist = h.porFavorecido.get(f);
-  const docs = documentosNoTexto(t.descricao, t.documento);
+  const docs = [...(t.contraparteDocumento ? [t.contraparteDocumento] : []), ...documentosNoTexto(t.descricao, t.documento)];
   let ident: string | null = null;
   if (t.documento && l.boletos?.includes(t.documento.trim())) ident = "nosso número do boleto";
   else if (l.pessoaDocumento && docs.includes(l.pessoaDocumento)) ident = "CPF/CNPJ confere";
@@ -414,7 +421,7 @@ export function analisar(
     const urgencia: Urgencia = pontos >= 60 ? "urgente" : pontos >= 30 ? "atencao" : "normal";
 
     return {
-      transacaoId: t.id, data: iso(t.data), valor: t.valor, descricao: t.descricao, favorecido: f, conta: t.conta, contaBancariaId: t.contaBancariaId, tipo,
+      transacaoId: t.id, data: iso(t.data), hora: horaSP(t.dataHora), ordem: `${iso(t.data)}|${horaSP(t.dataHora) ?? "00:00"}|${t.criadaEm?.toISOString() ?? ""}`, valor: t.valor, descricao: t.descricao, favorecido: f, conta: t.conta, contaBancariaId: t.contaBancariaId, tipo,
       ramo: ramos.get(f)?.cnae ? `${ramos.get(f)!.cnae.replace(/^(\d{4})(\d)(\d{2})$/, "$1-$2/$3")}${ramoDoCnae(ramos.get(f)!.cnae) ? ` ${ramoDoCnae(ramos.get(f)!.cnae)!.ramo}` : ""}` : null,
       documentoFavorecido: ramos.get(f)?.documento ?? null,
       acao, confianca, nivel: nivelDe(confianca), motivos: [...motivos, ...avisos], candidatos, lancamentoId, categoriaId, centroCustoId,
@@ -429,21 +436,31 @@ export function analisar(
  * escrito na própria linha, o cadastro de pessoas com o mesmo nome (razão social ou fantasia) e as notas de compra
  * recebidas do mesmo emitente.
  */
-export async function documentosDosFavorecidos(linhas: { descricao: string; documento?: string | null }[]) {
+export async function documentosDosFavorecidos(linhas: { descricao: string; documento?: string | null; contraparteDocumento?: string | null }[]) {
   const chaves = new Map<string, string | null>();
   for (const l of linhas) {
     const f = favorecido(l.descricao);
     if (!f) continue;
-    const d = documentosNoTexto(l.descricao, l.documento)[0] ?? null;
+    const d = l.contraparteDocumento || documentosNoTexto(l.descricao, l.documento)[0] || null;
     if (!chaves.has(f) || (!chaves.get(f) && d)) chaves.set(f, d);
   }
   const lista = [...chaves.keys()];
   if (!lista.length) return new Map<string, { documento: string | null; cnae: string | null }>();
-  const [salvos, pessoas, notas] = await todasAsLojas(() => Promise.all([
+  const [salvos, pessoas, notas, conciliadas] = await todasAsLojas(() => Promise.all([
     prisma.favorecidoExtrato.findMany({ where: { chave: { in: lista } } }),
     prisma.pessoa.findMany({ where: { documento: { not: null } }, select: { nome: true, fantasia: true, documento: true } }),
     prisma.notaRecebida.findMany({ select: { emitenteNome: true, emitenteDocumento: true }, distinct: ["emitenteDocumento"] }),
+    // quem já foi conciliado: o favorecido ganha o CPF/CNPJ da pessoa da conta baixada
+    prisma.transacaoBancaria.findMany({
+      where: { situacao: "CONCILIADA", lancamentos: { some: { pessoa: { documento: { not: null } } } } }, orderBy: { data: "desc" }, take: 3000,
+      select: { descricao: true, lancamentos: { select: { pessoa: { select: { documento: true } } } } },
+    }),
   ]));
+  const porHistorico = new Map<string, string>();
+  for (const t of conciliadas) {
+    const ds = [...new Set(t.lancamentos.map((l) => l.pessoa?.documento).filter((x): x is string => !!x))];
+    if (ds.length === 1) porHistorico.set(favorecido(t.descricao), ds[0]);
+  }
   const porNome = new Map<string, string>();
   for (const p of pessoas) for (const n of [p.nome, p.fantasia]) if (n && p.documento) porNome.set(favorecido(n) || normalizar(n), p.documento);
   for (const n of notas) if (!porNome.has(favorecido(n.emitenteNome))) porNome.set(favorecido(n.emitenteNome), n.emitenteDocumento.replace(/\D/g, ""));
@@ -452,7 +469,7 @@ export async function documentosDosFavorecidos(linhas: { descricao: string; docu
   for (const f of lista) {
     const s = salvo.get(f);
     // nome do extrato costuma vir cortado: aceita o cadastro cujo nome começa igual
-    let doc = s?.documento ?? chaves.get(f) ?? porNome.get(f) ?? null;
+    let doc = s?.documento ?? chaves.get(f) ?? porNome.get(f) ?? porHistorico.get(f) ?? null;
     if (!doc && f.length >= 8) for (const [n, d] of porNome) if (n.startsWith(f) || f.startsWith(n)) { doc = d; break; }
     out.set(f, { documento: doc, cnae: s?.cnae ?? null });
   }
@@ -477,7 +494,7 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
     }),
     prisma.transacaoBancaria.findMany({
       where: { situacao: "CONCILIADA" }, orderBy: { data: "desc" }, take: 3000,
-      select: { id: true, descricao: true, documento: true, lancamentos: { select: { pessoaId: true, categoriaId: true, centroCustoId: true, idLegado: true } } },
+      select: { id: true, descricao: true, documento: true, contraparteDocumento: true, lancamentos: { select: { pessoaId: true, categoriaId: true, centroCustoId: true, idLegado: true } } },
     }),
     prisma.lancamento.findMany({ where: { centroCustoId: { not: null } }, orderBy: { vencimento: "desc" }, take: 5000, select: { pessoaId: true, categoriaId: true, centroCustoId: true } }),
     prisma.categoriaFinanceira.findMany({ where: { ativa: true }, select: { id: true, nome: true, tipo: true } }),
@@ -490,7 +507,10 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
   const ramos = new Map<string, RamoFavorecido>();
   for (const [f, d] of docs) if (d.documento || d.cnae) ramos.set(f, { cnae: d.cnae ?? "", documento: d.documento });
   return analisar(
-    ts.map((t) => ({ id: t.id, data: t.data, valor: Number(t.valor), descricao: t.descricao, documento: t.documento, conta: t.contaBancaria.nome, contaBancariaId: t.contaBancariaId })),
+    ts.map((t) => ({
+      id: t.id, data: t.data, valor: Number(t.valor), descricao: t.descricao, documento: t.documento, conta: t.contaBancaria.nome, contaBancariaId: t.contaBancariaId,
+      dataHora: t.dataHora, contraparteDocumento: t.contraparteDocumento, criadaEm: t.createdAt,
+    })),
     abertos.map((l) => ({
       id: l.id, tipo: l.tipo, valor: Number(l.valor), vencimento: l.vencimento, descricao: l.descricao,
       pessoa: l.pessoa ? [l.pessoa.nome, l.pessoa.fantasia].filter(Boolean).join(" / ") : null, pessoaId: l.pessoaId, categoriaId: l.categoriaId, centroCustoId: l.centroCustoId,
@@ -518,9 +538,9 @@ export async function buscarRamos(opts: { limite?: number; chave?: string; docum
     if (doc.length !== 14) throw new Error("Informe o CNPJ do favorecido (14 dígitos)");
     alvos = [{ chave: opts.chave, documento: doc }];
   } else {
-    const ts = await prisma.transacaoBancaria.findMany({ where: { situacao: "PENDENTE", valor: { lt: 0 } }, select: { descricao: true, documento: true } });
+    const ts = await prisma.transacaoBancaria.findMany({ where: { situacao: "PENDENTE", valor: { lt: 0 } }, select: { descricao: true, documento: true, contraparteDocumento: true } });
     const docs = await documentosDosFavorecidos(ts);
-    const feitos = new Set((await prisma.favorecidoExtrato.findMany({ where: { chave: { in: [...docs.keys()] }, consultadoEm: { not: null } }, select: { chave: true } })).map((x) => x.chave));
+    const feitos = new Set((await prisma.favorecidoExtrato.findMany({ where: { chave: { in: [...docs.keys()] }, OR: [{ consultadoEm: { not: null }, erro: null }, { consultadoEm: { gt: new Date(Date.now() - 86400000) } }] }, select: { chave: true } })).map((x) => x.chave));
     alvos = [...docs].filter(([f, d]) => d.documento?.length === 14 && !feitos.has(f)).map(([chave, d]) => ({ chave, documento: d.documento! })).slice(0, opts.limite ?? 20);
   }
   let achados = 0;

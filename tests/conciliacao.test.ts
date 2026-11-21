@@ -200,4 +200,43 @@ describe("análise com banco", () => {
     await conc.buscarRamos({ consultar: async (c) => { consultados.push(c); return { cnae: "", razaoSocial: "" }; } });
     expect(consultados).toHaveLength(1);
   });
+
+  it("guarda hora e CPF/CNPJ do banco, completa linhas antigas e usa o CNPJ para identificar e achar o ramo", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "FavorecidoExtrato"`);
+    const linha = { data: dia("2026-11-10"), valor: -500, descricao: "Pagamento efetuado - FCRJ ORGANIZACAO CONTABIL LTDA.", chave: "h1" };
+    await ext.importarExtrato(conta, [linha], { baixarAutomatico: false });
+    // a mesma linha chega de novo, agora com hora e CNPJ: completa sem duplicar
+    await ext.importarExtrato(conta, [{ ...linha, dataHora: new Date("2026-11-10T13:25:00Z"), contraparteDocumento: "11222333000181" }], { baixarAutomatico: false });
+    const t = await prisma.transacaoBancaria.findFirstOrThrow({ where: { chave: "h1" } });
+    expect(t.contraparteDocumento).toBe("11222333000181");
+    const consultados: string[] = [];
+    await conc.buscarRamos({ consultar: async (c) => { consultados.push(c); return { cnae: "6920601", razaoSocial: "FCRJ" }; } });
+    expect(consultados).toEqual(["11222333000181"]);
+    const [l] = await conc.analisarExtrato();
+    expect(l.hora).toBe("10:25");
+    expect(l.documentoFavorecido).toBe("11222333000181");
+    expect(l.acao).toBe("LANCAR");
+  });
+});
+
+describe("dados do banco", async () => {
+  const inter = await import("@/lib/financeiro/inter");
+  it("lê a hora e o CPF/CNPJ da contraparte do Inter e a hora do OFX", () => {
+    expect(inter.dataHoraInter({ dataInclusao: "2026-11-05 10:23:11" })?.toISOString()).toBe("2026-11-05T13:23:11.000Z");
+    expect(inter.dataHoraInter({ dataTransacao: "2026-11-05" })).toBeNull();
+    expect(inter.documentoContraparte({ cpfCnpjPagador: "123.456.789-09", cpfCnpjRecebedor: "11.222.333/0001-81" }, true)).toBe("11222333000181");
+    expect(inter.documentoContraparte({ cpfCnpjPagador: "123.456.789-09", cpfCnpjRecebedor: "11.222.333/0001-81" }, false)).toBe("12345678909");
+    expect(inter.documentoContraparte({ nomeRecebedor: "X" }, true)).toBeNull();
+    expect(ext.dataHoraOfx("20261105103000[-3:BRT]")?.toISOString()).toBe("2026-11-05T13:30:00.000Z");
+    expect(ext.dataHoraOfx("20261105000000[-3:BRT]")).toBeNull();
+  });
+
+  it("CPF/CNPJ mandado pelo banco identifica o cliente mesmo com nome diferente", () => {
+    const [r] = conc.analisar(
+      [{ id: "t1", data: dia("2026-11-10"), valor: 300, descricao: "Pix recebido - J S", conta: "INTER", contaBancariaId: "c", contraparteDocumento: "12345678909" }],
+      [{ id: "l1", tipo: "RECEBER", valor: 300, vencimento: dia("2026-11-10"), descricao: "OS 1", pessoa: "JOAO DA SILVA", pessoaId: "p1", categoriaId: "c1", centroCustoId: null, pessoaDocumento: "12345678909" }],
+      vazio, [], dia("2026-11-12"),
+    );
+    expect([r.acao, r.lancamentoId, r.motivos[0]]).toEqual(["BAIXAR", "l1", "CPF/CNPJ confere"]);
+  });
 });
