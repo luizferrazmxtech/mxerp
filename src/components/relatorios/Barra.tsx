@@ -2,6 +2,9 @@ import Link from "next/link";
 import SeletorPeriodo from "@/components/ui/SeletorPeriodo";
 import BotaoImprimir from "@/app/os/[id]/separacao/BotaoImprimir";
 import { brl } from "@/lib/ui/format";
+import Suspenso from "@/components/ui/Suspenso";
+import Icone from "@/components/Icone";
+import Favoritos from "./Favoritos";
 
 /** Barra dos relatórios: opções (abas) à esquerda; imprimir, exportar e período à direita. */
 export function BarraRelatorio({ base, params, opcoes, csv }: {
@@ -21,8 +24,15 @@ export function BarraRelatorio({ base, params, opcoes, csv }: {
             Filtrado por vendedor ✕
           </Link>
         )}
+        <Favoritos />
         <BotaoImprimir />
-        {csv && <a className="btn-verde" href={csv}>Exportar</a>}
+        {csv && (
+          <Suspenso direita classe="btn-verde" botao={<>Exportar <Icone nome="abaixo" size={13} /></>}>
+            <a href={`${csv}${csv.includes("?") ? "&" : "?"}formato=xlsx`} className="block px-3 py-[7px] hover:bg-slate-100">Excel (.xlsx)</a>
+            <a href={csv} className="block px-3 py-[7px] hover:bg-slate-100">CSV</a>
+            <p className="border-t px-3 py-[7px] text-[12px] text-slate-500">Para PDF com os gráficos, use Imprimir e escolha “Salvar como PDF”.</p>
+          </Suspenso>
+        )}
         <SeletorPeriodo base={base} params={params} />
       </div>
     </div>

@@ -108,3 +108,32 @@ async function vendedoresComVenda(desde: Date) {
       UNION SELECT o."vendedorId" FROM "OrdemServico" o WHERE o.entrada >= ${desde}${lo}
     ) ORDER BY u.nome`;
 }
+
+/** Linhas "A × B" de um agrupamento: valor em cada período, ordenadas pelo maior dos dois. */
+function lado(a: ItemVendido[], b: ItemVendido[], chave: (i: ItemVendido) => [string, string] | null, n = 10) {
+  const m = new Map<string, { chave: string; rotulo: string; a: number; b: number }>();
+  const somar = (itens: ItemVendido[], k: "a" | "b") => {
+    for (const i of itens) {
+      const c = chave(i);
+      if (!c) continue;
+      const g = m.get(c[0]) ?? { chave: c[0], rotulo: c[1], a: 0, b: 0 };
+      g[k] += i.receita;
+      m.set(c[0], g);
+    }
+  };
+  somar(a, "a"); somar(b, "b");
+  return [...m.values()].map((g) => ({ ...g, a: r2(g.a), b: r2(g.b) })).sort((x, y) => Math.max(y.a, y.b) - Math.max(x.a, x.b)).slice(0, n);
+}
+
+/** Compara dois períodos lado a lado (ex.: dois meses): totais, canais, clientes, produtos e vendedores. */
+export async function compararPeriodos(pa: Periodo, pb: Periodo, f: FiltroVendas = {}) {
+  const [a, b] = await Promise.all([itensVendidos(pa, f), itensVendidos(pb, f)]);
+  return {
+    a: totais(a), b: totais(b),
+    canais: lado(a, b, (i) => [i.canal?.trim() || "Sem canal", i.canal?.trim() || "Sem canal"]),
+    clientes: lado(a, b, (i) => [i.clienteId ?? "-", i.cliente ?? "Sem cliente"]),
+    produtos: lado(a, b, (i) => (i.tipo === "PRODUTO" ? [i.itemId, i.nome] : null)),
+    servicos: lado(a, b, (i) => (i.tipo === "SERVICO" ? [i.itemId, i.nome] : null)),
+    vendedores: lado(a, b, (i) => [i.vendedorId ?? "-", i.vendedor ?? "Sem vendedor"]),
+  };
+}

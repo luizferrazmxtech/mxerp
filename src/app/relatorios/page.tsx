@@ -9,6 +9,7 @@ import { brl, pct } from "@/components/relatorios/Barra";
 import { paramsDe, periodoRelatorio } from "@/lib/relatorios/periodo";
 import { painelRelatorios, variacao } from "@/lib/relatorios/painel";
 import { data } from "@/lib/ui/format";
+import Favoritos from "@/components/relatorios/Favoritos";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Relatórios" };
@@ -18,6 +19,8 @@ const RELATORIOS = [
   { href: "/relatorios/curva-abc", icone: "grafico", titulo: "Curva ABC", texto: "Produtos, serviços ou clientes que fazem 80% (A), 15% (B) e 5% (C) do faturamento, da quantidade ou do lucro." },
   { href: "/relatorios/comissoes", icone: "percentual", titulo: "Comissões", texto: "Comissão de vendedores e técnicos pelo % do cadastro, com o valor já liberado conforme o recebimento." },
   { href: "/relatorios/tempo-os", icone: "relogio", titulo: "Situação × tempo das OS", texto: "Quanto tempo as OS ficam em cada situação, tempo total por técnico e OS entregues fora da previsão." },
+  { href: "/relatorios/comparar", icone: "comparar", titulo: "Comparar meses", texto: "Dois meses lado a lado: faturamento, lucro, margem, clientes, produtos, vendedores e canais, com a variação." },
+  { href: "/relatorios/resumo-whatsapp", icone: "whatsapp", titulo: "Resumo semanal no WhatsApp", texto: "Os números da semana passada no seu WhatsApp, toda semana no dia e hora que você escolher." },
   { href: "/relatorios/operacao", icone: "os", titulo: "Operação e clientes", texto: "Vendas por canal, OS por técnico e equipamento, estoque parado, clientes novos × recorrentes e quem parou de comprar." },
   { href: "/relatorios/financeiro", icone: "financeiro", titulo: "Painel financeiro", texto: "Saldo projetado de 90 dias, inadimplência por atraso, despesas por categoria e mão de obra sobre a receita." },
   { href: "/financeiro/dre", icone: "dre", titulo: "DRE gerencial", texto: "Resultado mês a mês por competência ou caixa, com filtro por centro de custo." },
@@ -104,6 +107,7 @@ export default async function Relatorios({ searchParams }: { searchParams: Promi
               <Link key={v.id} href={urlCom("/relatorios", params, { vendedor: v.id })} className={`block px-3 py-[7px] hover:bg-slate-100 ${v.id === vendedorId ? "font-semibold" : ""}`}>{v.nome}</Link>
             ))}
           </Suspenso>
+          <Favoritos />
           <SeletorPeriodo base="/relatorios" params={params} />
         </div>
       </div>

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { exigirArea } from "@/lib/auth/atual";
+import BotaoImprimir from "@/app/os/[id]/separacao/BotaoImprimir";
+import Favoritos from "@/components/relatorios/Favoritos";
 import { Pagina } from "@/components/ui/Pagina";
 import SeletorPeriodo from "@/components/ui/SeletorPeriodo";
 import { urlCom } from "@/components/ui/BarraLista";
@@ -31,6 +33,7 @@ export default async function PainelFinanceiro({ searchParams }: { searchParams:
 
   return (
     <Pagina titulo="Painel financeiro" icone="financeiro" trilha={[{ rotulo: "Relatórios", href: "/relatorios" }, { rotulo: "Painel financeiro" }]}>
+      <div className="no-print mb-3 flex items-center justify-end gap-2"><Favoritos /><BotaoImprimir /></div>
       <div className="mb-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Link href="/financeiro/contas"><Kpi rotulo="Saldo hoje (todas as contas)" valor={brl(saldo.hoje)} /></Link>
         <Link href="/financeiro/fluxo"><Kpi rotulo="Saldo previsto em 90 dias" valor={brl(saldo.final)} cor={saldo.final < 0 ? "text-red-600" : ""}

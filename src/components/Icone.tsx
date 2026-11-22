@@ -4,7 +4,7 @@ import {
   HandCoins, House, IdCard, KeyRound, Landmark, LayoutGrid, List, LogOut, MapPin, Menu, MonitorSmartphone, MoreVertical,
   Package, Pencil, Plus, Printer, ReceiptText, RefreshCw, Search, Settings, Settings2, Share2, ShoppingBasket, ShoppingCart,
   SlidersHorizontal, Store, Factory, Paperclip, StickyNote, MessageCircle, Send, ShieldCheck, Info, Camera, Contact, Percent, Download, Mail, Check, Megaphone, ListChecks, Phone, UserRound, Upload as Enviar, FileSpreadsheet, Tag, Trash2, Truck, Upload, User, Users, Wallet, Wrench, X, Zap, ScanBarcode, ClipboardCheck, Scale, Repeat, Headset,
-  Barcode, Diamond, CircleCheck, Clock, TriangleAlert, Sigma, Smartphone, UsersRound,
+  Barcode, Diamond, CircleCheck, Clock, TriangleAlert, Sigma, Smartphone, UsersRound, Star, GitCompareArrows,
 } from "lucide-react";
 import type { LucideProps } from "lucide-react";
 
@@ -17,7 +17,7 @@ const ICONES = {
   menu: Menu, sair: LogOut, mais: Plus, editar: Pencil, ver: Search, olho: Eye, opcoes: MoreVertical, compartilhar: Share2,
   imprimir: Printer, copiar: Copy, excluir: Trash2, buscar: Search, filtro: SlidersHorizontal, lista: List, cards: LayoutGrid,
   calendario: CalendarDays, prazo: CalendarClock, alerta: CircleAlert, urgente: Zap, relogio: AlarmClock, atualizar: RefreshCw,
-  grafico: ChartNoAxesColumn, dinheiro: Banknote, cartao: CreditCard, caixa: Calculator, etiqueta: Tag, frete: Truck,
+  grafico: ChartNoAxesColumn, estrela: Star, comparar: GitCompareArrows, dinheiro: Banknote, cartao: CreditCard, caixa: Calculator, etiqueta: Tag, frete: Truck,
   carrinho: ShoppingCart, pdv: MonitorSmartphone, valor: BadgeDollarSign, fechar: X, abaixo: ChevronDown, direita: ChevronRight,
   ajustes: Settings2, fornecedores: Factory, anexos: Paperclip, anotacoes: StickyNote, whatsapp: MessageCircle, envios: Send,
   serasa: ShieldCheck, detalhes: Info, foto: Camera, contatos: Contact, percentual: Percent, exportar: Download, importar: Enviar,
