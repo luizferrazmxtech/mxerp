@@ -104,3 +104,51 @@ export function CurvaAbc({ linhas, resumo, hrefClasse, classe, unidade }: {
     </div>
   );
 }
+
+/**
+ * Linha de saldo ao longo dos dias (ex.: saldo projetado). Abaixo de zero a área fica vermelha.
+ * Passar o mouse em qualquer dia mostra o saldo e o movimento daquele dia.
+ */
+export function GraficoSaldo({ pontos, formatar, titulo, abreviar }: {
+  pontos: { rotulo: string; valor: number; detalhe?: string }[]; formatar: (v: number) => string; titulo: string; abreviar: (v: number) => string;
+}) {
+  const L = 640, A = 220, E = 48, D = 10, T = 10, B = 26;
+  const n = pontos.length;
+  if (!n) return null;
+  const vals = pontos.map((p) => p.valor);
+  let min = Math.min(0, ...vals), max = Math.max(0, ...vals);
+  if (min === max) max = min + 1;
+  const folga = (max - min) * 0.08; max += folga; if (min < 0) min -= folga;
+  const x = (i: number) => E + (n > 1 ? (i / (n - 1)) * (L - E - D) : (L - E - D) / 2);
+  const y = (v: number) => T + ((max - v) / (max - min)) * (A - T - B);
+  const linha = pontos.map((p, i) => `${x(i)},${y(p.valor)}`).join(" ");
+  const area = `${x(0)},${y(0)} ${linha} ${x(n - 1)},${y(0)}`;
+  const marcas = [min, min + (max - min) / 3, min + (2 * (max - min)) / 3, max];
+  const passo = Math.max(1, Math.ceil(n / 8));
+  const larg = (L - E - D) / n;
+  return (
+    <svg viewBox={`0 0 ${L} ${A}`} className="h-auto w-full" role="img" aria-label={titulo}>
+      <defs>
+        <clipPath id="acima"><rect x={0} y={0} width={L} height={y(0)} /></clipPath>
+        <clipPath id="abaixo"><rect x={0} y={y(0)} width={L} height={A} /></clipPath>
+      </defs>
+      {marcas.map((m, i) => (
+        <g key={i}>
+          <line x1={E} x2={L - D} y1={y(m)} y2={y(m)} stroke="#eef0f2" />
+          <text x={E - 6} y={y(m) + 3.5} textAnchor="end" fontSize="10" fill="#64748b">{abreviar(m)}</text>
+        </g>
+      ))}
+      <line x1={E} x2={L - D} y1={y(0)} y2={y(0)} stroke="#94a3b8" />
+      <polygon points={area} fill="#018e83" opacity={0.1} clipPath="url(#acima)" />
+      <polygon points={area} fill="#dc2626" opacity={0.15} clipPath="url(#abaixo)" />
+      <polyline points={linha} fill="none" stroke="#018e83" strokeWidth={2} clipPath="url(#acima)" />
+      <polyline points={linha} fill="none" stroke="#dc2626" strokeWidth={2} clipPath="url(#abaixo)" />
+      {pontos.map((p, i) => i % passo === 0 && <text key={i} x={x(i)} y={A - 8} textAnchor="middle" fontSize="10" fill="#64748b">{p.rotulo}</text>)}
+      {pontos.map((p, i) => (
+        <rect key={i} x={x(i) - larg / 2} y={T} width={larg} height={A - T - B} fill="transparent" className="hover:fill-slate-500/10">
+          <title>{`${p.rotulo}\nSaldo: ${formatar(p.valor)}${p.detalhe ? `\n${p.detalhe}` : ""}`}</title>
+        </rect>
+      ))}
+    </svg>
+  );
+}

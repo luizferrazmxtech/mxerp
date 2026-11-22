@@ -161,6 +161,7 @@ export const MENU: ItemMenu[] = [
       { rotulo: "Curva ABC", href: "/relatorios/curva-abc", icone: "grafico" },
       { rotulo: "Comissões", href: "/relatorios/comissoes", icone: "percentual" },
       { rotulo: "Tempo das OS", href: "/relatorios/tempo-os", icone: "relogio" },
+      { rotulo: "Painel financeiro", href: "/relatorios/financeiro", icone: "financeiro" },
     ],
   },
   {
