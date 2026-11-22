@@ -72,6 +72,22 @@ Leva uns 10 minutos (monta o sistema). No fim, `./vps/mxerp.sh status` deve most
 
 Entre em `https://erp.mxtech.inf.br` com o mesmo usuário e senha do PC.
 
+### Começar limpo com o backup novo do Gestão Click
+
+Para entrar em produção com os dados do Gestão Click, depois de restaurar o banco do PC:
+
+```bash
+./vps/mxerp.sh limpar-movimento mxtech
+```
+
+Ele mostra o que sai e o que fica, faz uma cópia antes e apaga OS, vendas, orçamentos, compras, estoque e as contas que não foram conciliadas. Ficam as empresas, o certificado A1, os usuários, os cadastros, as notas emitidas e a numeração delas, as configurações, os contratos, o WhatsApp, as integrações e o extrato do banco com as contas já conciliadas nele.
+
+Depois, na tela **Migração**, escolha o .zip, marque tudo (inclusive *contas a pagar já vencidas*, *contas já pagas* e *notas fiscais*), **Simule**, confira os avisos e **Grave**. As notas do Gestão Click entram só para consulta (sem XML) e a numeração do MXERP continua depois da última delas.
+
+### Baixar as contas antigas pelo extrato do Inter
+
+As contas a pagar vencidas entram em aberto. Para baixá-las pela conciliação, traga o extrato do período delas: em *Financeiro → Conciliação → Banco Inter*, preencha **ou desde** com a data da conta mais antiga e clique em *Buscar extrato*. Ele busca de 90 em 90 dias (pode levar alguns minutos). Linhas de contas que já entraram baixadas (histórico do Gestão Click) são amarradas a elas, sem baixar de novo. O resto aparece nas sugestões da conciliação. Se o Inter não liberar um período tão antigo, exporte o OFX no Internet Banking e importe pelo arquivo.
+
 ### Backup novo do Gestão Click por cima
 
 O banco do PC já tem o que veio do backup anterior do Gestão Click. Para trazer o que mudou lá desde então:

@@ -1673,18 +1673,18 @@ enum TipoLancamento {
 }
 
 model CategoriaFinanceira {
-  id          String                @id @default(cuid())
-  nome        String
-  tipo        TipoLancamento
-  grupoDre    GrupoDre
-  codigo      String? // classificação do plano de contas (1, 1.1, 1.1.2…)
-  ativa       Boolean               @default(true)
-  paiId       String?
-  pai         CategoriaFinanceira?  @relation("CategoriaPai", fields: [paiId], references: [id])
-  filhas      CategoriaFinanceira[] @relation("CategoriaPai")
-  lancamentos Lancamento[]
+  id                String                @id @default(cuid())
+  nome              String
+  tipo              TipoLancamento
+  grupoDre          GrupoDre
+  codigo            String? // classificação do plano de contas (1, 1.1, 1.1.2…)
+  ativa             Boolean               @default(true)
+  paiId             String?
+  pai               CategoriaFinanceira?  @relation("CategoriaPai", fields: [paiId], references: [id])
+  filhas            CategoriaFinanceira[] @relation("CategoriaPai")
+  lancamentos       Lancamento[]
   regrasConciliacao RegraConciliacao[]
-  rateios     LancamentoRateio[]
+  rateios           LancamentoRateio[]
 
   @@unique([nome, tipo])
 }
@@ -1741,10 +1741,10 @@ model Lancamento {
 
 /// Centro de custo (departamento, filial, projeto) para separar resultados no financeiro e na DRE.
 model CentroCusto {
-  id          String       @id @default(cuid())
-  nome        String       @unique
-  ativo       Boolean      @default(true)
-  lancamentos Lancamento[]
+  id                String             @id @default(cuid())
+  nome              String             @unique
+  ativo             Boolean            @default(true)
+  lancamentos       Lancamento[]
   regrasConciliacao RegraConciliacao[]
 }
 
@@ -1780,26 +1780,29 @@ enum StatusNota {
 }
 
 model NotaFiscal {
-  id           String           @id @default(cuid())
-  cnae         String? // atividade da nota (para o imposto do Simples por CNAE): comércio = CNAE da empresa; NFS-e = CNAE do serviço
-  consultadaEm DateTime? // última consulta da situação na SEFAZ
-  empresaId    String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  modelo       ModeloNota
-  serie        Int
-  numero       Int
-  chave        String?          @unique
-  status       StatusNota       @default(RASCUNHO)
-  ambiente     AmbienteFiscal
-  origemTipo   OrigemDocumento?
-  origemId     String?
-  valorTotal   Decimal          @db.Decimal(14, 2)
-  xml          String? // XML assinado / autorizado (procNFe)
-  protocolo    String?
-  motivo       String? // cStat + xMotivo da última resposta
-  emitidaEm    DateTime?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  eventos      NotaEvento[]
+  id               String           @id @default(cuid())
+  cnae             String? // atividade da nota (para o imposto do Simples por CNAE): comércio = CNAE da empresa; NFS-e = CNAE do serviço
+  consultadaEm     DateTime? // última consulta da situação na SEFAZ
+  empresaId        String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
+  modelo           ModeloNota
+  serie            Int
+  numero           Int
+  chave            String?          @unique
+  status           StatusNota       @default(RASCUNHO)
+  ambiente         AmbienteFiscal
+  origemTipo       OrigemDocumento?
+  origemId         String?
+  valorTotal       Decimal          @db.Decimal(14, 2)
+  xml              String? // XML assinado / autorizado (procNFe)
+  protocolo        String?
+  motivo           String? // cStat + xMotivo da última resposta
+  emitidaEm        DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  eventos          NotaEvento[]
+  // nota emitida no sistema anterior (Gestão Click), trazida só para consulta: sem XML
+  destinatarioNome String?
+  idLegado         String?          @unique
 
   @@unique([modelo, serie, numero, ambiente])
   @@index([origemTipo, origemId])

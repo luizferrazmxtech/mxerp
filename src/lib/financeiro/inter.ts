@@ -295,7 +295,7 @@ export function mensagemErro(e: unknown) {
 }
 
 /** Puxa os últimos `dias` do extrato do Inter, grava e baixa o que casar. */
-export async function sincronizarInter(opts: { dias?: number; cliente?: ClienteInter } = {}) {
+export async function sincronizarInter(opts: { dias?: number; desde?: Date; cliente?: ClienteInter } = {}) {
   const cfg = await lerConfigInter();
   if (!cfg && !opts.cliente) throw new Error("Integração com o Banco Inter ainda não configurada (Financeiro → Conciliação → Configurar Banco Inter)");
   const cliente = opts.cliente ?? new ClienteInter(cfg!);
@@ -304,10 +304,15 @@ export async function sincronizarInter(opts: { dias?: number; cliente?: ClienteI
     ? await prisma.contaBancaria.findUniqueOrThrow({ where: { id: cfg.contaBancariaId } })
     : await prisma.contaBancaria.upsert({ where: { nome: nomeConta }, create: { nome: nomeConta, banco: "077" }, update: {} });
   const fim = diaSP(); // hoje em Brasília: o Inter recusa dataFim no futuro
-  const inicio = new Date(fim.getTime() - (opts.dias ?? 7) * 86400000);
+  const inicio = opts.desde ?? new Date(fim.getTime() - (opts.dias ?? 7) * 86400000);
   try {
-    const ts = await cliente.extrato(inicio, fim);
-    const r = { conta: conta.nome, ...(await importarExtrato(conta.id, ts)) };
+    // período longo (extrato antigo): em blocos de 90 dias, o máximo que o Inter aceita por consulta
+    const r = { conta: conta.nome, lidas: 0, novas: 0, repetidas: 0, baixadas: 0, boletos: 0, jaBaixadas: 0 };
+    for (let de = inicio; de <= fim; de = new Date(de.getTime() + 90 * 86400000)) {
+      const ate = new Date(Math.min(fim.getTime(), de.getTime() + 89 * 86400000));
+      const p = await importarExtrato(conta.id, await cliente.extrato(de, ate));
+      for (const k of ["lidas", "novas", "repetidas", "baixadas", "boletos", "jaBaixadas"] as const) r[k] += p[k];
+    }
     // saldo do banco para a conferência de saldo (sem permissão de saldo, só não grava)
     if (typeof (cliente as { saldoContabil?: unknown }).saldoContabil === "function") {
       await cliente.saldoContabil().then((v) => import("./saldos").then((m) => m.registrarSaldo(conta.id, fim, v, "INTER"))).catch(() => null);

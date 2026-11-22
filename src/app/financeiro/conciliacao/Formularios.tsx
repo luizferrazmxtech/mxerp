@@ -41,6 +41,8 @@ export function PuxarInter({ configurado, aviso, ultima }: { configurado: boolea
             {[3, 7, 15, 30, 60, 90].map((d) => <option key={d} value={d}>{d} dias</option>)}
           </select>
           <button className="btn" disabled={p}>{p ? "Buscando…" : "Buscar extrato"}</button>
+          <span className="text-slate-500">ou desde</span>
+          <input type="date" name="desde" className="campo w-40" title="Extrato antigo: busca de 90 em 90 dias desde esta data (pode levar alguns minutos)" />
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">

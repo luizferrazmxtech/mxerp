@@ -256,6 +256,18 @@ EOF
   esperar_saude "$c" && verde "Restaurado e no ar." || vermelho "Restaurado, mas o sistema não subiu. Veja: ./vps/mxerp.sh logs $c"
 }
 
+cmd_limpar_movimento() {
+  [ $# -ge 1 ] || falhar "uso: ./vps/mxerp.sh limpar-movimento CLIENTE"
+  local c=$1; existe "$c"
+  sed -n '2,8p' "$VPS/scripts/limpar-movimento.sql" | sed 's/^-- \{0,1\}//'
+  local ok=${MXERP_CONFIRMAR:-}
+  [ -n "$ok" ] || read -rp "Isto APAGA o movimento de '$c' (fica uma cópia antes). Digite LIMPAR: " ok
+  [ "$ok" = LIMPAR ] || { echo "Cancelado."; exit 0; }
+  verde "Cópia de segurança antes de limpar..."
+  dc exec -T backup sh /scripts/backup-todos.sh antes-de-limpar "$c"
+  psql_admin -d "$c" < "$VPS/scripts/limpar-movimento.sql"
+  verde "Pronto. Agora importe o backup do Gestão Click na tela Migração (simule antes)."
+}
 cmd_atualizar() {
   verde "Cópia de todos os bancos antes de atualizar..."
   cmd_backup || falhar "A cópia falhou: não atualizo."
@@ -329,6 +341,7 @@ MXERP na VPS — comandos (rode como root na pasta do sistema):
   ./vps/mxerp.sh atualizar                      backup de todos + versão nova do GitHub, cliente por cliente (MXTECH primeiro)
   ./vps/mxerp.sh backup [CLIENTE]               cópia agora (de todos ou de um)
   ./vps/mxerp.sh restaurar CLIENTE ARQUIVO      volta uma cópia (também serve para trazer o banco do PC)
+  ./vps/mxerp.sh limpar-movimento CLIENTE       apaga OS, vendas, contas e estoque (fica configuração, cadastros e notas)
   ./vps/mxerp.sh novo-cliente NOME ENDERECO     cria um cliente com banco próprio
   ./vps/mxerp.sh suspender|reativar CLIENTE     tira do ar / volta (os dados ficam)
   ./vps/mxerp.sh horarios CLIENTE 0300,1230     horários dos backups automáticos
@@ -349,6 +362,7 @@ case "$cmd" in
   atualizar) cmd_atualizar ;;
   backup) cmd_backup "$@" ;;
   restaurar) cmd_restaurar "$@" ;;
+  limpar-movimento) cmd_limpar_movimento "$@" ;;
   novo-cliente) cmd_novo_cliente "$@" ;;
   suspender) cmd_suspender "${1:?informe o cliente}" ;;
   reativar) cmd_reativar "${1:?informe o cliente}" ;;
