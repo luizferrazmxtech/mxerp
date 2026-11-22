@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import { curvaAbc, duracao, relatorioComissoes, relatorioLucro, tempoOs, type AgruparLucro, type CriterioAbc } from "@/lib/relatorios/relatorios";
 import { periodoRelatorio } from "@/lib/relatorios/periodo";
+import { textoPrazo } from "@/lib/os/prazo";
 
 /**
  * Exporta o relatório em Excel (?formato=xlsx, números de verdade, cabeçalho em negrito) ou em CSV
@@ -24,8 +25,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ tipo: st
   let linhas: Celula[][] = [];
   if (tipo === "lucro") {
     const r = await relatorioLucro(per, (sp.por as AgruparLucro) || "documento", { vendedorId });
-    cab = ["Item", "Detalhe", "Documentos", "Quantidade", "Receita", "Custo", "Lucro", "Margem %"];
-    linhas = r.linhas.map((l) => [l.rotulo, l.detalhe, l.documentos, l.quantidade, l.receita, l.custo, l.lucro, r2(l.margem * 100)]);
+    cab = ["Item", "Detalhe", "Documentos", "Quantidade", "Receita", "Custo", "Lucro", "Margem %", "Prazo da OS"];
+    linhas = r.linhas.map((l) => [l.rotulo, l.detalhe, l.documentos, l.quantidade, l.receita, l.custo, l.lucro, r2(l.margem * 100), l.prazo ? textoPrazo(l.prazo) : ""]);
   } else if (tipo === "curva-abc") {
     const r = await curvaAbc(per, sp.por === "clientes" ? "clientes" : sp.por === "servicos" ? "servicos" : "produtos", (sp.criterio as CriterioAbc) || "valor", { vendedorId });
     cab = ["Item", "Código", "Quantidade", "Faturamento", "Lucro", "% do total", "Acumulado %", "Classe"];

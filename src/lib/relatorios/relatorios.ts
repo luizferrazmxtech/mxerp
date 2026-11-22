@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { sqlDaLoja } from "@/lib/empresa/loja";
+import { atrasada, prazoOs, type PrazoOs } from "@/lib/os/prazo";
 
 /**
  * Relatórios gerenciais. "Vendido" = vendas concretizadas (pela data da venda) + OS concluídas/faturadas
@@ -18,6 +19,8 @@ export type ItemVendido = {
   /** canal de venda gravado no documento (Presencial, WhatsApp, Mercado Livre…) e o tipo: BALCAO, PEDIDO, SERVICO (venda) ou OS */
   canal: string; tipoDoc: string;
   itemId: string; codigo: string; nome: string; quantidade: number; receita: number; custo: number;
+  /** só OS: datas para o prazo (entrada, previsão e saída/faturamento) */
+  osEntrada: Date | null; osPrevisao: Date | null; osSaida: Date | null;
 };
 
 const local = (col: string) => Prisma.raw(`(${col} AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date`);
@@ -30,10 +33,12 @@ export async function itensVendidos(p: Periodo, f: FiltroVendas = {}): Promise<I
   const rows = await prisma.$queryRaw<ItemVendido[]>`
     WITH docs AS (
       SELECT 'VENDA' origem, v.id, v.numero, ${local("v.data")} dia, v."clienteId", v."vendedorId", NULL::text "tecnicoId", v.canal, v.tipo::text "tipoDoc", v.desconto,
+             NULL::timestamp "osEntrada", NULL::timestamp "osPrevisao", NULL::timestamp "osSaida",
              COALESCE((SELECT SUM(subtotal) FROM "VendaItem" WHERE "vendaId" = v.id), 0) + COALESCE((SELECT SUM(subtotal) FROM "VendaItemServico" WHERE "vendaId" = v.id), 0) bruto
         FROM "Venda" v WHERE v.situacao = 'CONCLUIDA' AND ${local("v.data")} >= ${p.de}::date AND ${local("v.data")} < ${fim}::date${lv}${vv}
       UNION ALL
       SELECT 'OS', o.id, o.numero, ${local('COALESCE(o.saida, o.entrada)')}, o."clienteId", o."vendedorId", o."tecnicoId", o.canal, 'OS', o.desconto,
+             o.entrada, o.previsao, o.saida,
              COALESCE((SELECT SUM(subtotal) FROM "OsItemProduto" WHERE "osId" = o.id), 0) + COALESCE((SELECT SUM(subtotal) FROM "OsItemServico" WHERE "osId" = o.id), 0)
         FROM "OrdemServico" o WHERE o.situacao IN ('CONCLUIDA','FATURADA') AND ${local('COALESCE(o.saida, o.entrada)')} >= ${p.de}::date AND ${local('COALESCE(o.saida, o.entrada)')} < ${fim}::date${lo}${vo}
     ), itens AS (
@@ -44,6 +49,7 @@ export async function itensVendidos(p: Periodo, f: FiltroVendas = {}): Promise<I
     )
     SELECT d.origem, d.id "docId", d.numero, d.dia::timestamp AT TIME ZONE 'UTC' "data", d."clienteId", c.nome cliente,
            d."vendedorId", u.nome vendedor, d."tecnicoId", t.nome tecnico, d.canal, d."tipoDoc", it.tipo, it.item "itemId",
+           d."osEntrada", d."osPrevisao", d."osSaida",
            COALESCE(pr.codigo, sv.codigo, '') codigo, COALESCE(pr.nome, sv.nome, '') nome, it.quantidade::float quantidade,
            (it.subtotal * CASE WHEN d.bruto > 0 THEN GREATEST(d.bruto - d.desconto, 0) / d.bruto ELSE 1 END)::float receita,
            it.custo::float custo
@@ -82,7 +88,9 @@ export function evolucao(p: Periodo, itens: { data: Date; receita: number; custo
   return { porDia, pontos: chaves.map((c) => ({ chave: c, receita: r2(m.get(c)!.receita), lucro: r2(m.get(c)!.lucro) })) };
 }
 
-export type LinhaLucro = { chave: string; rotulo: string; detalhe?: string; href?: string; quantidade: number; receita: number; custo: number; lucro: number; margem: number; documentos: number };
+export type LinhaLucro = { chave: string; rotulo: string; detalhe?: string; href?: string; quantidade: number; receita: number; custo: number; lucro: number; margem: number; documentos: number;
+  /** só na visão por venda/OS, para OS: quanto demorou em relação à previsão */
+  prazo?: PrazoOs };
 
 export type AgruparLucro = "documento" | "cliente" | "vendedor" | "produto" | "servico";
 
@@ -98,7 +106,8 @@ export async function relatorioLucro(p: Periodo, por: AgruparLucro = "documento"
       : por === "cliente" ? [i.clienteId ?? "-", i.cliente ?? "Sem cliente", undefined, i.clienteId ? `/clientes/${i.clienteId}` : undefined]
       : por === "vendedor" ? [i.vendedorId ?? "-", i.vendedor ?? "Sem vendedor", undefined, undefined]
       : [i.itemId, i.nome, i.codigo, undefined];
-    const g = grupos.get(chave) ?? { chave, rotulo, detalhe, href, quantidade: 0, receita: 0, custo: 0, lucro: 0, margem: 0, documentos: 0, docs: new Set<string>() };
+    const g = grupos.get(chave) ?? { chave, rotulo, detalhe, href, quantidade: 0, receita: 0, custo: 0, lucro: 0, margem: 0, documentos: 0, docs: new Set<string>(),
+      prazo: por === "documento" && i.origem === "OS" && i.osEntrada ? prazoOs({ entrada: i.osEntrada, previsao: i.osPrevisao, saida: i.osSaida }) : undefined };
     g.quantidade += i.quantidade;
     g.receita += i.receita;
     g.custo += i.custo;
@@ -114,8 +123,13 @@ export async function relatorioLucro(p: Periodo, por: AgruparLucro = "documento"
   const receita = r2(itens.reduce((s, i) => s + i.receita, 0));
   const custo = r2(itens.reduce((s, i) => s + i.custo, 0));
   const produtos = r2(itens.filter((i) => i.tipo === "PRODUTO").reduce((s, i) => s + i.receita, 0));
+  // OS do período que passaram da previsão (conta uma vez por OS, em qualquer visão)
+  const osDoPeriodo = new Map<string, PrazoOs>();
+  for (const i of itens) if (i.origem === "OS" && i.osEntrada && !osDoPeriodo.has(i.docId)) osDoPeriodo.set(i.docId, prazoOs({ entrada: i.osEntrada, previsao: i.osPrevisao, saida: i.osSaida }));
+  const fora = [...osDoPeriodo.values()].filter(atrasada);
   return {
     linhas,
+    prazo: { os: osDoPeriodo.size, atrasadas: fora.length, mediaDias: fora.length ? Math.round(fora.reduce((s, p) => s + p.dias, 0) / fora.length) : 0, maiorDias: fora.reduce((m, p) => Math.max(m, p.dias), 0) },
     evolucao: evolucao(p, itens),
     totais: { documentos: docs.size, receita, custo, lucro: r2(receita - custo), margem: receita > 0 ? (receita - custo) / receita : 0, ticket: docs.size ? r2(receita / docs.size) : 0, produtos, servicos: r2(receita - produtos) },
   };

@@ -55,6 +55,9 @@ describe("relatórios", () => {
     const r = await rel.relatorioLucro(per, "documento");
     expect(r.totais).toMatchObject({ documentos: 2, receita: 1130, custo: 490, lucro: 640, produtos: 930, servicos: 200 });
     expect(r.linhas.map((l) => [l.rotulo, l.receita, l.custo])).toEqual([["Venda nº 1", 630, 340], ["OS nº 10", 500, 150]]);
+    // a OS 10 tinha previsão para 11/10 e saiu em 12/10: um dia depois; a venda não tem prazo
+    expect(r.linhas.map((l) => l.prazo)).toEqual([undefined, { base: "previsao", dias: 1, concluida: true }]);
+    expect(r.prazo).toEqual({ os: 1, atrasadas: 1, mediaDias: 1, maiorDias: 1 });
     const p = await rel.relatorioLucro(per, "produto");
     expect(p.linhas[0]).toMatchObject({ rotulo: "Câmera", quantidade: 3, receita: 840, custo: 450, documentos: 2 });
     const c = await rel.relatorioLucro(per, "cliente");
