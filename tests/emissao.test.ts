@@ -1,3 +1,4 @@
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
@@ -49,7 +50,7 @@ beforeEach(async () => {
   const loc = (await prisma.local.create({ data: { depositoId: dep.id, codigo: "A-01" } })).id;
   prod = (await prisma.produto.create({ data: { codigo: "CB", nome: "Cabo USB-C", precoVenda: 39, ncm: "85444200", localPadraoId: loc } })).id;
   await prisma.$transaction(async (tx) => { await est.entrada(tx, { produtoId: prod, localId: loc, quantidade: 10, origemTipo: "IMPLANTACAO" }); await garantirPadroes(tx); });
-  dinheiro = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "Dinheiro" } })).id;
+  dinheiro = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Dinheiro" } } })).id;
 });
 
 describe("emissão a partir da venda", () => {

@@ -9,6 +9,7 @@ import { garantirPadroes } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
 import { lerPlanilha, normalizar, numeroBr, type Linha } from "./planilha";
 import { importarPessoas, importarProdutos, importarServicos, type Resultado } from "./importar";
+import { LOJA_ATUAL, naLoja } from "@/lib/empresa/loja";
 
 /**
  * Backup completo do Gestão Click (.zip com uma pasta por módulo e planilhas
@@ -579,7 +580,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     await prisma.$transaction((tx) => garantirPadroes(tx));
     // contas bancárias do Gestão Click (Inter, PagSeguro, Mercado Pago…) para a conciliação do extrato
     for (const nome of new Set(todas.map((l) => (l["conta bancaria"] ?? "").trim()).filter(Boolean)))
-      await prisma.contaBancaria.upsert({ where: { nome }, create: { nome }, update: {} });
+      await prisma.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: nome } }, create: { nome }, update: {} });
   }
   const ocorr = new Map<string, number>();
   for (const [i, l] of abertas.entries()) {
@@ -597,9 +598,9 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     const pessoa = nomeEnt
       ? await prisma.pessoa.findFirst({ where: { OR: [{ nome: { equals: nomeEnt, mode: "insensitive" } }, { fantasia: { equals: nomeEnt, mode: "insensitive" } }] } })
       : null;
-    const cat = await prisma.categoriaFinanceira.findUniqueOrThrow({ where: { nome_tipo: { nome: categoriaPara(l["plano de contas"], tipo), tipo } } });
+    const cat = await prisma.categoriaFinanceira.findUniqueOrThrow({ where: { empresaId_nome_tipo: { empresaId: LOJA_ATUAL, nome: categoriaPara(l["plano de contas"], tipo), tipo } } });
     const formaNome = formaPara(l["forma de pagamento"] ?? "");
-    const forma = formaNome ? await prisma.formaPagamento.findUnique({ where: { nome: formaNome } }) : null;
+    const forma = formaNome ? await prisma.formaPagamento.findUnique({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: formaNome } } }) : null;
     await prisma.lancamento.create({
       data: {
         tipo, descricao: [l["descricao do recebimento"], !pessoa && nomeEnt ? `(${nomeEnt})` : ""].filter(Boolean).join(" ").slice(0, 300),
@@ -632,11 +633,11 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     if (simular) return;
     const nomeEnt = l["entidade nome"];
     const pessoa = nomeEnt ? await prisma.pessoa.findFirst({ where: { OR: [{ nome: { equals: nomeEnt, mode: "insensitive" } }, { fantasia: { equals: nomeEnt, mode: "insensitive" } }] } }) : null;
-    const cat = await prisma.categoriaFinanceira.findUniqueOrThrow({ where: { nome_tipo: { nome: categoriaPara(l["plano de contas"], tipo), tipo } } });
+    const cat = await prisma.categoriaFinanceira.findUniqueOrThrow({ where: { empresaId_nome_tipo: { empresaId: LOJA_ATUAL, nome: categoriaPara(l["plano de contas"], tipo), tipo } } });
     const formaNome = formaPara(l["forma de pagamento"] ?? "");
-    const forma = formaNome ? await prisma.formaPagamento.findUnique({ where: { nome: formaNome } }) : null;
+    const forma = formaNome ? await prisma.formaPagamento.findUnique({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: formaNome } } }) : null;
     const nomeConta = (l["conta bancaria"] ?? "").trim() || "Gestão Click";
-    const conta = await prisma.contaBancaria.upsert({ where: { nome: nomeConta }, create: { nome: nomeConta }, update: {} });
+    const conta = await prisma.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: nomeConta } }, create: { nome: nomeConta }, update: {} });
     await prisma.lancamento.create({
       data: {
         tipo, descricao: [l["descricao do recebimento"], !pessoa && nomeEnt ? `(${nomeEnt})` : ""].filter(Boolean).join(" ").slice(0, 300),
@@ -665,7 +666,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     totalBaixado += valorPago;
     if (simular) continue;
     const nomeConta = (l["conta bancaria"] ?? "").trim() || "Gestão Click";
-    const conta = await prisma.contaBancaria.upsert({ where: { nome: nomeConta }, create: { nome: nomeConta }, update: {} });
+    const conta = await prisma.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: nomeConta } }, create: { nome: nomeConta }, update: {} });
     await prisma.$transaction(async (tx) => {
       await baixarLancamento(tx, aberta.id, { data: dataBr(l["data de confirmacao"]) ?? hoje, contaBancariaId: conta.id, juros, desconto, valorPago });
       await tx.lancamento.update({ where: { id: aberta.id }, data: { observacao: "Baixada no Gestão Click (importação do backup)" } });
@@ -993,7 +994,16 @@ async function importarContratos(t: Tabelas, simular: boolean): Promise<Resultad
 
 // ---------- orquestração
 
+/**
+ * Importa o backup. Roda "dentro" da empresa de destino (ou da principal): o plano de contas, as formas de
+ * pagamento, as contas bancárias e as situações usados são os dela.
+ */
 export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: boolean; etapas?: Etapas; destino?: Destino } = {}) {
+  const loja = opts.destino?.empresaId ?? (await prisma.empresa.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } }))?.id ?? null;
+  return naLoja(loja, () => importarNaEmpresa(t, opts));
+}
+
+async function importarNaEmpresa(t: Tabelas, opts: { simular?: boolean; etapas?: Etapas; destino?: Destino }) {
   const simular = opts.simular ?? true;
   destino = null;
   if (opts.destino?.empresaId) {

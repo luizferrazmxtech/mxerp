@@ -110,6 +110,7 @@ export async function salvarPessoa(papel: PapelPessoa, d: DadosPessoa, opts: { i
   const dados = {
     tipoPessoa: d.tipoPessoa,
     ativo: d.ativo,
+    ...(d.lojas ? { lojas: d.lojas } : {}),
     // PJ: razão social é o nome oficial (vai na nota); o "Nome" da tela vira nome fantasia
     nome: (pj && t(d.razaoSocial)) || d.nome.trim(),
     fantasia: pj && t(d.razaoSocial) && d.razaoSocial.trim() !== d.nome.trim() ? d.nome.trim() : null,

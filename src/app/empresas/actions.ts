@@ -1,5 +1,6 @@
 "use server";
 
+import { espelharEstrutura } from "@/lib/empresa/estrutura";
 import { conferirLimiteEmpresas } from "@/lib/licenca/licenca";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
@@ -113,6 +114,7 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
     const outra = await prisma.empresa.findUnique({ where: { cnpj } });
     if (outra && outra.id !== id) throw new Error(`O CNPJ já está cadastrado na loja ${outra.nomeFantasia || outra.razaoSocial}`);
     if (!id) await conferirLimiteEmpresas();
+    const idAntes = id;
     const e = id
       ? await prisma.empresa.update({ where: { id }, data: { ...dados, ...cert } })
       : await prisma.empresa.create({ data: { ...dados, ...cert } });
@@ -120,6 +122,8 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
 
     // a primeira empresa cadastrada fica com tudo o que já existia (vendas, OS, financeiro, estoque…)
     if (primeira) await atribuirSemLoja(e.id);
+    // a empresa nova nasce com a estrutura da principal (plano de contas, formas, situações, modelos…)
+    else if (!idAntes) await espelharEstrutura(e.id);
     await criarDepositoDaLoja(e.id);
 
     // "última nota emitida": a próxima sai com o número seguinte (continua a numeração do sistema anterior)

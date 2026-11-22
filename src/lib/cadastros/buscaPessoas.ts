@@ -1,3 +1,4 @@
+import { sqlDoGrupo } from "@/lib/empresa/loja";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { palavras, semAcento, wherePalavras } from "@/lib/busca/palavras";
@@ -28,9 +29,10 @@ export async function buscarPessoas(papel: PapelBusca, q: string, take = 15): Pr
   // cada palavra em qualquer ordem, sem acento, no nome/fantasia; ou os dígitos no CPF/CNPJ e telefones
   const papelCol = Prisma.raw(`"${papel}"`);
   const digitos = dig.length >= 3 ? Prisma.sql`OR coalesce(p.documento,'') LIKE ${`%${dig}%`} OR regexp_replace(coalesce(p.telefone,''), '\\D', '', 'g') LIKE ${`%${dig}%`} OR regexp_replace(coalesce(p.celular,''), '\\D', '', 'g') LIKE ${`%${dig}%`}` : Prisma.empty;
+  const daLoja = await sqlDoGrupo("p.lojas");
   const achados = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT p.id FROM "Pessoa" p
-     WHERE p.${papelCol} AND p.ativo AND (${wherePalavras(q, [Prisma.sql`p.nome`, Prisma.sql`p.fantasia`])} ${digitos})
+     WHERE p.${papelCol} AND p.ativo AND (${wherePalavras(q, [Prisma.sql`p.nome`, Prisma.sql`p.fantasia`])} ${digitos})${daLoja}
      ORDER BY (${semAcento(Prisma.sql`p.nome`)} LIKE ${`${palavras(q)[0] ?? ""}%`}) DESC, p.nome
      LIMIT ${take}`);
   const ordem = new Map(achados.map((a, i) => [a.id, i]));

@@ -1,4 +1,5 @@
 import type { Tx } from "@/lib/db";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 /** Cadastros financeiros mínimos para o sistema funcionar (idempotente). */
 export const FORMAS_PADRAO = [
@@ -35,19 +36,19 @@ export const CATEGORIAS_PADRAO = [
 
 export async function garantirPadroes(tx: Tx) {
   for (const f of FORMAS_PADRAO)
-    await tx.formaPagamento.upsert({ where: { nome: f.nome }, create: f, update: {} });
+    await tx.formaPagamento.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: f.nome } }, create: f, update: {} });
   // uma consulta só quando já está tudo criado (a tela do financeiro chama isto a cada abertura)
   const existentes = await tx.categoriaFinanceira.findMany({ where: { OR: CATEGORIAS_PADRAO.map((c) => ({ nome: c.nome, tipo: c.tipo })) }, select: { nome: true, tipo: true, codigo: true } });
   for (const c of CATEGORIAS_PADRAO) {
     const e = existentes.find((x) => x.nome === c.nome && x.tipo === c.tipo);
     if (!e) await tx.categoriaFinanceira.create({ data: c });
-    else if (e.codigo === null) await tx.categoriaFinanceira.update({ where: { nome_tipo: { nome: c.nome, tipo: c.tipo } }, data: { codigo: c.codigo } });
+    else if (e.codigo === null) await tx.categoriaFinanceira.update({ where: { empresaId_nome_tipo: { empresaId: LOJA_ATUAL, nome: c.nome, tipo: c.tipo } }, data: { codigo: c.codigo } });
   }
-  await tx.contaBancaria.upsert({ where: { nome: "Caixa" }, create: { nome: "Caixa" }, update: {} });
+  await tx.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Caixa" } }, create: { nome: "Caixa" }, update: {} });
 }
 
 export async function categoria(tx: Tx, nome: string, tipo: "RECEBER" | "PAGAR") {
-  return tx.categoriaFinanceira.findUniqueOrThrow({ where: { nome_tipo: { nome, tipo } } });
+  return tx.categoriaFinanceira.findUniqueOrThrow({ where: { empresaId_nome_tipo: { empresaId: LOJA_ATUAL, nome, tipo } } });
 }
 
 /**
@@ -92,18 +93,16 @@ export const CATEGORIAS_CONCILIACAO = [
 
 export async function garantirCategoriasPessoal(tx: Tx) {
   for (const c of CATEGORIAS_CONCILIACAO) {
-    const p = c.pai ? await tx.categoriaFinanceira.findUnique({ where: { nome_tipo: { nome: c.pai, tipo: "PAGAR" } }, select: { id: true } }) : null;
-    await tx.categoriaFinanceira.upsert({
-      where: { nome_tipo: { nome: c.nome, tipo: "PAGAR" } },
+    const p = c.pai ? await tx.categoriaFinanceira.findUnique({ where: { empresaId_nome_tipo: { empresaId: LOJA_ATUAL, nome: c.pai, tipo: "PAGAR" } }, select: { id: true } }) : null;
+    await tx.categoriaFinanceira.upsert({ where: { empresaId_nome_tipo: { empresaId: LOJA_ATUAL, nome: c.nome, tipo: "PAGAR" } },
       create: { nome: c.nome, tipo: "PAGAR", grupoDre: c.grupoDre, codigo: c.codigo, paiId: p?.id ?? null },
       update: {},
     });
   }
-  const pai = await tx.categoriaFinanceira.findUnique({ where: { nome_tipo: { nome: "Salários e encargos", tipo: "PAGAR" } } });
+  const pai = await tx.categoriaFinanceira.findUnique({ where: { empresaId_nome_tipo: { empresaId: LOJA_ATUAL, nome: "Salários e encargos", tipo: "PAGAR" } } });
   const out = {} as Record<TipoPagamentoPessoal, string>;
   for (const [k, c] of Object.entries(CATEGORIAS_PESSOAL) as [TipoPagamentoPessoal, { codigo: string; nome: string }][]) {
-    const r = await tx.categoriaFinanceira.upsert({
-      where: { nome_tipo: { nome: c.nome, tipo: "PAGAR" } },
+    const r = await tx.categoriaFinanceira.upsert({ where: { empresaId_nome_tipo: { empresaId: LOJA_ATUAL, nome: c.nome, tipo: "PAGAR" } },
       create: { nome: c.nome, tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL", codigo: c.codigo, paiId: pai?.id ?? null },
       update: {},
     });

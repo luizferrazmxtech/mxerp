@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { idsInter, sincronizarInter } from "@/lib/financeiro/inter";
+import { naLoja } from "@/lib/empresa/loja";
 import { sincronizarBoletos } from "@/lib/financeiro/boletos";
 
 /**
@@ -19,11 +20,13 @@ export async function POST(req: Request) {
   const contas: Record<string, unknown>[] = [];
   let falhou = false;
   for (const id of ids) {
-    const tela = await prisma.integracaoInter.findUnique({ where: { id }, select: { sincronizarAuto: true } });
+    const tela = await prisma.integracaoInter.findUnique({ where: { id }, select: { sincronizarAuto: true, empresaId: true } });
     if (tela && !tela.sincronizarAuto) { contas.push({ id, ignorado: "busca automática desligada" }); continue; }
-    const boletos = await sincronizarBoletos({ dias: 5, interId: id }).catch((e) => ({ erro: e instanceof Error ? e.message : String(e) }));
+    // dentro da empresa dona da conta: o extrato só casa com os lançamentos e o plano de contas dela
+    const naEmpresa = <T,>(fn: () => Promise<T>) => naLoja(tela?.empresaId ?? null, fn);
+    const boletos = await naEmpresa(() => sincronizarBoletos({ dias: 5, interId: id })).catch((e) => ({ erro: e instanceof Error ? e.message : String(e) }));
     try {
-      contas.push({ id, ...(await sincronizarInter({ dias: 5, interId: id })), boletos });
+      contas.push({ id, ...(await naEmpresa(() => sincronizarInter({ dias: 5, interId: id }))), boletos });
     } catch (e) {
       falhou = true;
       contas.push({ id, erro: e instanceof Error ? e.message : String(e), boletos });

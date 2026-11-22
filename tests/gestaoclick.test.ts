@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 
@@ -205,7 +206,7 @@ describe("backup do Gestão Click", () => {
     expect(lanc[0].pessoa?.id).toBe(folk.id);
     expect(lanc[1].formaPagamento?.nome).toBe("Cartão de crédito");
 
-    expect(await prisma.contaBancaria.findUnique({ where: { nome: "INTER" } })).not.toBeNull();
+    expect(await prisma.contaBancaria.findUnique({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "INTER" } } })).not.toBeNull();
 
     // compras: a confirmada entra recebida e com as contas "já lançadas lá"; fornecedor achado pelo CNPJ da chave da NF-e
     const c990 = await prisma.compra.findUniqueOrThrow({ where: { numero: 990 }, include: { parcelas: true, historico: true, itens: true } });
@@ -314,7 +315,7 @@ describe("importar tudo: histórico das contas e notas do Gestão Click", () => 
     t.contas_receber.push(linha({ "descricao do recebimento": "Venda de nº 7000", situacao: "Confirmado", valor: "300", "valor total": "300", "data do vencimento": "05/10/2026", "data de confirmacao": "06/10/2026" }));
     // a venda 8001 (confirmada, 49,90 em 01/11) já entrou no MXERP pela conciliação do extrato
     await gc.importarBackupGestaoClick(t, { simular: false, etapas: { cadastros: true } });
-    const inter = await prisma.contaBancaria.upsert({ where: { nome: "INTER" }, create: { nome: "INTER" }, update: {} });
+    const inter = await prisma.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "INTER" } }, create: { nome: "INTER" }, update: {} });
     const cat = await prisma.categoriaFinanceira.create({ data: { nome: "Receita do extrato", tipo: "RECEBER", grupoDre: "RECEITA_BRUTA" } });
     const tr = await prisma.transacaoBancaria.create({ data: { contaBancariaId: inter.id, data: new Date("2026-11-01T00:00:00Z"), valor: 49.9, descricao: "PIX LAZARO", chave: "x1", situacao: "CONCILIADA" } });
     await prisma.lancamento.create({ data: { tipo: "RECEBER", descricao: "Pix", categoriaId: cat.id, valor: 49.9, valorPago: 49.9, vencimento: tr.data, competencia: tr.data, pagoEm: tr.data, contaBancariaId: inter.id, transacaoId: tr.id, idLegado: `extrato:${tr.id}` } });
@@ -351,9 +352,13 @@ describe("segunda empresa (outro Gestão Click)", () => {
     await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Empresa" CASCADE`);
     const a = await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", nomeFantasia: "MXTECH", cnpj: "12965283000195" } });
     const b = await prisma.empresa.create({ data: { razaoSocial: "SEGUNDA LTDA", nomeFantasia: "SEGUNDA", cnpj: "11222333000181" } });
+    (await import("@/lib/empresa/loja")).limparCacheLojas();
     const t = await gc.lerBackupGestaoClick(await backup());
     const tudo = { cadastros: true, estoque: true, os: true, vendas: true, receber: true, pagar: true };
     await gc.importarBackupGestaoClick(t, { simular: false, etapas: tudo });
+    // como na tela de empresas: a segunda nasce com a estrutura da principal
+    const { espelharEstrutura } = await import("@/lib/empresa/estrutura");
+    await espelharEstrutura(b.id);
     const pessoas = await prisma.pessoa.count(), produtos = await prisma.produto.count();
     const bat = await prisma.produto.findUniqueOrThrow({ where: { codigo: "BAT7" } });
     await prisma.produto.update({ where: { id: bat.id }, data: { nome: "BATERIA 7AH (nome daqui)" } });
@@ -374,10 +379,13 @@ describe("segunda empresa (outro Gestão Click)", () => {
 
     // estoque: cada loja no seu depósito; o da primeira não muda
     const saldos = await prisma.saldo.findMany({ where: { produtoId: bat.id }, include: { local: { include: { deposito: true } } } });
-    expect(saldos.map((x) => [x.local.deposito.empresaId, Number(x.quantidade)]).sort()).toEqual([[null, 3], [b.id, 3]].sort());
+    expect(saldos.map((x) => [x.local.deposito.empresaId, Number(x.quantidade)]).sort()).toEqual([[a.id, 3], [b.id, 3]].sort());
 
-    // contas da outra empresa entram nela
-    expect(await prisma.lancamento.count({ where: { empresaId: b.id } })).toBe(2);
+    // contas da outra empresa entram nela, no plano de contas e no banco dela
+    const contasB = await prisma.lancamento.findMany({ where: { empresaId: b.id }, include: { categoria: true, contaBancaria: true } });
+    expect(contasB).toHaveLength(2);
+    expect(contasB.every((l) => l.categoria.empresaId === b.id && (!l.contaBancaria || l.contaBancaria.empresaId === b.id))).toBe(true);
+    expect((await prisma.ordemServico.findFirstOrThrow({ where: { empresaId: b.id }, include: { situacaoCfg: true } })).situacaoCfg?.empresaId).toBe(b.id);
 
     // de novo: nada duplica
     await gc.importarBackupGestaoClick(t, { simular: false, etapas: tudo, destino: { empresaId: b.id } });

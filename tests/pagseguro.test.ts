@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 const URL = "postgresql://mxerp:mxerp@localhost:5432/mxerp_test?schema=public";
 process.env.DATABASE_URL = URL;
@@ -33,7 +34,7 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 const ligar = (m: Partial<Parameters<typeof ps.salvarConfigPagSeguro>[0]> = {}) => ps.salvarConfigPagSeguro({
   ativo: true, ambiente: "SANDBOX", token: "token-api", pix: true, pixMinutos: 10, edi: true, ediUsuario: "123456", ediToken: "token-edi", conciliarDesde: iso(somarDias(hoje, -10)), ...m,
 });
-const forma = async (nome: string) => (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome } })).id;
+const forma = async (nome: string) => (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: nome } } })).id;
 
 beforeEach(async () => {
   await prisma.$executeRawUnsafe(`TRUNCATE "TransacaoPagSeguro","CobrancaPix","Lancamento","VendaPagamento","VendaItem","Venda","Reserva","MovimentoEstoque","Saldo","Produto","Local","Deposito","FormaPagamento","ContaBancaria","Sequencia" CASCADE`);
@@ -49,7 +50,7 @@ describe("PagSeguro", () => {
     await expect(ligar({ token: "" })).rejects.toThrow(/token do PagSeguro/);
     await expect(ligar({ ediUsuario: "" })).rejects.toThrow(/EDI/);
     await ligar();
-    const conta = await prisma.contaBancaria.findUniqueOrThrow({ where: { nome: "PagSeguro" } });
+    const conta = await prisma.contaBancaria.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "PagSeguro" } } });
     const formas = await prisma.formaPagamento.findMany({ where: { pagseguro: true }, orderBy: { nome: "asc" } });
     expect(formas.map((f) => [f.nome, f.tPag, f.diasPrazo, f.contaBancariaId])).toEqual([
       ["Cartão de crédito (PagSeguro)", "03", 30, conta.id], ["Cartão de débito (PagSeguro)", "04", 1, conta.id], ["PIX (PagSeguro)", "17", 0, conta.id],

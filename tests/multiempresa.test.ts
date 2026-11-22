@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 import { pfxDeTeste } from "./helpers/certificado-teste";
 
 const URL = "postgresql://mxerp:mxerp@localhost:5432/mxerp_test?schema=public";
@@ -35,7 +36,7 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe(`TRUNCATE "NotaEvento","NotaFiscal","Empresa","Lancamento","VendaPagamento","VendaItem","Venda","Reserva","MovimentoEstoque","Saldo","Produto","Local","Deposito","Sequencia","FormaPagamento","CategoriaFinanceira","ContaBancaria" CASCADE`);
   loja.limparCacheLojas();
   await prisma.$transaction((tx) => garantirPadroes(tx));
-  dinheiro = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "Dinheiro" } })).id;
+  dinheiro = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Dinheiro" } } })).id;
   prod = (await prisma.produto.create({ data: { codigo: "CB", nome: "Cabo", precoVenda: 10, ncm: "85444200", controlaEstoque: false } })).id;
 });
 

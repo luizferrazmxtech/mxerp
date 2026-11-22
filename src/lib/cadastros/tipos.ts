@@ -10,6 +10,8 @@ export const contatoVazio = (): ContatoForm => ({ tipo: "", nome: "", contato: "
 
 export type DadosPessoa = {
   tipoPessoa: TipoPessoa; ativo: boolean; nome: string; email: string;
+  /** empresas do grupo em que o cadastro aparece (vazio = todas) */
+  lojas?: string[];
   documento: string; nomeSocial: string; rg: string; nascimento: string;
   razaoSocial: string; inscricaoEstadual: string; ieIsento: boolean; inscricaoMunicipal: string; suframa: string; responsavel: string;
   contribuinteIcms: ContribuinteIcms; telefone: string; celular: string; fax: string; site: string; vendedorId: string; pais: string;

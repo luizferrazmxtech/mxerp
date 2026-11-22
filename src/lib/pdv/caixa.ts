@@ -5,6 +5,7 @@ import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
 import { criarLancamentos } from "@/lib/financeiro/lancamentos";
 import { diaSP } from "@/lib/datas";
 import { transferirEntreContas } from "@/lib/financeiro/transferencias";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 const D = (v: number) => new Prisma.Decimal(v.toFixed(2));
 
@@ -22,7 +23,7 @@ export async function abrirCaixa(usuarioId: string, valor: number, gerarRecebime
     const caixa = await tx.caixaPdv.create({ data: { usuarioId, valorAbertura: D(valor) } });
     if (gerarRecebimento && valor > 0) {
       await garantirPadroes(tx);
-      const conta = await tx.contaBancaria.findUniqueOrThrow({ where: { nome: "Caixa" } });
+      const conta = await tx.contaBancaria.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Caixa" } } });
       await criarLancamentos(tx, {
         tipo: "RECEBER", descricao: "Abertura de caixa do PDV", valorTotal: valor, primeiroVencimento: diaSP(),
         categoriaId: (await categoria(tx, "Transferência entre contas", "RECEBER")).id, contaBancariaId: conta.id, pago: true,
@@ -74,7 +75,7 @@ export async function movimentarCaixa(
     let transferenciaId: string | null = null;
     if (d.contaId) {
       await garantirPadroes(tx);
-      const caixaConta = await tx.contaBancaria.findUniqueOrThrow({ where: { nome: "Caixa" } });
+      const caixaConta = await tx.contaBancaria.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Caixa" } } });
       const t = await transferirEntreContas(tx, {
         origemId: d.tipo === "SANGRIA" ? caixaConta.id : d.contaId,
         destinoId: d.tipo === "SANGRIA" ? d.contaId : caixaConta.id,

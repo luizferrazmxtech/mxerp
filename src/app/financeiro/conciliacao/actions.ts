@@ -6,7 +6,6 @@ import { prisma } from "@/lib/db";
 import { conciliarLinhasTx, conciliarTx, desfazerTx, importarExtrato, lancarAvulsoTx, lerExtrato } from "@/lib/financeiro/extrato";
 import { sincronizarInter } from "@/lib/financeiro/inter";
 import { aprenderRegra, buscarRamos } from "@/lib/financeiro/conciliacao";
-import { todasAsLojas } from "@/lib/empresa/loja";
 import { normalizar } from "@/lib/migracao/planilha";
 import { sincronizarBoletos } from "@/lib/financeiro/boletos";
 
@@ -70,7 +69,7 @@ export async function confirmarLote(itens: ItemLote[]): Promise<Estado> {
       if (it.acao === "BAIXAR") {
         const ids = Array.isArray(it.lancamentoIds) && it.lancamentoIds.length ? it.lancamentoIds.map(String) : it.lancamentoId ? [String(it.lancamentoId)] : [];
         if (!ids.length) throw new Error("escolha a conta a baixar");
-        await prisma.$transaction((tx) => todasAsLojas(() => conciliarTx(tx, it.transacaoId, ids, { centroCustoId: it.centroCustoId || null, aceitarDiferenca: !!it.aceitarDiferenca })));
+        await prisma.$transaction((tx) => (conciliarTx(tx, it.transacaoId, ids, { centroCustoId: it.centroCustoId || null, aceitarDiferenca: !!it.aceitarDiferenca })));
         baixadas += ids.length;
       } else if (it.acao === "LANCAR") {
         if (!it.categoriaId) throw new Error("escolha a categoria");
@@ -128,7 +127,7 @@ export async function informarCnpjFavorecido(chave: string, documento: string): 
 export async function juntarLinhas(transacaoIds: string[], lancamentoId: string, opts: { centroCustoId?: string | null; deixarRestante?: boolean } = {}): Promise<Estado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
   try {
-    const r = await prisma.$transaction((tx) => todasAsLojas(() => conciliarLinhasTx(tx, (transacaoIds ?? []).map(String), String(lancamentoId), { centroCustoId: opts.centroCustoId || null, deixarRestante: !!opts.deixarRestante })));
+    const r = await prisma.$transaction((tx) => (conciliarLinhasTx(tx, (transacaoIds ?? []).map(String), String(lancamentoId), { centroCustoId: opts.centroCustoId || null, deixarRestante: !!opts.deixarRestante })));
     const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     return feito(`Conta dividida em ${r.partes} partes e baixada com ${transacaoIds.length} linhas do extrato.${r.restante ? ` Ficou em aberto: ${brl(r.restante)}.` : ""}`);
   } catch (e) { return falha(e); }
@@ -142,7 +141,7 @@ export type ContaAberta = { lancamentoId: string; descricao: string; pessoa: str
  */
 export async function buscarContasAbertas(tipo: "PAGAR" | "RECEBER", busca: string, alvo?: number): Promise<ContaAberta[]> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
-  const ls = await todasAsLojas(() => prisma.lancamento.findMany({
+  const ls = await (prisma.lancamento.findMany({
     where: { tipo: tipo === "RECEBER" ? "RECEBER" : "PAGAR", pagoEm: null, transferenciaId: null },
     include: { pessoa: { select: { nome: true, fantasia: true, documento: true } } },
     orderBy: { vencimento: "asc" }, take: 3000,

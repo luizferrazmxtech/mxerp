@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { todasAsLojas } from "@/lib/empresa/loja";
+import { todasAsLojas, LOJA_ATUAL } from "@/lib/empresa/loja";
 import { diaSP } from "@/lib/datas";
 import { CATEGORIAS_PESSOAL, garantirCategoriasPessoal, type TipoPagamentoPessoal } from "./padroes";
 
@@ -87,7 +87,7 @@ export async function painelMaoDeObra(mes: string, meses = 12) {
   const cats = await prisma.$transaction((tx) => garantirCategoriasPessoal(tx));
   const tipoPorCat = new Map<string, TipoMaoDeObra>(Object.entries(cats).map(([t, id]) => [id, t as TipoMaoDeObra]));
   // demais contas do grupo "Salários e encargos" (FGTS, INSS, vale-transporte...)
-  const pai = await prisma.categoriaFinanceira.findUnique({ where: { nome_tipo: { nome: "Salários e encargos", tipo: "PAGAR" } } });
+  const pai = await prisma.categoriaFinanceira.findUnique({ where: { empresaId_nome_tipo: { empresaId: LOJA_ATUAL, nome: "Salários e encargos", tipo: "PAGAR" } } });
   if (pai) {
     const filhos = await prisma.categoriaFinanceira.findMany({ where: { OR: [{ id: pai.id }, { paiId: pai.id }] }, select: { id: true } });
     for (const f of filhos) if (!tipoPorCat.has(f.id)) tipoPorCat.set(f.id, "ENCARGOS");

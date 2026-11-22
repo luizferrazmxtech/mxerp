@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 const URL = "postgresql://mxerp:mxerp@localhost:5432/mxerp_test?schema=public";
 process.env.DATABASE_URL = URL;
@@ -25,8 +26,8 @@ beforeEach(async () => {
     await est.entrada(tx, { produtoId: prod, localId: loc, quantidade: 5, origemTipo: "IMPLANTACAO" });
     await garantirPadroes(tx);
   });
-  dinheiro = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "Dinheiro" } })).id;
-  credito = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "Cartão de crédito" } })).id;
+  dinheiro = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Dinheiro" } } })).id;
+  credito = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Cartão de crédito" } } })).id;
 });
 
 const fisico = async () => (await prisma.$transaction((tx) => est.resumoProduto(tx, prod)));

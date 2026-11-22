@@ -5,6 +5,7 @@ import { cifrar, decifrar } from "@/lib/seguranca/segredos";
 import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
 import { diaSP, somarDias } from "@/lib/datas";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 /**
  * PagSeguro (PagBank):
@@ -77,8 +78,8 @@ export async function salvarConfigPagSeguro(d: Omit<ConfigPagSeguro, "tokenCifra
   await prisma.$transaction(async (tx) => {
     await tx.configuracao.upsert({ where: { chave: "pagseguro" }, create: { chave: "pagseguro", valor }, update: { valor } });
     if (!valor.ativo) return;
-    const conta = await tx.contaBancaria.upsert({ where: { nome: NOME_CONTA }, create: { nome: NOME_CONTA, banco: "290 PagSeguro" }, update: { ativa: true } });
-    for (const f of FORMAS_PAGSEGURO) await tx.formaPagamento.upsert({ where: { nome: f.nome }, create: { ...f, pagseguro: true, contaBancariaId: conta.id }, update: { pagseguro: true, ativa: true, contaBancariaId: conta.id } });
+    const conta = await tx.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: NOME_CONTA } }, create: { nome: NOME_CONTA, banco: "290 PagSeguro" }, update: { ativa: true } });
+    for (const f of FORMAS_PAGSEGURO) await tx.formaPagamento.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: f.nome } }, create: { ...f, pagseguro: true, contaBancariaId: conta.id }, update: { pagseguro: true, ativa: true, contaBancariaId: conta.id } });
   });
 }
 
@@ -247,7 +248,7 @@ export async function gravarRepasses(linhas: LinhaEdi[], data: string) {
 export async function conciliarTransacoes(opts: OpcoesPS = {}) {
   const c = await configPagSeguro();
   const desde = c.conciliarDesde ? new Date(`${c.conciliarDesde}T00:00:00-03:00`) : new Date(0);
-  const conta = await prisma.contaBancaria.findUnique({ where: { nome: NOME_CONTA } });
+  const conta = await prisma.contaBancaria.findUnique({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: NOME_CONTA } } });
   if (!conta) return { ligadas: 0, recebidas: 0, taxas: 0 };
   const hoje = (opts.hoje ?? diaSP(new Date()));
   let ligadas = 0, recebidas = 0, taxas = 0;

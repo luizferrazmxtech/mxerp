@@ -5,6 +5,7 @@ import { proximoNumero } from "@/lib/sequencia";
 import { diaSP, somarDias } from "@/lib/datas";
 import { baixarLancamento } from "./lancamentos";
 import { ClienteInter, ESCOPOS_COBRANCA, explicar, idInterAtual, idInterDaEmpresa, lerConfigInter, mensagemErro, temCobranca, type ConfigInter, type RespostaInter } from "./inter";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 /**
  * Boletos (BolePix) do Banco Inter pela API de Cobrança v3.
@@ -79,7 +80,7 @@ function falha(o: string, r: RespostaInter): never {
 export async function contaDoInter(cfg: ConfigInter | null) {
   if (cfg?.contaBancariaId) return prisma.contaBancaria.findUniqueOrThrow({ where: { id: cfg.contaBancariaId } });
   const nome = cfg?.contaErp ?? "INTER MXTECH";
-  return prisma.contaBancaria.upsert({ where: { nome }, create: { nome, banco: "077" }, update: {} });
+  return prisma.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: nome } }, create: { nome, banco: "077" }, update: {} });
 }
 
 // ---------- pagador
