@@ -18,7 +18,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ tipo: st
     const r = await curvaAbc(per, sp.por === "clientes" ? "clientes" : sp.por === "servicos" ? "servicos" : "produtos", (sp.criterio as CriterioAbc) || "valor", { vendedorId: sp.vendedor || undefined });
     linhas = [["Item", "Código", "Quantidade", "Faturamento", "Lucro", "% do total", "Acumulado %", "Classe"], ...r.linhas.map((l) => [l.rotulo, l.detalhe, n(l.quantidade), n(l.valor), n(l.lucro), n(l.pct * 100), n(l.acumulado * 100), l.classe])];
   } else if (tipo === "comissoes") {
-    const r = await relatorioComissoes(per);
+    const r = await relatorioComissoes(per, sp.vendedor || undefined);
     linhas = [["Funcionário", "Documento", "Data", "Cliente", "Base", "%", "Comissão", "Recebido", "A receber total", "Liberada"], ...r.flatMap((f) => f.linhas.map((l) => [f.nome, `${l.origem === "OS" ? "OS" : "Venda"} ${l.numero}`, dia(l.data), l.cliente, n(l.base), n(l.percentual), n(l.comissao), n(l.recebido), n(l.totalReceber), n(l.liberada)]))];
   } else if (tipo === "tempo-os") {
     const r = await tempoOs(per);

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { duracao, tempoOs } from "@/lib/relatorios/relatorios";
 import { paramsDe, periodoRelatorio } from "@/lib/relatorios/periodo";
+import { BarrasH } from "@/components/relatorios/Graficos";
 import { Pagina } from "@/components/ui/Pagina";
 import { BarraRelatorio, Kpi } from "@/components/relatorios/Barra";
 import { dataHora } from "@/lib/ui/format";
@@ -13,7 +14,8 @@ export default async function TempoOs({ searchParams }: { searchParams: Promise<
   const per = periodoRelatorio(sp);
   const params = paramsDe(sp);
   const r = await tempoOs(per);
-  const maxSit = Math.max(1, ...r.situacoes.map((s) => s.media));
+  const gargalo = r.situacoes[0];
+  const totalSit = r.situacoes.reduce((t, s) => t + s.horas, 0);
   return (
     <Pagina titulo="Situação × tempo das OS" icone="relogio" trilha={[{ rotulo: "Relatórios", href: "/relatorios" }, { rotulo: "Tempo das OS" }]}>
       <BarraRelatorio base="/relatorios/tempo-os" params={params} csv={`/api/relatorios/tempo-os?${new URLSearchParams(params)}`} />
@@ -25,15 +27,12 @@ export default async function TempoOs({ searchParams }: { searchParams: Promise<
         <Kpi rotulo="Fora da previsão" valor={String(r.resumo.atrasadas)} cor={r.resumo.atrasadas ? "text-red-600" : ""} />
       </div>
       <div className="mb-3 grid gap-3 lg:grid-cols-2">
-        <div className="cartao p-4">
-          <h2 className="mb-2 text-[15px]">Tempo médio em cada <b>situação</b></h2>
-          {r.situacoes.map((s) => (
-            <div key={s.situacao} className="mb-2 text-[12px]">
-              <div className="flex justify-between"><span>{s.situacao} <span className="text-slate-400">({s.vezes}x)</span></span><span>{duracao(s.media)}</span></div>
-              <div className="h-2 rounded bg-slate-100"><div className="h-2 rounded bg-[#e8730c]" style={{ width: `${(s.media / maxSit) * 100}%` }} /></div>
-            </div>
-          ))}
-          {!r.situacoes.length && <p className="text-[12px] text-slate-500">Sem histórico de situações.</p>}
+        <div>
+          <BarrasH titulo={<>Onde as OS ficam mais tempo paradas{gargalo && <span className="ml-2 text-[12px] font-normal text-amber-700">gargalo: {gargalo.situacao}</span>}</>}
+            series={[{ nome: "Tempo total", cor: "#e8730c" }]} formatar={duracao} destaque={gargalo?.situacao} vazio="Sem histórico de situações."
+            linhas={r.situacoes.map((s) => ({ chave: s.situacao, rotulo: s.situacao, detalhe: `${s.vezes}x · média ${duracao(s.media)}`, valores: [s.horas],
+              total: `${duracao(s.horas)} (${totalSit ? Math.round((s.horas / totalSit) * 100) : 0}%)` }))} />
+          <p className="mt-1 text-[12px] text-slate-500">Soma do tempo que as OS do período passaram em cada situação. A maior barra é onde vale agir primeiro.</p>
         </div>
         <div className="cartao overflow-x-auto">
           <table className="tabela">
@@ -42,6 +41,12 @@ export default async function TempoOs({ searchParams }: { searchParams: Promise<
           </table>
         </div>
       </div>
+      {r.tecnicos.length > 1 && (
+        <div className="mb-3">
+          <BarrasH titulo="Tempo médio por técnico (entrada → saída)" series={[{ nome: "Tempo médio", cor: "#018e83" }]} formatar={duracao}
+            linhas={r.tecnicos.map((t) => ({ chave: t.tecnico, rotulo: t.tecnico, detalhe: `${t.os} OS${t.atrasadas ? ` · ${t.atrasadas} fora da previsão` : ""}`, valores: [t.media] }))} />
+        </div>
+      )}
       <div className="cartao overflow-x-auto">
         <table className="tabela">
           <thead><tr><th>OS</th><th>Cliente</th><th>Técnico</th><th>Entrada</th><th>Saída</th><th className="text-right">Tempo</th><th>Previsão</th></tr></thead>

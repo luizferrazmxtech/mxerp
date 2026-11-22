@@ -128,4 +128,17 @@ describe("relatórios", () => {
     expect(d.vendedores.map((x) => x.nome)).toEqual(["Ana Vendas"]);
     expect(painel.variacao(5, 0)).toBeNull();
   });
+
+  it("evolução do lucro: por dia no mês e por mês em períodos longos", async () => {
+    await dados();
+    const r = await rel.relatorioLucro(per, "documento");
+    expect(r.evolucao.porDia).toBe(true);
+    expect(r.evolucao.pontos).toHaveLength(31);
+    expect(r.evolucao.pontos.find((p) => p.chave === "2026-10-05")).toMatchObject({ receita: 630, lucro: 290 });
+    expect(r.evolucao.pontos.find((p) => p.chave === "2026-10-12")).toMatchObject({ receita: 500, lucro: 350 });
+    const ano = await rel.relatorioLucro({ de: new Date("2022-01-01T00:00:00Z"), ate: new Date("2026-11-30T00:00:00Z") }, "cliente");
+    expect(ano.evolucao.porDia).toBe(false);
+    expect(ano.evolucao.pontos.map((p) => p.chave)).toEqual(["2026-10", "2026-11"]);
+    expect(ano.evolucao.pontos[0].receita).toBe(1130);
+  });
 });

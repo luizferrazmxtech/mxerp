@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { relatorioComissoes } from "@/lib/relatorios/relatorios";
 import { paramsDe, periodoRelatorio } from "@/lib/relatorios/periodo";
+import { BarrasH } from "@/components/relatorios/Graficos";
+import { urlCom } from "@/components/ui/BarraLista";
 import { Pagina } from "@/components/ui/Pagina";
 import { BarraRelatorio, Kpi, brl } from "@/components/relatorios/Barra";
 import { data } from "@/lib/ui/format";
@@ -12,7 +14,7 @@ export default async function Comissoes({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const per = periodoRelatorio(sp);
   const params = paramsDe(sp);
-  const r = await relatorioComissoes(per);
+  const r = await relatorioComissoes(per, sp.vendedor || undefined);
   return (
     <Pagina titulo="Comissões" icone="percentual" trilha={[{ rotulo: "Relatórios", href: "/relatorios" }, { rotulo: "Comissões" }]}>
       <BarraRelatorio base="/relatorios/comissoes" params={params} csv={`/api/relatorios/comissoes?${new URLSearchParams(params)}`} />
@@ -25,6 +27,14 @@ export default async function Comissoes({ searchParams }: { searchParams: Promis
         <Kpi rotulo="Comissão total" valor={brl(r.reduce((s, f) => s + f.comissao, 0))} />
         <Kpi rotulo="Liberada para pagar" valor={brl(r.reduce((s, f) => s + f.liberada, 0))} cor="text-emerald-700" />
       </div>
+      {r.length > 0 && (
+        <div className="mb-3">
+          <BarrasH titulo="Comissão por funcionário" formatar={brl}
+            series={[{ nome: "Liberada para pagar", cor: "#1fa855" }, { nome: "Aguardando recebimento", cor: "#cbd5e1" }]}
+            linhas={r.map((f) => ({ chave: f.usuarioId, rotulo: f.nome, detalhe: `${f.percentual}%`, href: urlCom("/relatorios/comissoes", params, { vendedor: f.usuarioId }),
+              valores: [f.liberada, Math.max(f.comissao - f.liberada, 0)], total: `${brl(f.comissao)} · liberada ${brl(f.liberada)}` }))} />
+        </div>
+      )}
       {r.map((f) => (
         <div key={f.usuarioId} className="cartao mb-3 overflow-x-auto">
           <div className="flex flex-wrap items-center gap-3 border-b bg-[#f7f7f7] px-3 py-2 text-[13px]">
