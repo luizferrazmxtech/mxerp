@@ -72,6 +72,16 @@ Leva uns 10 minutos (monta o sistema). No fim, `./vps/mxerp.sh status` deve most
 
 Entre em `https://erp.mxtech.inf.br` com o mesmo usuário e senha do PC.
 
+### Backup novo do Gestão Click por cima
+
+O banco do PC já tem o que veio do backup anterior do Gestão Click. Para trazer o que mudou lá desde então:
+
+1. Pare de lançar no Gestão Click e gere o backup completo (.zip).
+2. Na VPS, entre em **Migração**, escolha o .zip, marque as etapas e clique em **Simular**. Nada é gravado.
+3. Confira os avisos e clique em **Gravar**.
+
+Na reimportação nada é duplicado. Cadastros, preços e custos são atualizados. O estoque fica igual ao do backup, menos nos produtos que já tiveram movimento de verdade no MXERP. OS, vendas e contas novas entram. A OS já trazida que mudou de situação no Gestão Click passa para a situação atual (a reserva das peças acompanha, sem baixa, porque o saldo do backup já desconta). A conta trazida antes e paga ou recebida depois no Gestão Click é baixada com a data de confirmação de lá. O que foi mexido no MXERP depois da importação anterior fica como está no MXERP, e o aviso lista os números.
+
 ## 7. Depois que a VPS virar o sistema oficial
 
 - **Inter:** em *Financeiro → Conciliação → Configurar Banco Inter*, preencha *Endereço público do ERP* com `https://erp.mxtech.inf.br` e salve. O webhook passa a apontar para a VPS e a baixa do boleto fica na hora.
