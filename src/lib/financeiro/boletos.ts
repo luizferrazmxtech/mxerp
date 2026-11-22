@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
 import { diaSP, somarDias } from "@/lib/datas";
 import { baixarLancamento } from "./lancamentos";
-import { ClienteInter, ESCOPOS_COBRANCA, explicar, lerConfigInter, mensagemErro, temCobranca, type ConfigInter, type RespostaInter } from "./inter";
+import { ClienteInter, ESCOPOS_COBRANCA, explicar, idInterAtual, idInterDaEmpresa, lerConfigInter, mensagemErro, temCobranca, type ConfigInter, type RespostaInter } from "./inter";
 
 /**
  * Boletos (BolePix) do Banco Inter pela API de Cobrança v3.
@@ -35,17 +35,31 @@ export class BoletoError extends Error {}
 
 type Ajustes = { emitirBoletos: boolean; boletosDesde: Date | null; multaPct: number; jurosMesPct: number; diasBaixa: number; mensagemBoleto: string | null; ambiente: string };
 
-/** Cliente da API + parâmetros dos boletos. `null` quando a integração não existe ou não tem a permissão de cobrança. */
-export async function contextoBoletos(cliente?: ClienteInter) {
-  const r = await prisma.integracaoInter.findUnique({ where: { id: "inter" } });
-  const cfg: ConfigInter | null = cliente?.configuracao ?? (await lerConfigInter());
+/**
+ * Cliente da API + parâmetros dos boletos de uma integração do Inter (sem `interId`, a da loja atual; null = a
+ * empresa não tem Inter). `null` quando a integração não existe ou não tem a permissão de cobrança.
+ */
+export async function contextoBoletos(cliente?: ClienteInter, interId?: string | null) {
+  const id = interId === undefined ? (cliente?.configuracao.id ?? (await idInterAtual())) : interId;
+  if (!id && !cliente) return null;
+  const r = id ? await prisma.integracaoInter.findUnique({ where: { id } }) : null;
+  const cfg: ConfigInter | null = cliente?.configuracao ?? (await lerConfigInter(id));
   if (!cfg || !temCobranca(cliente ? ESCOPOS_COBRANCA : cfg.escopos)) return null;
   const ajustes: Ajustes = {
     emitirBoletos: r?.emitirBoletos ?? true, boletosDesde: r?.boletosDesde ?? null,
     multaPct: Number(r?.multaPct ?? 2), jurosMesPct: Number(r?.jurosMesPct ?? 1), diasBaixa: r?.diasBaixa ?? 30,
     mensagemBoleto: r?.mensagemBoleto ?? null, ambiente: r?.ambiente ?? (cfg.base.includes("sandbox") ? "sandbox" : "producao"),
   };
-  return { cliente: cliente ?? new ClienteInter(cfg), cfg, ajustes };
+  return { cliente: cliente ?? new ClienteInter(cfg), cfg, ajustes, interId: id ?? "inter" };
+}
+/** Integração que registrou o boleto (os antigos, de antes de ter uma por empresa, são da "inter"). */
+const interDoBoleto = (b: { interId: string | null }) => b.interId ?? "inter";
+/** Filtro dos boletos de uma integração. */
+const boletosDoInter = (ctx: { interId: string }) => (ctx.interId === "inter" ? { OR: [{ interId: "inter" }, { interId: null }] } : { interId: ctx.interId });
+/** O contexto certo para mexer num boleto: o recebido, se for da mesma integração; senão o da integração dele. */
+async function contextoDoBoleto(b: { interId: string | null }, ctx?: Contexto | null) {
+  if (ctx && ctx.interId === interDoBoleto(b)) return ctx;
+  return contextoBoletos(undefined, interDoBoleto(b));
 }
 type Contexto = NonNullable<Awaited<ReturnType<typeof contextoBoletos>>>;
 
@@ -112,10 +126,11 @@ function descricaoParcela(l: { descricao: string; parcela: number; totalParcelas
  * Erros de cadastro/API ficam gravados no boleto (situação ERRO) e voltam como exceção.
  */
 export async function emitirBoleto(lancamentoId: string, opts: { cliente?: ClienteInter } = {}) {
-  const ctx = await contextoBoletos(opts.cliente);
-  if (!ctx) throw new BoletoError("Integração com o Banco Inter sem a permissão de boletos: configure em Financeiro → Conciliação → Configurar Banco Inter");
   const l = await lancamentoComTudo(lancamentoId);
   if (!l) throw new BoletoError("Conta a receber não encontrada");
+  // o boleto sai pelo Inter da empresa (CNPJ) da conta, nunca pelo de outra
+  const ctx = await contextoBoletos(opts.cliente, opts.cliente ? undefined : await idInterDaEmpresa(l.empresaId));
+  if (!ctx) throw new BoletoError("A empresa desta conta não tem o Banco Inter com a permissão de boletos: configure em Financeiro → Conciliação → Configurar Banco Inter (com a empresa escolhida no topo do menu)");
   if (l.tipo !== "RECEBER") throw new BoletoError("Boleto só para contas a receber");
   if (l.pagoEm) throw new BoletoError("Esta conta já foi recebida");
   const ativo = l.boletos.find((b) => ATIVOS.includes(b.situacao));
@@ -129,7 +144,7 @@ export async function emitirBoleto(lancamentoId: string, opts: { cliente?: Clien
     const outro = await tx.boleto.findFirst({ where: { lancamentoId, situacao: { in: ATIVOS } } });
     if (outro) return { boleto: outro, novo: false };
     const seuNumero = String(await proximoNumero(tx, "BOLETO"));
-    return { novo: true, boleto: await tx.boleto.create({ data: { lancamentoId, token: randomBytes(18).toString("base64url"), seuNumero, valor: l.valor, vencimento: l.vencimento, ambiente: ctx.ajustes.ambiente } }) };
+    return { novo: true, boleto: await tx.boleto.create({ data: { lancamentoId, interId: ctx.interId, token: randomBytes(18).toString("base64url"), seuNumero, valor: l.valor, vencimento: l.vencimento, ambiente: ctx.ajustes.ambiente } }) };
   });
   if (!reg.novo) return reg.boleto;
   const b = reg.boleto;
@@ -172,13 +187,17 @@ export function deveEmitir(l: { tipo: string; pagoEm: Date | null; idLegado: str
  */
 export async function boletosDoDocumento(alvo: { origemTipo: OrigemDocumento; origemId: string } | { lancamentoIds: string[] }, opts: { cliente?: ClienteInter } = {}) {
   try {
-    const ctx = await contextoBoletos(opts.cliente);
-    if (!ctx) return { emitidos: 0, erros: [] as string[] };
-    await cancelarOrfaos(ctx);
+    await cancelarOrfaos(opts.cliente ? await contextoBoletos(opts.cliente) : null);
     const where = "origemTipo" in alvo ? { origemTipo: alvo.origemTipo, origemId: alvo.origemId } : { id: { in: alvo.lancamentoIds } };
     const ls = await prisma.lancamento.findMany({ where: { ...where, tipo: "RECEBER", pagoEm: null }, include: { formaPagamento: true, boletos: true }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }] });
     let emitidos = 0; const erros: string[] = [];
+    const porEmpresa = new Map<string, Contexto | null>();
     for (const l of ls) {
+      // cada parcela pelo Inter da empresa dela
+      const chave = l.empresaId ?? "";
+      if (!porEmpresa.has(chave)) porEmpresa.set(chave, await contextoBoletos(opts.cliente, opts.cliente ? undefined : await idInterDaEmpresa(l.empresaId)));
+      const ctx = porEmpresa.get(chave);
+      if (!ctx) continue;
       if (!deveEmitir(l, ctx.ajustes) || l.boletos.some((b) => ATIVOS.includes(b.situacao) || b.situacao === "ERRO")) continue;
       try { await emitirBoleto(l.id, { cliente: ctx.cliente }); emitidos++; } catch (e) { erros.push(e instanceof Error ? e.message : String(e)); }
     }
@@ -289,9 +308,9 @@ export async function baixarPeloBoleto(boletoId: string, cfg: ConfigInter | null
 
 /** Consulta um boleto no Inter e grava. */
 export async function atualizarBoleto(boletoId: string, ctx?: Contexto | null) {
-  ctx ??= await contextoBoletos();
-  if (!ctx) throw new BoletoError("Integração com o Banco Inter sem a permissão de boletos");
   const b = await prisma.boleto.findUniqueOrThrow({ where: { id: boletoId } });
+  ctx = await contextoDoBoleto(b, ctx);
+  if (!ctx) throw new BoletoError("Integração com o Banco Inter sem a permissão de boletos");
   if (!b.codigoSolicitacao) return b;
   const r = await chamar(ctx, "GET", `${API}/${b.codigoSolicitacao}`);
   if (r.status !== 200) falha("não consultou o boleto", r);
@@ -303,7 +322,7 @@ export async function cancelarBoleto(boletoId: string, motivo: string, ctx?: Con
   const b = await prisma.boleto.findUniqueOrThrow({ where: { id: boletoId } });
   if (!ATIVOS.includes(b.situacao) && b.situacao !== "ERRO") return b;
   if (!b.codigoSolicitacao) return prisma.boleto.update({ where: { id: b.id }, data: { situacao: "CANCELADO" } });
-  ctx ??= await contextoBoletos();
+  ctx = await contextoDoBoleto(b, ctx);
   if (!ctx) throw new BoletoError("Integração com o Banco Inter sem a permissão de boletos");
   const r = await chamar(ctx, "POST", `${API}/${b.codigoSolicitacao}/cancelar`, { json: { motivoCancelamento: motivo.slice(0, 50) } });
   if (r.status === 200 || r.status === 202 || r.status === 204) return prisma.boleto.update({ where: { id: b.id }, data: { situacao: "CANCELADO", erro: null } });
@@ -314,8 +333,8 @@ export async function cancelarBoleto(boletoId: string, motivo: string, ctx?: Con
 }
 
 /** Boletos cuja parcela foi apagada (venda editada/excluída): cancela no Inter. */
-async function cancelarOrfaos(ctx: Contexto) {
-  const orfaos = await prisma.boleto.findMany({ where: { lancamentoId: null, situacao: { in: ATIVOS } } });
+async function cancelarOrfaos(ctx: Contexto | null, soDesteInter = false) {
+  const orfaos = await prisma.boleto.findMany({ where: { lancamentoId: null, situacao: { in: ATIVOS }, ...(soDesteInter && ctx ? boletosDoInter(ctx) : {}) } });
   let n = 0;
   for (const b of orfaos) {
     try { await cancelarBoleto(b.id, "Parcela alterada ou cancelada no ERP", ctx); n++; }
@@ -328,7 +347,7 @@ async function cancelarOrfaos(ctx: Contexto) {
 export async function cancelarBoletosDoLancamento(lancamentoId: string, motivo = "Recebido por outro meio", opts: { cliente?: ClienteInter } = {}) {
   const bs = await prisma.boleto.findMany({ where: { lancamentoId, situacao: { in: ATIVOS } } });
   if (!bs.length) return 0;
-  const ctx = await contextoBoletos(opts.cliente);
+  const ctx = opts.cliente ? await contextoBoletos(opts.cliente) : null;
   let n = 0;
   for (const b of bs) {
     try { await cancelarBoleto(b.id, motivo, ctx); n++; }
@@ -342,7 +361,7 @@ export async function pdfBoleto(boletoId: string, ctx?: Contexto | null) {
   const b = await prisma.boleto.findUniqueOrThrow({ where: { id: boletoId } });
   if (b.pdf) return Buffer.from(b.pdf);
   if (!b.codigoSolicitacao) throw new BoletoError("Boleto não registrado no Inter");
-  ctx ??= await contextoBoletos();
+  ctx = await contextoDoBoleto(b, ctx);
   if (!ctx) throw new BoletoError("Integração com o Banco Inter sem a permissão de boletos");
   const r = await chamar(ctx, "GET", `${API}/${b.codigoSolicitacao}/pdf`);
   if (r.status !== 200) falha("não gerou o PDF do boleto", r);
@@ -359,18 +378,18 @@ export async function pdfBoleto(boletoId: string, ctx?: Contexto | null) {
  * Consulta no Inter os boletos que mudaram de situação nos últimos dias (pagos, vencidos, cancelados), baixa
  * as contas pagas, completa os que ficaram em processamento, cancela os órfãos e emite os que faltaram.
  */
-export async function sincronizarBoletos(opts: { dias?: number; cliente?: ClienteInter } = {}) {
-  const ctx = await contextoBoletos(opts.cliente);
+export async function sincronizarBoletos(opts: { dias?: number; cliente?: ClienteInter; interId?: string | null } = {}) {
+  const ctx = await contextoBoletos(opts.cliente, opts.interId);
   if (!ctx) return null;
   const res = { consultados: 0, baixados: 0, emitidos: 0, cancelados: 0, avisos: 0, erros: [] as string[] };
   const avisosAntes = await prisma.avisoBoleto.count();
   try {
-    res.cancelados = await cancelarOrfaos(ctx);
+    res.cancelados = await cancelarOrfaos(ctx, true);
 
     // 1) mudanças de situação no período, em páginas
     const fim = diaSP();
     const inicio = somarDias(fim, -(opts.dias ?? 5));
-    const nossos = new Map((await prisma.boleto.findMany({ where: { codigoSolicitacao: { not: null }, createdAt: { gte: somarDias(inicio, -400) } }, select: { id: true, codigoSolicitacao: true, situacao: true, lancamentoId: true } })).map((b) => [b.codigoSolicitacao!, b]));
+    const nossos = new Map((await prisma.boleto.findMany({ where: { codigoSolicitacao: { not: null }, createdAt: { gte: somarDias(inicio, -400) }, ...boletosDoInter(ctx) }, select: { id: true, codigoSolicitacao: true, situacao: true, lancamentoId: true } })).map((b) => [b.codigoSolicitacao!, b]));
     for (let pagina = 0; ; pagina++) {
       const r = await chamar(ctx, "GET", API, { params: { dataInicial: iso(inicio), dataFinal: iso(fim), filtrarDataPor: "SITUACAO", "paginacao.paginaAtual": pagina, "paginacao.itensPorPagina": 1000 } });
       if (r.status !== 200) falha("não listou os boletos", r);
@@ -394,15 +413,17 @@ export async function sincronizarBoletos(opts: { dias?: number; cliente?: Client
     }
 
     // 2) os que ficaram sem linha digitável (registro assíncrono) ou travados no meio da emissão
-    const incompletos = await prisma.boleto.findMany({ where: { OR: [{ situacao: "EM_PROCESSAMENTO" }, { situacao: { in: ["A_RECEBER", "ATRASADO"] }, linhaDigitavel: null }] }, take: 50 });
+    const incompletos = await prisma.boleto.findMany({ where: { AND: [boletosDoInter(ctx), { OR: [{ situacao: "EM_PROCESSAMENTO" }, { situacao: { in: ["A_RECEBER", "ATRASADO"] }, linhaDigitavel: null }] }] }, take: 50 });
     for (const b of incompletos) { try { await atualizarBoleto(b.id, ctx); } catch (e) { res.erros.push(e instanceof Error ? e.message : String(e)); } }
-    const travados = await prisma.boleto.findMany({ where: { situacao: "EMITINDO", codigoSolicitacao: null, createdAt: { lt: new Date(Date.now() - 10 * 60000) } }, take: 20 });
+    const travados = await prisma.boleto.findMany({ where: { situacao: "EMITINDO", codigoSolicitacao: null, createdAt: { lt: new Date(Date.now() - 10 * 60000) }, ...boletosDoInter(ctx) }, take: 20 });
     for (const b of travados) await recuperarTravado(b.id, b.seuNumero, b.createdAt, ctx).catch((e) => res.erros.push(e instanceof Error ? e.message : String(e)));
 
     // 3) parcelas novas que ficaram sem boleto (lançadas por outro caminho, ou o Inter estava fora do ar)
     if (ctx.ajustes.emitirBoletos) {
+      const empresas = await empresasDoInter(ctx.interId);
       const ls = await prisma.lancamento.findMany({
         where: { tipo: "RECEBER", pagoEm: null, idLegado: null, formaPagamento: { boletoInter: true }, boletos: { none: {} }, vencimento: { gte: diaSP() },
+          OR: [{ empresaId: { in: empresas.ids } }, ...(empresas.semEmpresa ? [{ empresaId: null }] : [])],
           createdAt: { gte: ctx.ajustes.boletosDesde && ctx.ajustes.boletosDesde > somarDias(fim, -7) ? ctx.ajustes.boletosDesde : somarDias(fim, -7) } },
         select: { id: true }, take: 100,
       });
@@ -413,8 +434,17 @@ export async function sincronizarBoletos(opts: { dias?: number; cliente?: Client
   }
   res.avisos = (await prisma.avisoBoleto.count()) - avisosAntes;
   const msg = `${res.baixados} pago(s) baixado(s), ${res.emitidos} emitido(s), ${res.cancelados} cancelado(s)${res.avisos ? `, ${res.avisos} pago(s) sem conta no sistema` : ""}${res.erros.length ? ` · Erro: ${res.erros[0]}` : ""}`;
-  await prisma.integracaoInter.updateMany({ where: { id: "inter" }, data: { ultimaSincBoletosEm: new Date(), ultimaSincBoletosMsg: msg.slice(0, 500) } });
+  await prisma.integracaoInter.updateMany({ where: { id: ctx.interId }, data: { ultimaSincBoletosEm: new Date(), ultimaSincBoletosMsg: msg.slice(0, 500) } });
   return res;
+}
+
+/** Empresas cujas parcelas saem por esta integração (e se as contas sem empresa também). */
+async function empresasDoInter(interId: string) {
+  // sem nada na tela (configuração do .env): uma conta só, para tudo
+  if (!(await prisma.integracaoInter.count())) return { ids: (await prisma.empresa.findMany({ select: { id: true } })).map((e) => e.id), semEmpresa: true };
+  const ids: string[] = [];
+  for (const e of await prisma.empresa.findMany({ select: { id: true } })) if ((await idInterDaEmpresa(e.id)) === interId) ids.push(e.id);
+  return { ids, semEmpresa: (await idInterDaEmpresa(null)) === interId };
 }
 
 /** O servidor caiu entre registrar no Inter e gravar a resposta: procura pelo "seu número"; se não achar, marca erro. */
@@ -431,9 +461,9 @@ async function recuperarTravado(boletoId: string, seuNumero: string, criado: Dat
  * Aviso do Inter (webhook). O conteúdo não é confiável por si: para cada boleto nosso citado, a situação é
  * consultada de novo no Inter antes de baixar.
  */
-export async function receberWebhook(itens: unknown, opts: { cliente?: ClienteInter } = {}) {
+export async function receberWebhook(itens: unknown, opts: { cliente?: ClienteInter; interId?: string | null } = {}) {
   const lista = (Array.isArray(itens) ? itens : [itens]) as { codigoSolicitacao?: string }[];
-  const ctx = await contextoBoletos(opts.cliente);
+  const ctx = await contextoBoletos(opts.cliente, opts.interId);
   if (!ctx) return 0;
   let n = 0;
   for (const it of lista.slice(0, 200)) {
@@ -457,16 +487,16 @@ export async function receberWebhook(itens: unknown, opts: { cliente?: ClienteIn
 }
 
 /** Cadastra no Inter o endereço do webhook de boletos (precisa ser https e público). */
-export async function registrarWebhook(urlPublica: string, opts: { cliente?: ClienteInter } = {}) {
-  const ctx = await contextoBoletos(opts.cliente);
+export async function registrarWebhook(urlPublica: string, opts: { cliente?: ClienteInter; interId?: string | null } = {}) {
+  const ctx = await contextoBoletos(opts.cliente, opts.interId);
   if (!ctx) throw new BoletoError("Integração com o Banco Inter sem a permissão de boletos");
   if (!/^https:\/\/[^/\s]+/i.test(urlPublica)) throw new BoletoError("O endereço público precisa começar com https://");
-  const atual = await prisma.integracaoInter.findUnique({ where: { id: "inter" } });
+  const atual = await prisma.integracaoInter.findUnique({ where: { id: ctx.interId } });
   const token = atual?.webhookToken || randomBytes(24).toString("base64url");
   const url = `${urlPublica.replace(/\/+$/, "")}/api/inter/webhook/${token}`;
   const r = await chamar(ctx, "PUT", `${API}/webhook`, { json: { webhookUrl: url } });
   if (r.status !== 200 && r.status !== 204) falha("não cadastrou o webhook", r);
-  await prisma.integracaoInter.updateMany({ where: { id: "inter" }, data: { urlPublica, webhookToken: token, webhookMsg: `Webhook cadastrado em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}` } });
+  await prisma.integracaoInter.updateMany({ where: { id: ctx.interId }, data: { urlPublica, webhookToken: token, webhookMsg: `Webhook cadastrado em ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}` } });
   return url;
 }
 
@@ -479,8 +509,11 @@ export async function testarCobranca(ctx: Contexto) {
 
 /** Há integração com permissão de boletos? (sem abrir os segredos; para as telas) */
 export async function boletosDisponiveis() {
-  const r = await prisma.integracaoInter.findUnique({ where: { id: "inter" }, select: { escopos: true } });
-  if (r) return temCobranca(r.escopos);
+  if (await prisma.integracaoInter.count()) {
+    const id = await idInterAtual();
+    const r = id ? await prisma.integracaoInter.findUnique({ where: { id }, select: { escopos: true } }) : null;
+    return !!r && temCobranca(r.escopos);
+  }
   return temCobranca(process.env.INTER_ESCOPOS) && !!process.env.INTER_CLIENT_ID;
 }
 
@@ -490,6 +523,6 @@ export async function boletosDisponiveis() {
  * linha digitável e o Pix copia e cola (e o PDF vai impresso ou anexado).
  */
 export async function baseLinks() {
-  const r = await prisma.integracaoInter.findUnique({ where: { id: "inter" }, select: { urlPublica: true } });
+  const r = await prisma.integracaoInter.findFirst({ where: { urlPublica: { not: null } }, orderBy: { id: "asc" }, select: { urlPublica: true } });
   return r?.urlPublica?.replace(/\/+$/, "") || null;
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { interConfigurado, sincronizarInter } from "@/lib/financeiro/inter";
+import { idsInter, sincronizarInter } from "@/lib/financeiro/inter";
 import { sincronizarBoletos } from "@/lib/financeiro/boletos";
 
 /**
@@ -13,13 +13,21 @@ import { sincronizarBoletos } from "@/lib/financeiro/boletos";
 export async function POST(req: Request) {
   const segredo = process.env.CRON_SECRET;
   if (!segredo || req.headers.get("authorization") !== `Bearer ${segredo}`) return NextResponse.json({ erro: "não autorizado" }, { status: 401 });
-  if (!(await interConfigurado())) return NextResponse.json({ ignorado: "integração com o Inter não configurada" });
-  const tela = await prisma.integracaoInter.findUnique({ where: { id: "inter" }, select: { sincronizarAuto: true } });
-  if (tela && !tela.sincronizarAuto) return NextResponse.json({ ignorado: "busca automática desligada" });
-  const boletos = await sincronizarBoletos({ dias: 5 }).catch((e) => ({ erro: e instanceof Error ? e.message : String(e) }));
-  try {
-    return NextResponse.json({ ...(await sincronizarInter({ dias: 5 })), boletos });
-  } catch (e) {
-    return NextResponse.json({ erro: e instanceof Error ? e.message : String(e), boletos }, { status: 502 });
+  // uma rodada por conta do Inter (uma por empresa)
+  const ids = await idsInter();
+  if (!ids.length) return NextResponse.json({ ignorado: "integração com o Inter não configurada" });
+  const contas: Record<string, unknown>[] = [];
+  let falhou = false;
+  for (const id of ids) {
+    const tela = await prisma.integracaoInter.findUnique({ where: { id }, select: { sincronizarAuto: true } });
+    if (tela && !tela.sincronizarAuto) { contas.push({ id, ignorado: "busca automática desligada" }); continue; }
+    const boletos = await sincronizarBoletos({ dias: 5, interId: id }).catch((e) => ({ erro: e instanceof Error ? e.message : String(e) }));
+    try {
+      contas.push({ id, ...(await sincronizarInter({ dias: 5, interId: id })), boletos });
+    } catch (e) {
+      falhou = true;
+      contas.push({ id, erro: e instanceof Error ? e.message : String(e), boletos });
+    }
   }
+  return NextResponse.json(ids.length === 1 ? contas[0] : { contas }, { status: falhou ? 502 : 200 });
 }

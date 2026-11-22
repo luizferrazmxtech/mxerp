@@ -3,7 +3,7 @@ import Link from "next/link";
 import Resumo from "@/components/ui/Resumo";
 import { prisma } from "@/lib/db";
 import { analisarExtrato, buscarRamos, type LinhaAnalise } from "@/lib/financeiro/conciliacao";
-import { interConfigurado } from "@/lib/financeiro/inter";
+import { idInterAtual, interConfigurado } from "@/lib/financeiro/inter";
 import { garantirCategoriasPessoal, garantirPadroes } from "@/lib/financeiro/padroes";
 import { brl, data } from "@/lib/ui/format";
 import { normalizar } from "@/lib/migracao/planilha";
@@ -67,7 +67,7 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
       : Promise.resolve([]),
     prisma.categoriaFinanceira.findMany({ where: { ativa: true }, orderBy: [{ codigo: "asc" }, { nome: "asc" }], select: { id: true, nome: true, tipo: true, codigo: true } }),
     prisma.centroCusto.findMany({ where: { ativo: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
-    prisma.integracaoInter.findUnique({ where: { id: "inter" }, select: { ultimoTesteOk: true, ultimoTesteMsg: true, ultimaSincEm: true, ultimaSincMsg: true } }),
+    idInterAtual().then((id) => (id ? prisma.integracaoInter.findUnique({ where: { id }, select: { ultimoTesteOk: true, ultimoTesteMsg: true, ultimaSincEm: true, ultimaSincMsg: true } }) : null)),
     prisma.transacaoBancaria.count({ where: { situacao: { in: ["CONCILIADA", "IGNORADA"] }, ...(sp.conta ? { contaBancariaId: sp.conta } : {}) } }),
   ]);
   const configurado = await interConfigurado();

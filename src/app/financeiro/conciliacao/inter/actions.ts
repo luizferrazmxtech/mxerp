@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
-import { ESCOPO_EXTRATO, ESCOPOS_COBRANCA, lerArquivosInter, testarInter } from "@/lib/financeiro/inter";
+import { ESCOPO_EXTRATO, ESCOPOS_COBRANCA, idInterAtual, idInterParaSalvar, lerArquivosInter, testarInter } from "@/lib/financeiro/inter";
 import { registrarWebhook } from "@/lib/financeiro/boletos";
 import { cifrar, decifrar } from "@/lib/seguranca/segredos";
 
@@ -14,7 +14,9 @@ const atualizar = () => { revalidatePath("/financeiro/conciliacao"); revalidateP
 export async function salvarInter(_: Estado, form: FormData): Promise<Estado> {
   await exigirUsuario(["ADMIN"]);
   try {
-    const atual = await prisma.integracaoInter.findUnique({ where: { id: "inter" } });
+    // cada empresa (a escolhida no topo do menu) tem a sua conta do Inter
+    const alvo = await idInterParaSalvar();
+    const atual = await prisma.integracaoInter.findUnique({ where: { id: alvo.id } });
     const clientId = str(form.get("clientId"));
     const clientSecret = str(form.get("clientSecret"));
     const contaCorrente = str(form.get("contaCorrente")).replace(/\D/g, "");
@@ -52,19 +54,19 @@ export async function salvarInter(_: Estado, form: FormData): Promise<Estado> {
       certificado: cert, chaveCifrada: cifrar(key),
       clientSecretCifrado: clientSecret ? cifrar(clientSecret) : atual!.clientSecretCifrado,
     };
-    await prisma.integracaoInter.upsert({ where: { id: "inter" }, create: { id: "inter", ...dados }, update: dados });
+    await prisma.integracaoInter.upsert({ where: { id: alvo.id }, create: { id: alvo.id, empresaId: alvo.empresaId, ...dados }, update: { ...dados, empresaId: alvo.empresaId ?? atual?.empresaId ?? null } });
     const formas = form.getAll("formasBoleto").map(String);
     await prisma.$transaction([
       prisma.formaPagamento.updateMany({ where: { id: { in: formas } }, data: { boletoInter: true } }),
       prisma.formaPagamento.updateMany({ where: { id: { notIn: formas } }, data: { boletoInter: false } }),
     ]);
-    const t = await testarInter();
+    const t = await testarInter({ interId: alvo.id });
     let webhook = "";
     if (t.ok && cobranca && urlPublica && (urlPublica !== atual?.urlPublica || !atual?.webhookToken)) {
-      try { await registrarWebhook(urlPublica); webhook = " Webhook de boletos cadastrado no Inter."; }
+      try { await registrarWebhook(urlPublica, { interId: alvo.id }); webhook = " Webhook de boletos cadastrado no Inter."; }
       catch (e) {
         const m = e instanceof Error ? e.message : String(e);
-        await prisma.integracaoInter.updateMany({ where: { id: "inter" }, data: { webhookMsg: `Erro: ${m}`.slice(0, 500) } });
+        await prisma.integracaoInter.updateMany({ where: { id: alvo.id }, data: { webhookMsg: `Erro: ${m}`.slice(0, 500) } });
         webhook = ` Webhook não cadastrado: ${m}`;
       }
     }
@@ -84,7 +86,8 @@ export async function testarConexao(): Promise<Estado> {
 
 export async function removerInter(): Promise<Estado> {
   await exigirUsuario(["ADMIN"]);
-  await prisma.integracaoInter.deleteMany({ where: { id: "inter" } });
+  const id = await idInterAtual();
+  if (id) await prisma.integracaoInter.deleteMany({ where: { id } });
   atualizar();
   return { ok: true, mensagem: "Integração removida. As transações já importadas continuam na conciliação." };
 }
