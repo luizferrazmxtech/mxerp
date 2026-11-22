@@ -8,6 +8,7 @@ import { GraficoColunas } from "@/components/inicio/Graficos";
 import { BarrasH } from "@/components/relatorios/Graficos";
 import { rotuloMesCurto } from "@/lib/datas";
 import { urlCom } from "@/components/ui/BarraLista";
+import { atrasada, textoPrazo } from "@/lib/os/prazo";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Lucro das vendas e OS" };
@@ -31,6 +32,12 @@ export default async function Lucro({ searchParams }: { searchParams: Promise<Re
         <Kpi rotulo="Custo das peças" valor={brl(t.custo)} />
         <Kpi rotulo="Lucro bruto" valor={brl(t.lucro)} dica={`${pct(t.margem)} de margem`} cor={t.lucro < 0 ? "text-red-600" : "text-emerald-700"} />
       </div>
+      {r.prazo.atrasadas > 0 && (
+        <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+          {r.prazo.atrasadas} de {r.prazo.os} OS deste período foram concluídas depois da previsão (em média {r.prazo.mediaDias} dias após, a maior {r.prazo.maiorDias} dias).
+          {por !== "documento" && <> Veja cada uma em <Link href={urlCom("/relatorios/lucro", params, { por: undefined })} className="underline">Por venda/OS</Link>.</>}
+        </p>
+      )}
       <div className="mb-3 grid gap-3 lg:grid-cols-5">
         <div className={`cartao p-4 ${por === "documento" ? "lg:col-span-5" : "lg:col-span-3"}`}>
           <h3 className="mb-2 text-[14px] font-semibold text-slate-700">Faturamento e lucro {r.evolucao.porDia ? "por dia" : "por mês"}</h3>
@@ -49,11 +56,12 @@ export default async function Lucro({ searchParams }: { searchParams: Promise<Re
       </div>
       <div className="cartao overflow-x-auto">
         <table className="tabela">
-          <thead><tr><th>{POR.find(([k]) => k === por)![1].replace("Por ", "").replace(/^./, (c) => c.toUpperCase())}</th>{por !== "documento" && <th className="text-right">Docs</th>}{(por === "produto" || por === "servico") && <th className="text-right">Qtd</th>}<th className="text-right">Receita</th><th className="text-right">Custo</th><th className="text-right">Lucro</th><th className="text-right">Margem</th></tr></thead>
+          <thead><tr><th>{POR.find(([k]) => k === por)![1].replace("Por ", "").replace(/^./, (c) => c.toUpperCase())}</th>{por === "documento" && <th>Prazo da OS</th>}{por !== "documento" && <th className="text-right">Docs</th>}{(por === "produto" || por === "servico") && <th className="text-right">Qtd</th>}<th className="text-right">Receita</th><th className="text-right">Custo</th><th className="text-right">Lucro</th><th className="text-right">Margem</th></tr></thead>
           <tbody>
             {r.linhas.map((l) => (
               <tr key={l.chave}>
                 <td>{l.href ? <Link href={l.href} className="text-marca hover:underline">{l.rotulo}</Link> : l.rotulo}{l.detalhe && <span className="ml-2 text-[12px] text-slate-500">{l.detalhe}</span>}</td>
+                {por === "documento" && <td className={`whitespace-nowrap text-[12px] ${l.prazo && atrasada(l.prazo) ? "font-semibold text-amber-700" : "text-slate-500"}`}>{l.prazo ? textoPrazo(l.prazo) : ""}</td>}
                 {por !== "documento" && <td className="text-right">{l.documentos}</td>}
                 {(por === "produto" || por === "servico") && <td className="text-right">{qtd(l.quantidade)}</td>}
                 <td className="text-right">{brl(l.receita)}</td><td className="text-right">{brl(l.custo)}</td>
@@ -61,7 +69,7 @@ export default async function Lucro({ searchParams }: { searchParams: Promise<Re
                 <td className={`text-right ${l.margem < 0.15 ? "text-amber-700" : ""}`}>{pct(l.margem)}</td>
               </tr>
             ))}
-            {!r.linhas.length && <tr><td colSpan={7} className="py-8 text-center text-slate-500">Nada vendido no período.</td></tr>}
+            {!r.linhas.length && <tr><td colSpan={8} className="py-8 text-center text-slate-500">Nada vendido no período.</td></tr>}
           </tbody>
         </table>
       </div>

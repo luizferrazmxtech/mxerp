@@ -33,6 +33,7 @@ import { foneBonito, whatsappAtivo } from "@/lib/whatsapp/mxchat";
 import { mensagemOs } from "@/lib/whatsapp/os";
 import EnviarWhatsappOs from "@/components/whatsapp/EnviarWhatsappOs";
 import ListaMensagens from "@/components/whatsapp/ListaMensagens";
+import { atrasada, dataPrevisao, prazoOs, textoPrazo } from "@/lib/os/prazo";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar OS" };
@@ -182,7 +183,9 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
               <div><b>Vendedor:</b> {o.vendedor?.nome ?? "—"}</div>
               <div><b>Técnico:</b> {nomesTecnicos || "—"}</div>
               {o.equipe && <div><b>Equipe:</b> {o.equipe.nome}</div>}
+              {o.previsao && <div><b>Previsão:</b> {dataPrevisao(o.previsao)}</div>}
               <div><b>Saída:</b> {quando(o.saida)}</div>
+              {(() => { const p = prazoOs(o); return <div className={atrasada(p) ? "font-semibold text-amber-700" : "text-slate-600"}><b>Prazo:</b> {textoPrazo(p)}</div>; })()}
               {o.prioridade && <div><b>Prioridade:</b> {rotuloPrioridade(o.prioridade)}</div>}
               <div><b>Canal de venda:</b> {o.canal}</div>
               <div><b>Loja:</b> {nomeEmpresa}</div>
