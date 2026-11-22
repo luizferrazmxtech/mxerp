@@ -43,6 +43,36 @@ describe("regras da conciliação (sem banco)", () => {
   });
 });
 
+describe("ramo pelo nome do favorecido (sem CNPJ e sem histórico)", () => {
+  const plano = [
+    { id: "out", nome: "Outras despesas", tipo: "PAGAR" as const }, { id: "sal", nome: "Salários e encargos", tipo: "PAGAR" as const },
+    { id: "ps", nome: "Plano de Saúde", tipo: "PAGAR" as const }, { id: "util", nome: "Energia, água, internet, telefone", tipo: "PAGAR" as const },
+    { id: "comb", nome: "Combustível e veículos", tipo: "PAGAR" as const }, { id: "terc", nome: "Serviços de terceiros", tipo: "PAGAR" as const },
+  ];
+  it("Hapvida vira plano de saúde; Sabesp, Vivo, posto e contabilidade também são reconhecidos", () => {
+    const ls = conc.analisar([
+      t("t1", "2026-10-17", -299.9, "Pix enviado - Hapvida Assistencia Medica Sa - VFX"),
+      t("t2", "2026-10-17", -80, "Pagamento efetuado - SABESP CIA SANEAMENTO BASICO"),
+      t("t3", "2026-10-17", -120, "Pagamento efetuado - VIVO S.A."),
+      t("t4", "2026-10-17", -200, "Pix enviado - Auto Posto Sao Jose Ltda"),
+      t("t5", "2026-10-17", -650, "Pix enviado - Silva Contabilidade Ltda"),
+      t("t6", "2026-10-17", -100, "Pix enviado - Maria Vivo Claro"),
+    ], [], vazio, plano, dia("2026-11-22"));
+    expect(ls.map((l) => [l.acao, l.categoriaId])).toEqual([["LANCAR", "ps"], ["LANCAR", "util"], ["LANCAR", "util"], ["LANCAR", "comb"], ["LANCAR", "terc"], ["REVISAR", null]]);
+    expect(ls[0].motivos[0]).toBe("pelo nome: plano de saúde");
+    expect(ls[0].confianca).toBe(60);
+    expect(ls[0].ramo).toBe("plano de saúde (pelo nome)");
+  });
+  it("sem categoria parecida no plano usa a padrão; depois de confirmar uma, as do mesmo ramo seguem a escolha", () => {
+    const semPS = plano.filter((c) => c.id !== "ps");
+    const [a] = conc.analisar([t("t1", "2026-10-17", -299.9, "Pix enviado - Hapvida Assistencia Medica Sa")], [], vazio, semPS, dia("2026-11-22"));
+    expect([a.categoriaId, a.confianca]).toEqual(["sal", 55]);
+    const h = conc.montarHistorico([{ descricao: "Pix enviado - Hapvida Assistencia Medica Sa", lancamentos: [{ pessoaId: null, categoriaId: "out", centroCustoId: null, avulso: true }] }], []);
+    const [b] = conc.analisar([t("t2", "2026-11-17", -450, "Pagamento efetuado - UNIMED SAO CARLOS")], [], h, semPS, dia("2026-11-22"));
+    expect([b.categoriaId, b.confianca]).toEqual(["out", 70]);
+  });
+});
+
 describe("conferência de saldo (sem banco)", () => {
   it("calcula o saldo do banco pelo extrato a partir do informado e mostra onde a diferença apareceu", () => {
     const r = saldos.montarConferencia({

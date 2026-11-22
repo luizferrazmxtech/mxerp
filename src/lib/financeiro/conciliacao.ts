@@ -329,6 +329,57 @@ export const RAMOS: { prefixo: string; ramo: string; categoria: string }[] = [
   { prefixo: "55", ramo: "hospedagem", categoria: "Outras despesas" },
 ];
 
+// ---------- ramo pelo nome do favorecido (sem CNPJ e sem histórico)
+
+/**
+ * Ramo de atividade adivinhado pelo nome de quem recebeu ("Hapvida Assistencia Medica Sa" → plano de saúde), para
+ * quando não há CNPJ nem histórico. `re` procura em qualquer parte do nome; `inicio` só vale como primeira palavra
+ * (marcas curtas como Vivo, Claro, Tim, Shell, que também são nomes e sobrenomes de pessoas). `categorias` são trechos
+ * procurados no nome das categorias do plano de contas, na ordem; sem nenhuma, vale a categoria `padrao`.
+ * A ordem da lista importa: a primeira que bate ganha.
+ */
+export const RAMOS_NOME: { id: string; ramo: string; re?: RegExp; inicio?: RegExp; categorias: string[]; padrao: string }[] = [
+  { id: "plano-saude", ramo: "plano de saúde", re: /\b(assistencia medica|operadora de (planos? de )?saude|plano de saude|planos de saude|hapvida|unimed|amil|notredame|intermedica|bradesco saude|sulamerica saude|sul america saude|golden cross|prevent senior|porto seguro saude|odontoprev|odonto\w*|medial saude|sami saude|cassi)\b/, categorias: ["plano de saude", "assistencia medica", "convenio medico", "saude", "beneficio"], padrao: "Salários e encargos" },
+  { id: "saude", ramo: "saúde (clínica, hospital, farmácia)", re: /\b(clinica|hospital|laboratorio|diagnostico|medicina|medico|medicos|farmacia|drogaria|droga raia|drogasil|pague menos|panvel|ultrafarma|odontologia|fisioterapia|exames?)\b/, categorias: ["saude", "medic", "farmacia"], padrao: "Outras despesas" },
+  { id: "encargos", ramo: "encargos trabalhistas", re: /\b(fgts|inss|gps|esocial|previdencia social)\b/, categorias: ["encargo", "fgts", "inss"], padrao: "Salários e encargos" },
+  { id: "sindicato", ramo: "sindicato", re: /\b(sindicato|sind)\b/, categorias: ["sindic", "contribuicao"], padrao: "Salários e encargos" },
+  { id: "impostos", ramo: "impostos e taxas", re: /\b(receita federal|simples nacional|darf|dae|gare|gnre|prefeitura|municipio de|secretaria (da|de) fazenda|sefaz|tesouro nacional|fazenda nacional)\b/, categorias: ["imposto", "tributo", "taxa"], padrao: "Impostos sobre vendas (DAS/ICMS/ISS)" },
+  { id: "energia", ramo: "energia elétrica", re: /\b(energia|eletricidade|enel|cpfl|cemig|copel|celesc|coelba|celpe|cosern|coelce|equatorial|neoenergia|elektro|energisa|eletropaulo|amazonas energia)\b/, inicio: /^(light|edp|rge)\b/, categorias: ["energia", "luz"], padrao: "Energia, água, internet, telefone" },
+  { id: "agua", ramo: "água e esgoto", re: /\b(saneamento|sabesp|copasa|sanepar|cedae|embasa|compesa|casan|corsan|caesb|cagece|saae|daae|semae|aguas de|agua e esgoto)\b/, categorias: ["agua", "saneamento"], padrao: "Energia, água, internet, telefone" },
+  { id: "telecom", ramo: "telefone e internet", re: /\b(telecom\w*|telefonica|telecomunicacoes|internet|fibra|provedor|algar|embratel|starlink)\b/, inicio: /^(vivo|claro|tim|oi|net|sky|nextel)\b/, categorias: ["internet", "telefon", "telecom"], padrao: "Energia, água, internet, telefone" },
+  { id: "combustivel", ramo: "posto de combustível", re: /\b(auto posto|posto de (gasolina|combustiveis?)|combustiveis?|ipiranga|petrobras|br mania|raizen|gasolina)\b/, inicio: /^(posto|shell|ale)\b/, categorias: ["combustivel", "veiculo"], padrao: "Combustível e veículos" },
+  { id: "veiculos", ramo: "veículos (peças, oficina, pedágio)", re: /\b(auto ?pecas|pneus?|borracharia|oficina|mecanica|funilaria|estacionamento|pedagio|sem parar|conectcar|veloe|move mais|detran|ipva|licenciamento)\b/, categorias: ["veiculo", "combustivel", "manutencao de veiculo"], padrao: "Combustível e veículos" },
+  { id: "contabilidade", ramo: "contabilidade", re: /\b(contabil|contabeis|contabilidade|contadores|contador|escritorio contabil)\b/, categorias: ["contab", "honorario", "servicos de terceiros"], padrao: "Serviços de terceiros" },
+  { id: "advocacia", ramo: "advocacia", re: /\b(advogados?|advocacia|sociedade de advogados|juridic\w*)\b/, categorias: ["juridic", "advoca", "honorario", "servicos de terceiros"], padrao: "Serviços de terceiros" },
+  { id: "seguros", ramo: "seguros", re: /\b(seguros?|seguradora|tokio marine|mapfre|allianz|hdi|zurich|liberty)\b/, inicio: /^(porto)\b/, categorias: ["seguro"], padrao: "Outras despesas" },
+  { id: "aluguel", ramo: "aluguel e condomínio", re: /\b(aluguel|alugueis|imobiliaria|imoveis|condominio|administradora de (imoveis|condominios))\b/, categorias: ["aluguel", "condominio"], padrao: "Aluguel" },
+  { id: "marketplace", ramo: "compras em marketplace", re: /\b(mercado ?livre|mercado ?pago|shopee|amazon servicos|amazon com|magazine luiza|magalu|aliexpress|kabum|americanas)\b/, categorias: ["compra", "mercadoria"], padrao: "Compra de mercadorias (estoque)" },
+  { id: "software", ramo: "software e tecnologia", re: /\b(google|microsoft|adobe|amazon web services|aws|locaweb|hostgator|hostinger|godaddy|registro br|nic br|dropbox|zoom|canva|apple|totvs|omie|bling|tiny|conta azul|github|openai|anthropic|software|sistemas|informatica|tecnologia)\b/, categorias: ["software", "sistema", "tecnologia", "informatica", "servicos de terceiros"], padrao: "Serviços de terceiros" },
+  { id: "frete", ramo: "frete e correios", re: /\b(correios|empresa brasileira de correios|jadlog|total express|loggi|sequoia|braspress|transportadora|transportes|logistica|melhor envio|frenet|kangu)\b/, categorias: ["frete", "correio", "transporte de mercadoria"], padrao: "Serviços de terceiros" },
+  { id: "viagem", ramo: "viagem e deslocamento", re: /\b(uber|99 tecnologia|99pop|cabify|taxi|latam|gol linhas|azul linhas|passagens?|rodoviaria|buser|hotel|hoteis|pousada|booking|airbnb)\b/, categorias: ["viage", "deslocamento", "hosped", "transporte"], padrao: "Outras despesas" },
+  { id: "alimentacao", ramo: "alimentação", re: /\b(restaurante|lanchonete|padaria|panificadora|ifood|pizzaria|churrascaria|alimentacao|refeicoes|supermercados?|atacadao|assai|carrefour|hortifruti)\b/, categorias: ["alimenta", "refeic"], padrao: "Outras despesas" },
+  { id: "educacao", ramo: "educação e treinamento", re: /\b(escola|colegio|faculdade|universidade|cursos?|treinamentos?|educacao|ensino|senai|senac|sebrae)\b/, categorias: ["educa", "treinamento", "curso"], padrao: "Outras despesas" },
+  { id: "material", ramo: "material e manutenção", re: /\b(materiais? (de construcao|eletricos?)|ferragens|ferramentas|leroy merlin|telhanorte|madeireira|papelaria|kalunga|material de escritorio)\b/, categorias: ["material", "manutencao", "escritorio"], padrao: "Outras despesas" },
+];
+
+/** Ramo pelo nome do favorecido (já normalizado, como sai de `favorecido`). */
+export function ramoDoNome(fav: string) {
+  if (!fav) return null;
+  return RAMOS_NOME.find((r) => r.re?.test(fav) || r.inicio?.test(fav)) ?? null;
+}
+
+/** Categoria do plano de contas para o ramo: a primeira cujo nome tem um dos trechos do ramo; senão a padrão. */
+export function categoriaDoRamo(r: (typeof RAMOS_NOME)[number], categorias: { id: string; nome: string; tipo: "PAGAR" | "RECEBER" }[]) {
+  const pagar = categorias.filter((c) => c.tipo === "PAGAR").map((c) => ({ id: c.id, n: normalizar(c.nome) }));
+  for (const k of r.categorias) {
+    const c = pagar.find((x) => x.n.includes(k));
+    if (c) return { id: c.id, doPlano: true };
+  }
+  const padrao = normalizar(r.padrao);
+  const c = pagar.find((x) => x.n === padrao);
+  return c ? { id: c.id, doPlano: false } : null;
+}
+
 export function ramoDoCnae(cnae: string) {
   const c = cnae.replace(/\D/g, "");
   if (!c) return null;
@@ -416,6 +467,15 @@ export function analisar(
     for (const [id, n] of e.categorias) somar(m, id, n);
     porCnae.set(r.cnae.slice(0, 4), m);
   }
+  // e o mesmo pelo ramo adivinhado pelo nome (Hapvida lançada em "Plano de saúde" ensina a Unimed)
+  const porRamoNome = new Map<string, Map<string, number>>();
+  for (const [fav, e] of h.porFavorecido) {
+    const r = ramoDoNome(fav);
+    if (!r) continue;
+    const m = porRamoNome.get(r.id) ?? new Map<string, number>();
+    for (const [id, n] of e.categorias) somar(m, id, n);
+    porRamoNome.set(r.id, m);
+  }
   // 1) candidatos de cada linha
   const cands = new Map<string, Candidato[]>();
   const favs = new Map<string, string>();
@@ -474,6 +534,16 @@ export function analisar(
         const cnaeFmt = ramo.cnae.replace(/^(\d{4})(\d)(\d{2})$/, "$1-$2/$3");
         if (aprendido) avulso = { categoriaId: aprendido.id, confianca: Math.min(80, 55 + 10 * aprendido.n), motivo: `ramo ${cnaeFmt}${fixo ? ` (${fixo.ramo})` : ""}: outras empresas do ramo foram lançadas aqui` };
         else if (fixo && catPorNome.get(`PAGAR|${fixo.categoria}`)) avulso = { categoriaId: catPorNome.get(`PAGAR|${fixo.categoria}`)!, confianca: 60, motivo: `ramo de atividade: ${fixo.ramo} (CNAE ${cnaeFmt})` };
+      }
+      // sem CNPJ (ou CNAE sem regra): o ramo pelo próprio nome de quem recebeu
+      if (!avulso && tipo === "PAGAR") {
+        const rn = ramoDoNome(f);
+        if (rn) {
+          const aprendido = maisUsado(porRamoNome.get(rn.id) ? new Map([...porRamoNome.get(rn.id)!].filter(([cid]) => catTipo.get(cid) === "PAGAR")) : undefined);
+          const cat = categoriaDoRamo(rn, categorias);
+          if (aprendido) avulso = { categoriaId: aprendido.id, confianca: Math.min(80, 60 + 10 * aprendido.n), motivo: `pelo nome: ${rn.ramo}; outras empresas desse ramo foram lançadas aqui` };
+          else if (cat) avulso = { categoriaId: cat.id, confianca: cat.doPlano ? 60 : 55, motivo: `pelo nome: ${rn.ramo}` };
+        }
       }
     }
 
@@ -550,7 +620,7 @@ export function analisar(
       transacaoId: t.id, data: iso(t.data), hora: horaSP(t.dataHora), ordem: `${iso(t.data)}|${horaSP(t.dataHora) ?? "00:00"}|${t.criadaEm?.toISOString() ?? ""}`, valor: t.valor, descricao: t.descricao, favorecido: f, conta: t.conta, contaBancariaId: t.contaBancariaId, tipo,
       funcionario: func?.nome ?? null, funcionarioId: func?.id ?? null, regraId: regraVale && acao === "LANCAR" ? regra!.id : null, tipoPessoal: func ? (func.tipo === "OUTROS" ? "Outros" : ROTULO_PESSOAL[func.tipo]) : null,
       descricaoLancamento: func && acao === "LANCAR" ? func.descricao : regraVale && acao === "LANCAR" ? regra!.descricao || null : null, competencia: func && acao === "LANCAR" ? iso(func.competencia) : null,
-      ramo: ramos.get(f)?.cnae ? `${ramos.get(f)!.cnae.replace(/^(\d{4})(\d)(\d{2})$/, "$1-$2/$3")}${ramoDoCnae(ramos.get(f)!.cnae) ? ` ${ramoDoCnae(ramos.get(f)!.cnae)!.ramo}` : ""}` : null,
+      ramo: ramos.get(f)?.cnae ? `${ramos.get(f)!.cnae.replace(/^(\d{4})(\d)(\d{2})$/, "$1-$2/$3")}${ramoDoCnae(ramos.get(f)!.cnae) ? ` ${ramoDoCnae(ramos.get(f)!.cnae)!.ramo}` : ""}` : ramoDoNome(f) ? `${ramoDoNome(f)!.ramo} (pelo nome)` : null,
       documentoFavorecido: ramos.get(f)?.documento ?? null,
       acao, confianca, nivel: nivelDe(confianca), motivos: [...motivos, ...avisos], candidatos, lancamentoId, categoriaId, centroCustoId,
       urgencia, pontosUrgencia: pontos, prazo, diasPendente,

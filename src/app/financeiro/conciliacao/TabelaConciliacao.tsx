@@ -209,7 +209,7 @@ export default function TabelaConciliacao({ linhas, categorias, centros, altas }
                         </div>
                       )}
                       {motivos.length > 0 && <div className="mt-1 text-[11px] text-slate-500">{motivos.join(" · ")}</div>}
-                      {l.tipo === "PAGAR" && l.ramo && !motivos.some((m) => m.includes("ramo")) && <div className="mt-0.5 text-[11px] text-slate-500">Ramo: {l.ramo}</div>}
+                      {l.tipo === "PAGAR" && l.ramo && !motivos.some((m) => m.includes("ramo") || m.startsWith("pelo nome")) && <div className="mt-0.5 text-[11px] text-slate-500">Ramo: {l.ramo}</div>}
                     </td>
                     <td>
                       <select className="campo w-full min-w-40 !py-1 text-[13px]" value={e.centroCustoId ?? ""} onChange={(ev) => mudar(l.transacaoId, { centroCustoId: ev.target.value || null })}>
