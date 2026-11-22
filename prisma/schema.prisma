@@ -1804,7 +1804,7 @@ model NotaFiscal {
   destinatarioNome String?
   idLegado         String?          @unique
 
-  @@unique([modelo, serie, numero, ambiente])
+  @@unique([empresaId, modelo, serie, numero, ambiente])
   @@index([origemTipo, origemId])
   @@index([empresaId])
 }

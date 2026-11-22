@@ -23,7 +23,7 @@ const ETAPAS = [
   { nome: "pagas", rotulo: "Contas já pagas e recebidas no Gestão Click (histórico, entram baixadas)", padrao: false },
 ];
 
-export default function ImportadorBackup() {
+export default function ImportadorBackup({ empresas }: { empresas: { id: string; nome: string; cnpj: string }[] }) {
   const [estado, , pendente, formAct] = useFormAcao<EstadoBackup>(importarBackup, null);
   return (
     <div className="space-y-4">
@@ -32,6 +32,19 @@ export default function ImportadorBackup() {
           <span>Arquivo do backup (.zip)</span>
           <input name="arquivo" type="file" accept=".zip" className="campo w-full" required />
         </label>
+        {empresas.length > 1 && (
+          <label className="block space-y-1 text-sm">
+            <span>De qual empresa é este backup</span>
+            <select name="destino" className="campo w-full" defaultValue="">
+              <option value="">A primeira (cada documento vai para a loja da coluna Loja do Gestão Click)</option>
+              {empresas.map((e) => <option key={e.id} value={e.id}>Outro Gestão Click: tudo para {e.nome} ({e.cnpj})</option>)}
+            </select>
+            <span className="block text-xs text-slate-500">
+              Outro Gestão Click: os números que já existem aqui ganham número novo (o antigo fica no histórico), o estoque
+              entra num depósito só dessa loja e clientes e produtos que já existem não são alterados, só completados.
+            </span>
+          </label>
+        )}
         <fieldset className="grid gap-1 text-sm sm:grid-cols-2">
           {ETAPAS.map((e) => (
             <label key={e.nome} className="flex items-center gap-2">
