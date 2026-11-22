@@ -764,6 +764,11 @@ export async function documentosDosFavorecidos(linhas: { descricao: string; docu
 export async function analisarExtrato(filtro: { contaBancariaId?: string } = {}) {
   // FGTS, INSS, Simples Nacional e plano de saúde dos funcionários precisam existir para as sugestões pelo nome
   await prisma.$transaction((tx) => garantirCategoriasPessoal(tx));
+  // boleto recebido não precisa de conciliação: amarra os do ERP e tira os outros da lista (regra do Luiz, 22/11)
+  const { conciliarPorBoleto, tirarBoletosRecebidos } = await import("./extrato");
+  const contas = await prisma.transacaoBancaria.findMany({ where: { situacao: "PENDENTE", valor: { gt: 0 }, documento: { not: null }, ...(filtro.contaBancariaId ? { contaBancariaId: filtro.contaBancariaId } : {}) }, distinct: ["contaBancariaId"], select: { contaBancariaId: true } });
+  for (const c of contas) await conciliarPorBoleto(c.contaBancariaId);
+  await tirarBoletosRecebidos(filtro.contaBancariaId);
   const ts = await prisma.transacaoBancaria.findMany({
     where: { situacao: "PENDENTE", ...(filtro.contaBancariaId ? { contaBancariaId: filtro.contaBancariaId } : {}) },
     include: { contaBancaria: { select: { nome: true } } },

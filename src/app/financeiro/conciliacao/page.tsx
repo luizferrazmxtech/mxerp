@@ -111,7 +111,7 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
     })),
     ...conciliadosBusca.map((t): LinhaGeral => ({
       id: t.id, ordem: ordemDe(t.data, t.dataHora, t.createdAt), data: t.data.toISOString().slice(0, 10), hora: horaSP(t.dataHora), conta: t.contaBancaria.nome, descricao: t.descricao, valor: Number(t.valor),
-      situacao: t.situacao === "IGNORADA" ? <span className="pilula border-slate-300 bg-slate-50 text-slate-600">Ignorada</span> : <span className="pilula border-sky-300 bg-sky-50 text-sky-700">Conciliada</span>,
+      situacao: t.situacao === "IGNORADA" ? (t.motivo === "BOLETO_INTER" ? <span className="pilula border-sky-300 bg-sky-50 text-sky-700">Boleto (cobrança Inter)</span> : <span className="pilula border-slate-300 bg-slate-50 text-slate-600">Ignorada</span>) : <span className="pilula border-sky-300 bg-sky-50 text-sky-700">Conciliada</span>,
       detalhe: t.lancamentos.map((l) => `${l.descricao}${l.pessoa ? ` (${l.pessoa.nome})` : ""}`).join("; ") || "—",
       acao: <form action={desfazer}><input type="hidden" name="transacaoId" value={t.id} /><button className="text-sm text-slate-600 underline">desfazer</button></form>,
     })),
@@ -211,7 +211,7 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
                         <td>{t.descricao}<div className="text-xs text-slate-500">{t.contaBancaria.nome}</div></td>
                         <td className={`whitespace-nowrap text-right ${Number(t.valor) < 0 ? "text-red-600" : "text-emerald-700"}`}>{brl(t.valor)}</td>
                         <td className="text-slate-600">
-                          {t.situacao === "IGNORADA" ? <span className="pilula border-slate-300 bg-slate-50 text-slate-600">Ignorada</span>
+                          {t.situacao === "IGNORADA" ? (t.motivo === "BOLETO_INTER" ? <span className="pilula border-sky-300 bg-sky-50 text-sky-700" title="Boleto recebido: a cobrança do Inter já baixou, não precisa conciliar">Boleto (cobrança Inter)</span> : <span className="pilula border-slate-300 bg-slate-50 text-slate-600">Ignorada</span>)
                             : t.lancamentos.map((l) => (
                               <div key={l.id}>
                                 {l.idLegado === `extrato:${t.id}` ? <span className="etiqueta mr-1 border-sky-300 bg-sky-50 text-sky-700">avulso</span> : null}

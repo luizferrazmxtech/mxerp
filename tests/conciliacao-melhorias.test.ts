@@ -288,4 +288,24 @@ describe("com banco", () => {
     expect((await aviso.enviarAvisoConciliacao({ agora: new Date("2026-11-21T15:00:00Z"), transporte })).motivo).toBe("já enviado hoje");
     expect(await prisma.mensagemWhatsapp.count({ where: { entidade: "CONCILIACAO", situacao: "ENVIADA" } })).toBe(1);
   });
+
+  it("boleto recebido sai sozinho da conciliação (a cobrança do Inter baixa); o do ERP é amarrado; Pix direto continua; reaberto não sai de novo", async () => {
+    const l = await conta_("RECEBER", 150, "Venda 10");
+    await prisma.boleto.create({ data: { lancamentoId: l.id, token: "tk-1", seuNumero: "1", valor: 150, vencimento: dia("2026-11-10"), nossoNumero: "00099", situacao: "A_RECEBER" } });
+    await ext.importarExtrato(conta, [
+      { data: dia("2026-11-10"), valor: 150, descricao: "Boleto de cobrança recebido - CLIENTE DO ERP", chave: "b1", documento: "00099" },
+      { data: dia("2026-11-10"), valor: 5990, descricao: "Boleto de cobrança recebido - FCRJ ORGANIZACAO CONTABIL LTDA.", chave: "b2" },
+      { data: dia("2026-11-10"), valor: 49.9, descricao: "Pix recebido - Ana Paula - Ana Paula", chave: "p1" },
+    ], { baixarAutomatico: false });
+    const sit = async (chave: string) => (await prisma.transacaoBancaria.findFirstOrThrow({ where: { chave }, select: { situacao: true, motivo: true } }));
+    expect(await sit("b1")).toEqual({ situacao: "CONCILIADA", motivo: null });
+    expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: l.id } })).pagoEm).not.toBeNull();
+    expect(await sit("b2")).toEqual({ situacao: "IGNORADA", motivo: "BOLETO_INTER" });
+    expect(await sit("p1")).toEqual({ situacao: "PENDENTE", motivo: null });
+    const b2 = (await prisma.transacaoBancaria.findFirstOrThrow({ where: { chave: "b2" } })).id;
+    await prisma.$transaction((tx) => ext.desfazerTx(tx, b2));
+    expect(await sit("b2")).toEqual({ situacao: "PENDENTE", motivo: "REABERTA" });
+    const ls = await conc.analisarExtrato();
+    expect(ls.map((x) => x.descricao).sort()).toEqual(["Boleto de cobrança recebido - FCRJ ORGANIZACAO CONTABIL LTDA.", "Pix recebido - Ana Paula - Ana Paula"]);
+  });
 });

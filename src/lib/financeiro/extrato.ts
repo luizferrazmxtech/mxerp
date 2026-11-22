@@ -286,7 +286,38 @@ export async function desfazerTx(tx: Tx, transacaoId: string) {
     await estornarLancamento(tx, l.id);
     await tx.lancamento.update({ where: { id: l.id }, data: { transacaoId: null } });
   }
-  return tx.transacaoBancaria.update({ where: { id: transacaoId }, data: { situacao: "PENDENTE" } });
+  const t = await tx.transacaoBancaria.findUniqueOrThrow({ where: { id: transacaoId }, select: { motivo: true } });
+  // a que saiu sozinha (boleto do Inter) e foi reaberta à mão não sai de novo
+  return tx.transacaoBancaria.update({ where: { id: transacaoId }, data: { situacao: "PENDENTE", ...(t.motivo === MOTIVO_BOLETO ? { motivo: "REABERTA" } : {}) } });
+}
+
+export const MOTIVO_BOLETO = "BOLETO_INTER";
+/** Entrada do extrato que é recebimento de boleto (o Inter descreve assim; o BolePix pago por Pix vem com o txid). */
+export const ehBoletoRecebido = (descricao: string) => /^\s*(boleto de cobran[cç]a recebido|recebimento de boleto|liquida[cç][aã]o de boleto|boleto recebido)/i.test(descricao);
+
+/**
+ * Regra do Luiz (22/11): boleto recebido não precisa de conciliação, porque a API de cobrança do Inter já baixa a
+ * conta. Depois de amarrar os boletos do ERP (conciliarPorBoleto), as entradas de boleto que sobraram (boleto emitido
+ * fora do MXERP, ou já baixado) saem da lista de pendentes, marcadas como "baixado pela cobrança". Só fica para
+ * conciliar o Pix direto na conta. Devolve quantas saíram.
+ */
+export async function tirarBoletosRecebidos(contaBancariaId?: string) {
+  const ts = await prisma.transacaoBancaria.findMany({
+    where: { situacao: "PENDENTE", motivo: null, valor: { gt: 0 }, ...(contaBancariaId ? { contaBancariaId } : {}) },
+    select: { id: true, descricao: true, documento: true },
+  });
+  const docs = [...new Set(ts.map((t) => t.documento).filter((x): x is string => !!x))];
+  const [bs, avs] = docs.length
+    ? await Promise.all([
+      prisma.boleto.findMany({ where: { OR: [{ nossoNumero: { in: docs } }, { txid: { in: docs } }] }, select: { nossoNumero: true, txid: true } }),
+      prisma.avisoBoleto.findMany({ where: { nossoNumero: { in: docs } }, select: { nossoNumero: true } }),
+    ])
+    : [[], []];
+  const doBoleto = new Set([...bs.flatMap((b) => [b.nossoNumero, b.txid]), ...avs.map((a) => a.nossoNumero)].filter((x): x is string => !!x));
+  const ids = ts.filter((t) => ehBoletoRecebido(t.descricao) || (t.documento && doBoleto.has(t.documento))).map((t) => t.id);
+  if (!ids.length) return 0;
+  const r = await prisma.transacaoBancaria.updateMany({ where: { id: { in: ids }, situacao: "PENDENTE" }, data: { situacao: "IGNORADA", motivo: MOTIVO_BOLETO } });
+  return r.count;
 }
 
 /**
@@ -331,11 +362,12 @@ export async function importarExtrato(contaBancariaId: string, ts: TransacaoExtr
     }
   }
   let baixadas = await conciliarPorBoleto(contaBancariaId);
+  const boletos = await tirarBoletosRecebidos(contaBancariaId);
   if (opts.baixarAutomatico !== false) {
     for (const s of (await sugestoes(contaBancariaId)).filter((x) => x.confianca === "alta")) {
       await prisma.$transaction((tx) => conciliarTx(tx, s.transacaoId, [s.lancamentoId]));
       baixadas++;
     }
   }
-  return { lidas: ts.length, novas, repetidas: ts.length - novas, baixadas };
+  return { lidas: ts.length, novas, repetidas: ts.length - novas, baixadas, boletos };
 }
