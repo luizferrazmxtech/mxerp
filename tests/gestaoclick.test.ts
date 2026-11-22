@@ -245,6 +245,55 @@ describe("backup do Gestão Click", () => {
   });
 });
 
+describe("backup novo por cima de uma importação anterior", () => {
+  it("passa a OS para a situação atual do Gestão Click e baixa a conta paga lá depois", async () => {
+    const t = await gc.lerBackupGestaoClick(await backup());
+    await gc.importarBackupGestaoClick(t, { simular: false });
+    const bat = await prisma.produto.findUniqueOrThrow({ where: { codigo: "BAT7" } });
+    const o1 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 } });
+    expect(await prisma.reserva.count({ where: { origemId: o1.id, status: "ATIVA" } })).toBe(1);
+    // a 7002 foi mexida no MXERP depois da importação: o MXERP manda
+    const o2 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7002 } });
+    await prisma.ordemServico.update({ where: { id: o2.id }, data: { updatedAt: new Date("2027-01-02T12:00:00Z") } });
+
+    // backup novo: 7001 concretizada e 7002 cancelada no GC; a conta da OS 6500 recebida em 20/11
+    const novo = structuredClone(t);
+    novo.ordens_servicos_situacoes.push(
+      { "n da os": "7001", data: "01/01/2027 10:00:00", observacao: "", situacao: "Concretizada", funcionario: "MATHEUS", loja: "MXTECH" },
+      { "n da os": "7002", data: "01/01/2027 10:00:00", observacao: "", situacao: "Cancelada", funcionario: "MATHEUS", loja: "MXTECH" },
+    );
+    const cr = novo.contas_receber.find((l) => l["descricao do recebimento"] === "Ordem de serviço de nº 6500")!;
+    Object.assign(cr, { situacao: "Confirmado", "data de confirmacao": "20/11/2026", juros: "10", "valor total": "1244.5" });
+
+    const sim = await gc.importarBackupGestaoClick(novo, { simular: true });
+    expect(sim.find((r) => r.tipo === "os")!.avisos.join(" ")).toMatch(/1 OS já trazidas antes mudaram de situação/);
+    expect(sim.find((r) => r.tipo === "receber")!.avisos.join(" ")).toMatch(/1 contas trazidas antes foram recebidas/);
+    expect((await prisma.lancamento.findFirstOrThrow({ where: { descricao: "Ordem de serviço de nº 6500" } })).pagoEm).toBeNull();
+
+    const res = await gc.importarBackupGestaoClick(novo, { simular: false });
+    expect(res.find((r) => r.tipo === "os")!.avisos.join(" ")).toMatch(/alteradas no MXERP.*7002/);
+    const o1b = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 }, include: { historico: true } });
+    expect(o1b).toMatchObject({ situacao: "FATURADA", situacaoId: "so_concretizada" });
+    expect(o1b.saida?.toISOString()).toBe("2027-01-01T13:00:00.000Z");
+    expect(o1b.historico.some((h) => h.situacao === "Concretizada")).toBe(true);
+    // a peça sai da reserva sem baixa (o saldo do backup já desconta), e a falta da 7002 continua dela
+    expect(await prisma.reserva.count({ where: { origemId: o1.id, status: "ATIVA" } })).toBe(0);
+    expect(await prisma.movimentoEstoque.count({ where: { origemTipo: "OS" } })).toBe(0);
+    expect((await prisma.$transaction((tx) => est.resumoProduto(tx, bat.id))).fisico).toBe(3);
+    expect((await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7002 } })).situacao).toBe("EM_ANDAMENTO");
+
+    const l = await prisma.lancamento.findFirstOrThrow({ where: { descricao: "Ordem de serviço de nº 6500" }, include: { contaBancaria: true } });
+    expect(l.pagoEm?.toISOString().slice(0, 10)).toBe("2026-11-20");
+    expect(Number(l.valorPago)).toBeCloseTo(1244.5);
+    expect(l.contaBancaria?.nome).toBe("INTER");
+
+    // de novo: nada muda
+    const res3 = await gc.importarBackupGestaoClick(novo, { simular: false });
+    expect(res3.find((r) => r.tipo === "os")!.avisos.join(" ")).not.toMatch(/mudaram de situação/);
+    expect(res3.find((r) => r.tipo === "receber")!.avisos.join(" ")).not.toMatch(/trazidas antes/);
+  });
+});
+
 describe("unidade e custo do Gestão Click", () => {
   it("converte a unidade e o custo de caixa para metro", async () => {
     const { siglaUnidade, custoPorSaida } = await import("@/lib/migracao/gestaoclick");

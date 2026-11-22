@@ -1,7 +1,8 @@
 import JSZip from "jszip";
 import { createHash } from "node:crypto";
 import { prisma, type Tx } from "@/lib/db";
-import { reservarItem } from "@/lib/estoque/estoque";
+import { liberarDocumento, reservarItem } from "@/lib/estoque/estoque";
+import { baixarLancamento } from "@/lib/financeiro/lancamentos";
 import { enumDe } from "@/lib/os/ordens";
 import { lancaEstoque, lancaFinanceiro } from "@/lib/compras/tipos";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
@@ -177,7 +178,25 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
   const historicoDe = (hs: Linha[], data: Date) => hs.map((h) => ({ descricao: h.observacao || "Situação alterada", situacao: h.situacao || null, usuarioNome: h.funcionario || null, createdAt: dataHoraBr(h.data) ?? data }));
 
   const semProduto = new Set<string>(), semCliente = new Set<string>(), semSituacao = new Set<string>();
-  const porSituacao = new Map<string, number>();
+  const porSituacao = new Map<string, number>(), situacaoNova = new Map<string, number>();
+  const mexidasNoErp: number[] = [];
+  const nomeSitDe = (id: string | null) => situacoes.find((s) => s.id === id)?.nome ?? "sem situação";
+  const atualizarSituacaoImportada = (osId: string, sit: (typeof situacoes)[number], mudouEm: Date, novos: Linha[], data: Date) =>
+    prisma.$transaction(async (tx) => {
+      // o saldo do Gestão Click já desconta as peças das OS concretizadas lá, então aqui só se mexe na reserva;
+      // OS que já teve baixa de verdade no MXERP não é tocada
+      const baixas = await tx.movimentoEstoque.count({ where: { origemTipo: "OS", origemId: osId } });
+      if (!baixas) {
+        if (sit.estoque !== "RESERVAR") await liberarDocumento(tx, "OS", osId);
+        else if (!(await tx.reserva.count({ where: { origemTipo: "OS", origemId: osId, status: "ATIVA" } })))
+          for (const it of await tx.osItemProduto.findMany({ where: { osId } }))
+            if (Number(it.quantidade) > 0) await reservarItem(tx, { produtoId: it.produtoId, quantidade: Number(it.quantidade), origemTipo: "OS", origemId: osId, origemItemId: it.id });
+      }
+      await tx.ordemServico.update({
+        where: { id: osId },
+        data: { situacaoId: sit.id, situacao: enumDe(sit), ...(sit.preencherSaida ? { saida: mudouEm } : sit.estoque === "RESERVAR" ? { saida: null } : {}), historico: { create: historicoDe(novos, data) } },
+      });
+    }, { timeout: 30000 });
   let maior = 0, reservadas = 0;
   for (const o of todas) {
     const numero = Number(o[N]);
@@ -191,8 +210,16 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
     if (!sitPorNome.has(chaveNome(nomeSit))) semSituacao.add(nomeSit);
     const data = dataHoraBr(o["cadastrado em"]) ?? dataBr(o.data) ?? new Date();
 
-    const existe = await prisma.ordemServico.findFirst({ where: { OR: [{ idLegado: `os:${numero}` }, { numero }] }, select: { id: true, idLegado: true, _count: { select: { parcelas: true } } } });
+    const existe = await prisma.ordemServico.findFirst({ where: { OR: [{ idLegado: `os:${numero}` }, { numero }] }, select: { id: true, idLegado: true, situacaoId: true, updatedAt: true, _count: { select: { parcelas: true } } } });
     if (existe && !simular) await moverParaLoja("ordemServico", existe.id, lojaDe(o.loja), "OS");
+    // OS de uma importação anterior que mudou de situação no Gestão Click depois disso: passa para a situação atual
+    if (existe && existe.idLegado === `os:${numero}` && sit && sitPorNome.has(chaveNome(nomeSit)) && existe.situacaoId !== sit.id) {
+      const mudouEm = ultimaData(hs);
+      if (mudouEm && mudouEm > existe.updatedAt) {
+        situacaoNova.set(`${nomeSitDe(existe.situacaoId)} → ${sit.nome}`, (situacaoNova.get(`${nomeSitDe(existe.situacaoId)} → ${sit.nome}`) ?? 0) + 1);
+        if (!simular) await atualizarSituacaoImportada(existe.id, sit, mudouEm, hs.filter((h) => (dataHoraBr(h.data)?.getTime() ?? 0) > existe.updatedAt.getTime()), data);
+      } else if (mudouEm) mexidasNoErp.push(numero);
+    }
     if (existe) {
       // OS trazida por uma importação anterior (só as abertas, sem parcelas): completa o que faltava
       if (existe.idLegado === `os:${numero}` && existe._count.parcelas === 0 && pg.length) {
@@ -272,6 +299,8 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
   }
   r.avisos.push(`A numeração continua do Gestão Click: próxima OS nº ${maior + 1}${maxVenda ? `, próxima venda nº ${maxVenda + 1}` : ""}.`);
   if (porSituacao.size) r.avisos.push(`OS novas por situação: ${[...porSituacao].map(([k, v]) => `${k} ${v}`).join(", ")}. ${reservadas} em aberto ou em andamento ${simular ? "vão reservar" : "reservaram"} as peças; as concretizadas entram sem mexer no estoque nem no financeiro (o backup já traz o saldo e as contas em aberto).`);
+  if (situacaoNova.size) r.avisos.push(`${[...situacaoNova.values()].reduce((a, b) => a + b, 0)} OS já trazidas antes mudaram de situação no Gestão Click e ${simular ? "vão passar" : "passaram"} para a atual (a reserva das peças acompanha): ${[...situacaoNova].map(([k, v]) => `${k}: ${v}`).join("; ")}.`);
+  if (mexidasNoErp.length) r.avisos.push(`${mexidasNoErp.length} OS foram alteradas no MXERP depois da importação anterior e ficaram como estão no MXERP: ${mexidasNoErp.slice(0, 30).join(", ")}${mexidasNoErp.length > 30 ? "…" : ""}`);
   if (r.atualizados) r.avisos.push(`${r.atualizados} OS já trazidas antes ${simular ? "vão ganhar" : "ganharam"} as parcelas, o vendedor e o histórico do Gestão Click.`);
   if (semProduto.size) r.avisos.push(`${semProduto.size} produtos citados em OS não existem mais no cadastro e ${simular ? "serão criados" : "foram criados"} como inativos (código GC-…), sem estoque: ${[...semProduto].slice(0, 20).join("; ")}${semProduto.size > 20 ? "…" : ""}`);
   if (semCliente.size) r.avisos.push(`${semCliente.size} clientes de OS não estão no cadastro e ${simular ? "serão criados" : "foram criados"} só com o nome: ${[...semCliente].slice(0, 20).join("; ")}${semCliente.size > 20 ? "…" : ""}`);
@@ -565,6 +594,34 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
       },
     });
     r.criados++;
+  }
+
+  // contas trazidas por uma importação anterior e pagas/recebidas depois no Gestão Click: baixa aqui também
+  // (as já baixadas ou conciliadas no MXERP ficam como estão)
+  const ocorrPagas = new Map<string, number>();
+  let baixadas = 0, totalBaixado = 0;
+  for (const l of todas.filter((x) => /confirmad/i.test(x.situacao))) {
+    const base = [tipo, l["descricao do recebimento"], l["entidade nome"], l["data do vencimento"], l.valor, l["cadastrado em"]].join("|");
+    const n = (ocorrPagas.get(base) ?? 0) + 1;
+    ocorrPagas.set(base, n);
+    const idLegado = `${tipo.toLowerCase()}:${createHash("sha1").update(`${base}|${n}`).digest("hex").slice(0, 20)}`;
+    const aberta = await prisma.lancamento.findFirst({ where: { idLegado, pagoEm: null, transacaoId: null }, select: { id: true, valor: true } });
+    if (!aberta) continue;
+    const juros = numeroBr(l.juros ?? ""), desconto = numeroBr(l.desconto ?? "");
+    const valorPago = numeroBr(l["valor total"] ?? "") || Number(aberta.valor) + juros - desconto;
+    baixadas++;
+    totalBaixado += valorPago;
+    if (simular) continue;
+    const nomeConta = (l["conta bancaria"] ?? "").trim() || "Gestão Click";
+    const conta = await prisma.contaBancaria.upsert({ where: { nome: nomeConta }, create: { nome: nomeConta }, update: {} });
+    await prisma.$transaction(async (tx) => {
+      await baixarLancamento(tx, aberta.id, { data: dataBr(l["data de confirmacao"]) ?? hoje, contaBancariaId: conta.id, juros, desconto, valorPago });
+      await tx.lancamento.update({ where: { id: aberta.id }, data: { observacao: "Baixada no Gestão Click (importação do backup)" } });
+    });
+  }
+  if (baixadas) {
+    r.atualizados += baixadas;
+    r.avisos.push(`${baixadas} contas trazidas antes ${tipo === "RECEBER" ? "foram recebidas" : "foram pagas"} depois no Gestão Click (${totalBaixado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}) e ${simular ? "vão ser baixadas" : "foram baixadas"} aqui com a data de confirmação de lá.`);
   }
   return r;
 }
