@@ -14,7 +14,9 @@ export type FiltroVendas = { vendedorId?: string };
 
 export type ItemVendido = {
   origem: "VENDA" | "OS"; docId: string; numero: number; data: Date; clienteId: string | null; cliente: string | null;
-  vendedorId: string | null; vendedor: string | null; tecnicoId: string | null; tipo: "PRODUTO" | "SERVICO";
+  vendedorId: string | null; vendedor: string | null; tecnicoId: string | null; tecnico: string | null; tipo: "PRODUTO" | "SERVICO";
+  /** canal de venda gravado no documento (Presencial, WhatsApp, Mercado Livre…) e o tipo: BALCAO, PEDIDO, SERVICO (venda) ou OS */
+  canal: string; tipoDoc: string;
   itemId: string; codigo: string; nome: string; quantidade: number; receita: number; custo: number;
 };
 
@@ -27,11 +29,11 @@ export async function itensVendidos(p: Periodo, f: FiltroVendas = {}): Promise<I
   const vo = f.vendedorId ? Prisma.sql` AND o."vendedorId" = ${f.vendedorId}` : Prisma.empty;
   const rows = await prisma.$queryRaw<ItemVendido[]>`
     WITH docs AS (
-      SELECT 'VENDA' origem, v.id, v.numero, ${local("v.data")} dia, v."clienteId", v."vendedorId", NULL::text "tecnicoId", v.desconto,
+      SELECT 'VENDA' origem, v.id, v.numero, ${local("v.data")} dia, v."clienteId", v."vendedorId", NULL::text "tecnicoId", v.canal, v.tipo::text "tipoDoc", v.desconto,
              COALESCE((SELECT SUM(subtotal) FROM "VendaItem" WHERE "vendaId" = v.id), 0) + COALESCE((SELECT SUM(subtotal) FROM "VendaItemServico" WHERE "vendaId" = v.id), 0) bruto
         FROM "Venda" v WHERE v.situacao = 'CONCLUIDA' AND ${local("v.data")} >= ${p.de}::date AND ${local("v.data")} < ${fim}::date${lv}${vv}
       UNION ALL
-      SELECT 'OS', o.id, o.numero, ${local('COALESCE(o.saida, o.entrada)')}, o."clienteId", o."vendedorId", o."tecnicoId", o.desconto,
+      SELECT 'OS', o.id, o.numero, ${local('COALESCE(o.saida, o.entrada)')}, o."clienteId", o."vendedorId", o."tecnicoId", o.canal, 'OS', o.desconto,
              COALESCE((SELECT SUM(subtotal) FROM "OsItemProduto" WHERE "osId" = o.id), 0) + COALESCE((SELECT SUM(subtotal) FROM "OsItemServico" WHERE "osId" = o.id), 0)
         FROM "OrdemServico" o WHERE o.situacao IN ('CONCLUIDA','FATURADA') AND ${local('COALESCE(o.saida, o.entrada)')} >= ${p.de}::date AND ${local('COALESCE(o.saida, o.entrada)')} < ${fim}::date${lo}${vo}
     ), itens AS (
@@ -41,13 +43,14 @@ export async function itensVendidos(p: Periodo, f: FiltroVendas = {}): Promise<I
       UNION ALL SELECT 'OS', s."osId", 'SERVICO', s."servicoId", s.quantidade, s.subtotal, 0 FROM "OsItemServico" s
     )
     SELECT d.origem, d.id "docId", d.numero, d.dia::timestamp AT TIME ZONE 'UTC' "data", d."clienteId", c.nome cliente,
-           d."vendedorId", u.nome vendedor, d."tecnicoId", it.tipo, it.item "itemId",
+           d."vendedorId", u.nome vendedor, d."tecnicoId", t.nome tecnico, d.canal, d."tipoDoc", it.tipo, it.item "itemId",
            COALESCE(pr.codigo, sv.codigo, '') codigo, COALESCE(pr.nome, sv.nome, '') nome, it.quantidade::float quantidade,
            (it.subtotal * CASE WHEN d.bruto > 0 THEN GREATEST(d.bruto - d.desconto, 0) / d.bruto ELSE 1 END)::float receita,
            it.custo::float custo
       FROM docs d JOIN itens it ON it.origem = d.origem AND it.doc = d.id
       LEFT JOIN "Pessoa" c ON c.id = d."clienteId"
       LEFT JOIN "Usuario" u ON u.id = d."vendedorId"
+      LEFT JOIN "Usuario" t ON t.id = d."tecnicoId"
       LEFT JOIN "Produto" pr ON it.tipo = 'PRODUTO' AND pr.id = it.item
       LEFT JOIN "Servico" sv ON it.tipo = 'SERVICO' AND sv.id = it.item
      ORDER BY d.dia, d.numero`;
