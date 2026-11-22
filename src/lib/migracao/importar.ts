@@ -74,7 +74,11 @@ function novoResultado(tipo: Tipo, simular: boolean, lidas: number): Resultado {
   return { tipo, simulado: simular, lidas, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
 }
 
-export async function importarPessoas(linhas: Linha[], papel: PapelPessoa, simular = true): Promise<Resultado> {
+/**
+ * `prefixo`: cadastros de outra empresa (outro sistema). O código antigo não vira o código do cadastro, o id legado
+ * ganha o prefixo (o código 5 de lá não é o código 5 daqui) e quem já existe (mesmo CPF/CNPJ) só ganha o que estava vazio.
+ */
+export async function importarPessoas(linhas: Linha[], papel: PapelPessoa, simular = true, prefixo = ""): Promise<Resultado> {
   const r = novoResultado(`${papel === "transportadora" ? "transportadoras" : papel === "cliente" ? "clientes" : "fornecedores"}` as Tipo, simular, linhas.length);
   const cfg = PAPEIS[papel];
   const vistos = new Set<string>();
@@ -89,7 +93,7 @@ export async function importarPessoas(linhas: Linha[], papel: PapelPessoa, simul
     if (doc && vistos.has(doc)) { r.ignorados.push({ linha: i + 2, motivo: `documento ${doc} repetido` }); continue; }
     if (doc) vistos.add(doc);
     const codigoTxt = c(l, "codigo");
-    const legado = codigoTxt ? `${papel}:${codigoTxt}` : null;
+    const legado = codigoTxt ? `${prefixo}${papel}:${codigoTxt}` : null;
     const tipoPessoa = (estrangeiro ? "ESTRANGEIRO" : doc?.length === 11 || /f[ií]sica|^pf$/i.test(tipoTxt) ? "FISICA" : "JURIDICA") as TipoPessoa;
     const enderecos = l.__enderecos ? (JSON.parse(l.__enderecos) as Linha[]) : [];
     const nasc = c(l, "nascimento");
@@ -120,21 +124,27 @@ export async function importarPessoas(linhas: Linha[], papel: PapelPessoa, simul
       observacoes: c(l, "observacoes") || null,
       ativo: !inativo(c(l, "situacao")),
     };
-    const existente = await prisma.pessoa.findFirst({
+    const existente = (await prisma.pessoa.findFirst({
       where: { OR: [...(doc ? [{ documento: doc }] : []), ...(legado ? [{ idLegado: legado }] : [])] },
       include: { _count: { select: { enderecos: true } } },
-    });
+    })) ?? (prefixo
+      // outra empresa: o mesmo cliente sem CPF/CNPJ é achado pelo nome (sem juntar com alguém de outro documento)
+      ? await prisma.pessoa.findFirst({
+        where: { nome: { equals: nome.slice(0, 200), mode: "insensitive" }, ...(doc ? { documento: null } : {}) },
+        include: { _count: { select: { enderecos: true } } },
+      })
+      : null);
     if (simular) { if (existente) r.atualizados++; else r.criados++; continue; }
     const listaEnd = (enderecos.length ? enderecos : dados.logradouro || dados.cep || dados.cidade ? [{ cep: dados.cep ?? "", logradouro: dados.logradouro ?? "", numero: dados.numero ?? "", complemento: dados.complemento ?? "", bairro: dados.bairro ?? "", cidade: dados.cidade ?? "", uf: dados.uf ?? "", codigomunicipio: dados.codigoMunicipio ?? "" }] : [])
       .map((e, ordem) => ({ ordem, tipo: e.tipo || null, cep: digitos(e.cep ?? "") || null, logradouro: e.logradouro || null, numero: e.numero || null, complemento: e.complemento || null, bairro: e.bairro || null, cidade: e.cidade || null, codigoMunicipio: digitos(e.codigomunicipio ?? "") || null, uf: (e.uf ?? "").toUpperCase().slice(0, 2) || null }));
     // código do sistema anterior vira o código do cadastro, quando livre
     const n = Number(codigoTxt);
-    const codigoLegado = Number.isInteger(n) && n > 0 && !(await prisma.pessoa.findFirst({ where: { [cfg.codigo]: n, ...(existente ? { NOT: { id: existente.id } } : {}) }, select: { id: true } })) ? n : null;
+    const codigoLegado = !prefixo && Number.isInteger(n) && n > 0 && !(await prisma.pessoa.findFirst({ where: { [cfg.codigo]: n, ...(existente ? { NOT: { id: existente.id } } : {}) }, select: { id: true } })) ? n : null;
     if (codigoLegado) maiorCodigo = Math.max(maiorCodigo, codigoLegado);
     await prisma.$transaction(async (tx) => {
       if (existente) {
         // campos vazios na planilha não apagam o que já existe (ex.: fornecedor sem endereço que já era cliente)
-        const preenchidos = Object.fromEntries(Object.entries(dados).filter(([, v]) => v !== null && v !== ""));
+        const preenchidos = Object.fromEntries(Object.entries(dados).filter(([k, v]) => v !== null && v !== "" && (!prefixo || (existente as Record<string, unknown>)[k] == null || (existente as Record<string, unknown>)[k] === "")));
         await tx.pessoa.update({
           where: { id: existente.id },
           data: { ...preenchidos, [papel]: true,
@@ -173,13 +183,18 @@ function dataBrHora(s: string): Date | null {
  * (coluna Localização) ou no local de implantação. Estoque negativo vira zero
  * e entra na lista para contar.
  */
-export async function importarProdutos(linhas: Linha[], opts: { simular?: boolean; localImplantacao?: string; importarEstoque?: boolean } = {}): Promise<Resultado> {
+/**
+ * `loja`: produtos de outra empresa (outro sistema) para a loja dela. Os produtos são compartilhados entre as lojas:
+ * os que já existem não têm nome, preço nem custo trocados; o estoque entra num depósito só da loja.
+ */
+export async function importarProdutos(linhas: Linha[], opts: { simular?: boolean; localImplantacao?: string; importarEstoque?: boolean; loja?: { empresaId: string; nome: string; sufixo: string } } = {}): Promise<Resultado> {
   const simular = opts.simular ?? true;
   const r = novoResultado("produtos", simular, linhas.length);
-  const codigoLocal = (opts.localImplantacao ?? "IMPLANTACAO").toUpperCase();
+  const codigoLocal = (opts.localImplantacao ?? (opts.loja ? `IMPLANTACAO-${opts.loja.sufixo}` : "IMPLANTACAO")).toUpperCase();
   let localPadrao = await prisma.local.findUnique({ where: { codigo: codigoLocal } });
   if (!localPadrao && !simular) {
-    const dep = await prisma.deposito.upsert({ where: { nome: "Loja" }, create: { nome: "Loja" }, update: {} });
+    const nomeDep = opts.loja ? `Loja ${opts.loja.nome}` : "Loja";
+    const dep = await prisma.deposito.upsert({ where: { nome: nomeDep }, create: { nome: nomeDep, empresaId: opts.loja?.empresaId }, update: {} });
     localPadrao = await prisma.local.create({ data: { depositoId: dep.id, codigo: codigoLocal, descricao: "Saldo vindo da migração, ainda sem prateleira" } });
   }
   const negativos: string[] = [];
@@ -227,16 +242,18 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
     // local: coluna "Localização" (cria se não existir) ou local de implantação
     const locTxt = c(l, "localizacao").toUpperCase().replace(/\s+/g, "-");
     let local = localPadrao!;
-    if (locTxt) {
+    if (locTxt && !opts.loja) {
       local = (await prisma.local.findUnique({ where: { codigo: locTxt } })) ??
         (await prisma.local.create({ data: { depositoId: localPadrao!.depositoId, codigo: locTxt } }));
     }
-    const prod = existente
+    const prod = existente && opts.loja
+      ? existente
+      : existente
       ? await prisma.produto.update({ where: { id: existente.id }, data: { ...dados, grupoId } })
       : await prisma.produto.create({ data: { ...dados, codigo, grupoId, localPadraoId: locTxt ? local.id : null } });
     // custo corrigido (ex.: era por caixa e passou a ser por metro): leva o custo novo às peças das OS, vendas e
     // entradas de implantação que guardaram o custo antigo, para a margem e a DRE ficarem certas
-    if (existente && Math.abs(Number(existente.custo) - dados.custo) > 0.00005) {
+    if (existente && !opts.loja && Math.abs(Number(existente.custo) - dados.custo) > 0.00005) {
       const antigo = existente.custo;
       const n = (await Promise.all([
         prisma.osItemProduto.updateMany({ where: { produtoId: prod.id, custoUnit: antigo }, data: { custoUnit: dados.custo } }),
@@ -248,7 +265,7 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
     if (existente) r.atualizados++; else r.criados++;
     // valor de venda padrão (tabela Valores de venda) acompanha o preço importado
     const padrao = await prisma.tipoValor.findFirst({ where: { padrao: true } });
-    if (padrao) {
+    if (padrao && !(existente && opts.loja)) {
       const lucro = dados.custo > 0 ? Math.min(9999999, Math.round(((dados.precoVenda - dados.custo) / dados.custo) * 10000) / 100) : 0;
       await prisma.produtoValor.upsert({
         where: { produtoId_tipoValorId: { produtoId: prod.id, tipoValorId: padrao.id } },
@@ -258,12 +275,15 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
     }
 
     // o saldo só é ajustado enquanto o produto não teve movimento real no ERP (OS, venda, compra…)
-    const jaMovimentou = existente && (await prisma.movimentoEstoque.count({ where: { produtoId: prod.id, NOT: { origemTipo: "IMPLANTACAO" } } })) > 0;
+    const jaMovimentou = existente && (await prisma.movimentoEstoque.count({ where: { produtoId: prod.id, NOT: { origemTipo: "IMPLANTACAO" }, ...(opts.loja ? { local: { depositoId: localPadrao!.depositoId } } : {}) } })) > 0;
     if (jaMovimentou && opts.importarEstoque !== false) movimentados.push(codigo);
     if (opts.importarEstoque !== false && !jaMovimentou) {
       // ajusta o saldo físico do produto para o valor da planilha (nunca negativo)
       await prisma.$transaction(async (tx) => {
-        const atual = (await resumoProduto(tx, prod.id)).fisico;
+        // outra loja: só o saldo do local de implantação dela (o das outras lojas não muda)
+        const atual = opts.loja
+          ? Number((await tx.saldo.findUnique({ where: { produtoId_localId: { produtoId: prod.id, localId: local.id } } }))?.quantidade ?? 0)
+          : (await resumoProduto(tx, prod.id)).fisico;
         const alvo = Math.max(0, estoque);
         const dif = Math.round((alvo - atual) * 10000) / 10000;
         if (dif > 0) await entrada(tx, { produtoId: prod.id, localId: local.id, quantidade: dif, custoUnit: dados.custo, origemTipo: "IMPLANTACAO", observacao: "Migração" });

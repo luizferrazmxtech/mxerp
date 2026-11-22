@@ -84,6 +84,16 @@ Ele mostra o que sai e o que fica, faz uma cópia antes e apaga OS, vendas, orç
 
 Depois, na tela **Migração**, escolha o .zip, marque tudo (inclusive *contas a pagar já vencidas*, *contas já pagas* e *notas fiscais*), **Simule**, confira os avisos e **Grave**. As notas do Gestão Click entram só para consulta (sem XML) e a numeração do MXERP continua depois da última delas.
 
+### Segunda empresa (outro Gestão Click)
+
+Cadastre a empresa em *Empresas* (CNPJ e nome) antes. Na tela **Migração**, escolha em *De qual empresa é este backup* a opção *Outro Gestão Click: tudo para …*. Assim:
+
+- OS, vendas, orçamentos, compras, contas e notas entram na loja dela;
+- se um número já existir aqui (ex.: OS 7001 nas duas), ganha o próximo livre e o número antigo fica no histórico;
+- o estoque entra num depósito só dela (*Loja NOME*), sem mexer no da primeira;
+- clientes e produtos em comum (mesmo CPF/CNPJ, mesmo nome sem documento, mesmo código de produto) não duplicam: os que já existem só ganham o que estava vazio;
+- a numeração das notas é por CNPJ, então a NF-e de uma loja não interfere na da outra.
+
 ### Baixar as contas antigas pelo extrato do Inter
 
 As contas a pagar vencidas entram em aberto. Para baixá-las pela conciliação, traga o extrato do período delas: em *Financeiro → Conciliação → Banco Inter*, preencha **ou desde** com a data da conta mais antiga e clique em *Buscar extrato*. Ele busca de 90 em 90 dias (pode levar alguns minutos). Linhas de contas que já entraram baixadas (histórico do Gestão Click) são amarradas a elas, sem baixar de novo. O resto aparece nas sugestões da conciliação. Se o Inter não liberar um período tão antigo, exporte o OFX no Internet Banking e importe pelo arquivo.

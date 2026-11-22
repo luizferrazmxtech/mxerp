@@ -346,6 +346,47 @@ describe("importar tudo: histórico das contas e notas do Gestão Click", () => 
   });
 });
 
+describe("segunda empresa (outro Gestão Click)", () => {
+  it("entra na loja dela sem misturar números, estoque nem cadastros com a primeira", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Empresa" CASCADE`);
+    const a = await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", nomeFantasia: "MXTECH", cnpj: "12965283000195" } });
+    const b = await prisma.empresa.create({ data: { razaoSocial: "SEGUNDA LTDA", nomeFantasia: "SEGUNDA", cnpj: "11222333000181" } });
+    const t = await gc.lerBackupGestaoClick(await backup());
+    const tudo = { cadastros: true, estoque: true, os: true, vendas: true, receber: true, pagar: true };
+    await gc.importarBackupGestaoClick(t, { simular: false, etapas: tudo });
+    const pessoas = await prisma.pessoa.count(), produtos = await prisma.produto.count();
+    const bat = await prisma.produto.findUniqueOrThrow({ where: { codigo: "BAT7" } });
+    await prisma.produto.update({ where: { id: bat.id }, data: { nome: "BATERIA 7AH (nome daqui)" } });
+
+    // o backup da outra empresa tem os mesmos números e o mesmo cliente com código 1
+    const res = await gc.importarBackupGestaoClick(t, { simular: false, etapas: tudo, destino: { empresaId: b.id } });
+    expect(await prisma.pessoa.count()).toBe(pessoas);
+    expect(await prisma.produto.count()).toBe(produtos);
+    expect((await prisma.produto.findUniqueOrThrow({ where: { id: bat.id } })).nome).toBe("BATERIA 7AH (nome daqui)");
+
+    const osA = await prisma.ordemServico.findMany({ where: { empresaId: a.id }, orderBy: { numero: "asc" } });
+    const osB = await prisma.ordemServico.findMany({ where: { empresaId: b.id }, orderBy: { numero: "asc" }, include: { historico: true } });
+    expect(osA.map((o) => o.numero)).toEqual([7001, 7002, 7003, 7004]);
+    expect(osB).toHaveLength(4);
+    expect(osB.every((o) => o.numero > 7004)).toBe(true);
+    expect(osB[0].historico.some((h) => /Nº 7001 no Gestão Click de SEGUNDA/.test(h.descricao))).toBe(true);
+    expect(res.find((r) => r.tipo === "os")!.avisos.join(" ")).toMatch(/4 OS tinham o mesmo número/);
+
+    // estoque: cada loja no seu depósito; o da primeira não muda
+    const saldos = await prisma.saldo.findMany({ where: { produtoId: bat.id }, include: { local: { include: { deposito: true } } } });
+    expect(saldos.map((x) => [x.local.deposito.empresaId, Number(x.quantidade)]).sort()).toEqual([[null, 3], [b.id, 3]].sort());
+
+    // contas da outra empresa entram nela
+    expect(await prisma.lancamento.count({ where: { empresaId: b.id } })).toBe(2);
+
+    // de novo: nada duplica
+    await gc.importarBackupGestaoClick(t, { simular: false, etapas: tudo, destino: { empresaId: b.id } });
+    expect(await prisma.ordemServico.count()).toBe(8);
+    expect(await prisma.lancamento.count()).toBe(4);
+    expect((await prisma.saldo.findMany({ where: { produtoId: bat.id } })).reduce((s, x) => s + Number(x.quantidade), 0)).toBe(6);
+  });
+});
+
 describe("extrato de uma conta que já entrou baixada", () => {
   it("amarra a linha à conta sem baixar de novo", async () => {
     const { importarExtrato } = await import("@/lib/financeiro/extrato");
