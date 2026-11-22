@@ -125,7 +125,7 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
                     {n.ambiente === "HOMOLOGACAO" && <div className="text-[10px] text-amber-700">homologação</div>}</td>
                   {!modelo && <td className="text-[12px]">{MODELOS[n.modelo]?.curto ?? n.modelo}</td>}
                   <td>{o ? <Link href={o.href} className="text-marca hover:underline">{o.rotulo}</Link> : <span className="text-slate-400">—</span>}</td>
-                  <td className="max-w-64">{o?.cliente ? <Link href={`/clientes/${o.cliente.id}`} className="hover:underline">{o.cliente.nome}</Link> : <span className="text-slate-400">consumidor</span>}
+                  <td className="max-w-64">{o?.cliente ? <Link href={`/clientes/${o.cliente.id}`} className="hover:underline">{o.cliente.nome}</Link> : n.destinatarioNome ? <span>{n.destinatarioNome}</span> : <span className="text-slate-400">consumidor</span>}
                     {o?.cliente?.fantasia && <div className="text-[11px] text-slate-500">{o.cliente.fantasia}</div>}</td>
                   <td>{dataHora(n.emitidaEm ?? n.createdAt)}</td>
                   <td className="text-right">{brl(n.valorTotal)}</td>

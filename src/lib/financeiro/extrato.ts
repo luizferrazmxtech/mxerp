@@ -363,11 +363,42 @@ export async function importarExtrato(contaBancariaId: string, ts: TransacaoExtr
   }
   let baixadas = await conciliarPorBoleto(contaBancariaId);
   const boletos = await tirarBoletosRecebidos(contaBancariaId);
+  const jaBaixadas = await amarrarJaBaixadas(contaBancariaId);
   if (opts.baixarAutomatico !== false) {
     for (const s of (await sugestoes(contaBancariaId)).filter((x) => x.confianca === "alta")) {
       await prisma.$transaction((tx) => conciliarTx(tx, s.transacaoId, [s.lancamentoId]));
       baixadas++;
     }
   }
-  return { lidas: ts.length, novas, repetidas: ts.length - novas, baixadas, boletos };
+  return { lidas: ts.length, novas, repetidas: ts.length - novas, baixadas, boletos, jaBaixadas };
+}
+
+/**
+ * Linhas do extrato de contas que já entraram baixadas (histórico importado do sistema anterior, baixa feita à mão):
+ * amarra a linha à conta sem baixar de novo, para não lançar o mesmo pagamento duas vezes. Só quando há uma única conta
+ * da mesma conta bancária e do mesmo tipo, sem extrato, com o valor pago igual e paga até 3 dias antes ou depois da linha.
+ */
+export async function amarrarJaBaixadas(contaBancariaId: string) {
+  const ts = await prisma.transacaoBancaria.findMany({ where: { contaBancariaId, situacao: "PENDENTE" }, orderBy: { data: "asc" } });
+  if (!ts.length) return 0;
+  const min = new Date(ts[0].data.getTime() - 3 * DIA), max = new Date(ts[ts.length - 1].data.getTime() + 3 * DIA);
+  const pagas = await todasAsLojas(() => prisma.lancamento.findMany({
+    where: { contaBancariaId, pagoEm: { gte: min, lte: max }, transacaoId: null, transferenciaId: null },
+    select: { id: true, tipo: true, valor: true, valorPago: true, pagoEm: true },
+  }));
+  const usadas = new Set<string>();
+  let n = 0;
+  for (const t of ts) {
+    const tipo = Number(t.valor) < 0 ? "PAGAR" : "RECEBER", valor = Math.abs(Number(t.valor));
+    const cand = pagas.filter((l) => !usadas.has(l.id) && l.tipo === tipo && Math.abs(Number(l.valorPago ?? l.valor) - valor) < 0.005
+      && Math.abs(l.pagoEm!.getTime() - t.data.getTime()) <= 3 * DIA);
+    if (cand.length !== 1) continue;
+    usadas.add(cand[0].id);
+    await prisma.$transaction([
+      prisma.lancamento.update({ where: { id: cand[0].id }, data: { transacaoId: t.id } }),
+      prisma.transacaoBancaria.update({ where: { id: t.id }, data: { situacao: "CONCILIADA" } }),
+    ]);
+    n++;
+  }
+  return n;
 }

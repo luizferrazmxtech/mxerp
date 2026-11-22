@@ -33,7 +33,7 @@ export async function lerBackupGestaoClick(zip: Buffer): Promise<Tabelas> {
   return t;
 }
 
-export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; vendas?: boolean; compras?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean };
+export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; vendas?: boolean; compras?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean; historico?: boolean; pagas?: boolean; notas?: boolean };
 
 const chaveNome = (s: string | undefined) => normalizar(s ?? "");
 const sim = (s: string) => (/^n[aã]o$/i.test(s.trim()) ? "Não" : "Sim");
@@ -156,7 +156,7 @@ function linhasServicos(s: Linha[] | undefined) {
  * e devolvem as peças se forem canceladas ou editadas aqui (ver estadoEfetivo em os/ordens.ts). Nenhuma lança financeiro:
  * as contas em aberto vêm do próprio backup.
  */
-async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
+async function importarOs(t: Tabelas, simular: boolean, historico = true): Promise<Resultado> {
   const todas = t.ordens_servicos ?? [];
   const r: Resultado = { tipo: "os", simulado: simular, lidas: todas.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
   const N = "n da os";
@@ -180,6 +180,7 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
   const semProduto = new Set<string>(), semCliente = new Set<string>(), semSituacao = new Set<string>();
   const porSituacao = new Map<string, number>(), situacaoNova = new Map<string, number>();
   const mexidasNoErp: number[] = [];
+  let fechadas = 0;
   const nomeSitDe = (id: string | null) => situacoes.find((s) => s.id === id)?.nome ?? "sem situação";
   const atualizarSituacaoImportada = (osId: string, sit: (typeof situacoes)[number], mudouEm: Date, novos: Linha[], data: Date) =>
     prisma.$transaction(async (tx) => {
@@ -235,6 +236,7 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
       } else r.ignorados.push({ linha: numero, motivo: `OS ${numero} já existe no ERP` });
       continue;
     }
+    if (!historico && !emAberto(sit)) { fechadas++; continue; }
     porSituacao.set(sit?.nome ?? nomeSit, (porSituacao.get(sit?.nome ?? nomeSit) ?? 0) + 1);
     if (sit?.estoque === "RESERVAR") reservadas++;
     if (simular) { r.criados++; continue; }
@@ -299,6 +301,7 @@ async function importarOs(t: Tabelas, simular: boolean): Promise<Resultado> {
   }
   r.avisos.push(`A numeração continua do Gestão Click: próxima OS nº ${maior + 1}${maxVenda ? `, próxima venda nº ${maxVenda + 1}` : ""}.`);
   if (porSituacao.size) r.avisos.push(`OS novas por situação: ${[...porSituacao].map(([k, v]) => `${k} ${v}`).join(", ")}. ${reservadas} em aberto ou em andamento ${simular ? "vão reservar" : "reservaram"} as peças; as concretizadas entram sem mexer no estoque nem no financeiro (o backup já traz o saldo e as contas em aberto).`);
+  if (fechadas) r.avisos.push(`${fechadas} OS já concluídas ou canceladas no Gestão Click ficaram de fora (histórico desmarcado).`);
   if (situacaoNova.size) r.avisos.push(`${[...situacaoNova.values()].reduce((a, b) => a + b, 0)} OS já trazidas antes mudaram de situação no Gestão Click e ${simular ? "vão passar" : "passaram"} para a atual (a reserva das peças acompanha): ${[...situacaoNova].map(([k, v]) => `${k}: ${v}`).join("; ")}.`);
   if (mexidasNoErp.length) r.avisos.push(`${mexidasNoErp.length} OS foram alteradas no MXERP depois da importação anterior e ficaram como estão no MXERP: ${mexidasNoErp.slice(0, 30).join(", ")}${mexidasNoErp.length > 30 ? "…" : ""}`);
   if (r.atualizados) r.avisos.push(`${r.atualizados} OS já trazidas antes ${simular ? "vão ganhar" : "ganharam"} as parcelas, o vendedor e o histórico do Gestão Click.`);
@@ -362,7 +365,7 @@ const agruparPor = (col: string) => (ls: Linha[] | undefined) => {
  * concretizadas não geram movimento nem lançamento. As que estão em aberto/andamento reservam as peças,
  * como no MXERP. Se uma venda migrada concretizada for cancelada ou editada, o estoque volta (ver pedidos.ts).
  */
-async function importarVendas(t: Tabelas, simular: boolean): Promise<Resultado> {
+async function importarVendas(t: Tabelas, simular: boolean, historico = true): Promise<Resultado> {
   const todas = t.vendas ?? [];
   const r: Resultado = { tipo: "vendas", simulado: simular, lidas: todas.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
   const N = "n do pedido";
@@ -375,7 +378,7 @@ async function importarVendas(t: Tabelas, simular: boolean): Promise<Resultado> 
   const ENUM = { RESERVAR: "ABERTA", LANCAR: "CONCLUIDA", NAO: "CANCELADA" } as const;
 
   const semProduto = new Set<string>(), semCliente = new Set<string>(), semSituacao = new Set<string>();
-  let maior = 0, reservadas = 0;
+  let maior = 0, reservadas = 0, fechadas = 0;
   for (const v of todas) {
     const numero = Number(v[N]);
     if (!numero) { r.ignorados.push({ linha: 0, motivo: "Venda sem número" }); continue; }
@@ -390,6 +393,7 @@ async function importarVendas(t: Tabelas, simular: boolean): Promise<Resultado> 
     const existe = await prisma.venda.findFirst({ where: { OR: [{ idLegado: `venda:${numero}` }, { numero }] }, select: { id: true } });
     if (existe && !simular) await moverParaLoja("venda", existe.id, lojaDe(v.loja), "VENDA");
     if (existe) { r.ignorados.push({ linha: numero, motivo: `Venda ${numero} já existe no ERP` }); continue; }
+    if (!historico && !emAberto(sit)) { fechadas++; continue; }
     if (sit?.estoque === "RESERVAR") reservadas++;
     if (simular) { r.criados++; continue; }
     if (!sit) throw new Error("Cadastre ao menos uma situação de venda antes de importar");
@@ -445,6 +449,7 @@ async function importarVendas(t: Tabelas, simular: boolean): Promise<Resultado> 
   if (semProduto.size) r.avisos.push(`${semProduto.size} produtos citados em vendas não existem mais no cadastro e ${simular ? "serão criados" : "foram criados"} como inativos (código GC-…), sem estoque: ${[...semProduto].slice(0, 20).join("; ")}${semProduto.size > 20 ? "…" : ""}`);
   if (semCliente.size) r.avisos.push(`${semCliente.size} clientes de vendas não estão no cadastro e ${simular ? "serão criados" : "foram criados"} só com o nome: ${[...semCliente].slice(0, 20).join("; ")}${semCliente.size > 20 ? "…" : ""}`);
   if (semSituacao.size) r.avisos.push(`Situações sem correspondente no ERP (entraram na situação padrão): ${[...semSituacao].join(", ")}`);
+  if (fechadas) r.avisos.push(`${fechadas} vendas já concluídas ou canceladas no Gestão Click ficaram de fora (histórico desmarcado).`);
   return r;
 }
 
@@ -548,7 +553,7 @@ function formaPara(f: string) {
     : /dinheiro/.test(p) ? "Dinheiro" : null;
 }
 
-async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PAGAR", simular: boolean, soAVencer = false): Promise<Resultado> {
+async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PAGAR", simular: boolean, soAVencer = false, incluirPagas = false): Promise<Resultado> {
   const todas = linhas ?? [];
   const hoje = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
   let abertas = todas.filter((l) => !/confirmad/i.test(l.situacao));
@@ -557,7 +562,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
   const r: Resultado = { tipo: tipo === "RECEBER" ? "receber" : "pagar", simulado: simular, lidas: todas.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
   const vencidas = abertas.filter((l) => (dataBr(l["data do vencimento"])?.getTime() ?? 0) < Date.now() - 86400000);
   const soma = (ls: Linha[]) => ls.reduce((s, l) => s + numeroBr(l.valor), 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-  r.avisos.push(`${abertas.length} contas em aberto (${soma(abertas)}), das quais ${vencidas.length} já vencidas (${soma(vencidas)}). As já pagas/recebidas não entram.`);
+  r.avisos.push(`${abertas.length} contas em aberto (${soma(abertas)}), das quais ${vencidas.length} já vencidas (${soma(vencidas)}).${incluirPagas ? "" : " As já pagas/recebidas não entram."}`);
   if (deFora.length) r.avisos.push(`${deFora.length} contas vencidas (${soma(deFora)}) ficaram de fora por já terem sido pagas fora do sistema.`);
 
   if (!simular) {
@@ -597,17 +602,54 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
   }
 
   // contas trazidas por uma importação anterior e pagas/recebidas depois no Gestão Click: baixa aqui também
-  // (as já baixadas ou conciliadas no MXERP ficam como estão)
+  // (as já baixadas ou conciliadas no MXERP ficam como estão). Com `incluirPagas`, as que nunca vieram entram
+  // já baixadas (histórico para o fluxo de caixa e a DRE).
   const ocorrPagas = new Map<string, number>();
-  let baixadas = 0, totalBaixado = 0;
+  let baixadas = 0, totalBaixado = 0, historicas = 0, totalHistorico = 0, jaNoExtrato = 0;
+  const historicoPaga = async (l: Linha, idLegado: string, juros: number, desconto: number) => {
+    const valor = numeroBr(l.valor), venc = dataBr(l["data do vencimento"]);
+    if (!venc || !(valor > 0)) return;
+    const pagoEm = dataBr(l["data de confirmacao"]) ?? venc;
+    const valorPago = numeroBr(l["valor total"] ?? "") || valor + juros - desconto;
+    // pagamento que já entrou no MXERP pelo extrato do banco (lançado direto na conciliação): não lança de novo
+    const doExtrato = await prisma.lancamento.findFirst({
+      where: { tipo, idLegado: { startsWith: "extrato:" }, valorPago: valorPago.toFixed(2), pagoEm: { gte: new Date(pagoEm.getTime() - 3 * 86400000), lte: new Date(pagoEm.getTime() + 3 * 86400000) } },
+      select: { id: true },
+    });
+    if (doExtrato) { jaNoExtrato++; return; }
+    historicas++;
+    totalHistorico += valorPago;
+    if (simular) return;
+    const nomeEnt = l["entidade nome"];
+    const pessoa = nomeEnt ? await prisma.pessoa.findFirst({ where: { OR: [{ nome: { equals: nomeEnt, mode: "insensitive" } }, { fantasia: { equals: nomeEnt, mode: "insensitive" } }] } }) : null;
+    const cat = await prisma.categoriaFinanceira.findUniqueOrThrow({ where: { nome_tipo: { nome: categoriaPara(l["plano de contas"], tipo), tipo } } });
+    const formaNome = formaPara(l["forma de pagamento"] ?? "");
+    const forma = formaNome ? await prisma.formaPagamento.findUnique({ where: { nome: formaNome } }) : null;
+    const nomeConta = (l["conta bancaria"] ?? "").trim() || "Gestão Click";
+    const conta = await prisma.contaBancaria.upsert({ where: { nome: nomeConta }, create: { nome: nomeConta }, update: {} });
+    await prisma.lancamento.create({
+      data: {
+        tipo, descricao: [l["descricao do recebimento"], !pessoa && nomeEnt ? `(${nomeEnt})` : ""].filter(Boolean).join(" ").slice(0, 300),
+        pessoaId: pessoa?.id, categoriaId: cat.id, formaPagamentoId: forma?.id, contaBancariaId: conta.id,
+        valor: valor.toFixed(2), vencimento: venc, competencia: dataBr(l["data de competencia"]) ?? venc,
+        pagoEm, valorPago: valorPago.toFixed(2), juros: juros.toFixed(2), desconto: desconto.toFixed(2),
+        origemTipo: "IMPLANTACAO", idLegado, empresaId: lojaDe(l.loja), observacao: "Baixada no Gestão Click (histórico importado)",
+      },
+    });
+  };
   for (const l of todas.filter((x) => /confirmad/i.test(x.situacao))) {
     const base = [tipo, l["descricao do recebimento"], l["entidade nome"], l["data do vencimento"], l.valor, l["cadastrado em"]].join("|");
     const n = (ocorrPagas.get(base) ?? 0) + 1;
     ocorrPagas.set(base, n);
     const idLegado = `${tipo.toLowerCase()}:${createHash("sha1").update(`${base}|${n}`).digest("hex").slice(0, 20)}`;
-    const aberta = await prisma.lancamento.findFirst({ where: { idLegado, pagoEm: null, transacaoId: null }, select: { id: true, valor: true } });
-    if (!aberta) continue;
+    const ja = await prisma.lancamento.findUnique({ where: { idLegado }, select: { id: true, valor: true, pagoEm: true, transacaoId: true } });
     const juros = numeroBr(l.juros ?? ""), desconto = numeroBr(l.desconto ?? "");
+    if (!ja) {
+      if (incluirPagas) await historicoPaga(l, idLegado, juros, desconto);
+      continue;
+    }
+    if (ja.pagoEm || ja.transacaoId) continue;
+    const aberta = ja;
     const valorPago = numeroBr(l["valor total"] ?? "") || Number(aberta.valor) + juros - desconto;
     baixadas++;
     totalBaixado += valorPago;
@@ -619,6 +661,11 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
       await tx.lancamento.update({ where: { id: aberta.id }, data: { observacao: "Baixada no Gestão Click (importação do backup)" } });
     });
   }
+  if (historicas) {
+    r.criados += historicas;
+    r.avisos.push(`${historicas} contas já ${tipo === "RECEBER" ? "recebidas" : "pagas"} no Gestão Click (${totalHistorico.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}) ${simular ? "vão entrar" : "entraram"} baixadas, como histórico.`);
+  }
+  if (jaNoExtrato) r.avisos.push(`${jaNoExtrato} contas já ${tipo === "RECEBER" ? "recebidas" : "pagas"} no Gestão Click ficaram de fora porque o mesmo valor, na mesma data, já foi lançado pela conciliação do extrato.`);
   if (baixadas) {
     r.atualizados += baixadas;
     r.avisos.push(`${baixadas} contas trazidas antes ${tipo === "RECEBER" ? "foram recebidas" : "foram pagas"} depois no Gestão Click (${totalBaixado.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}) e ${simular ? "vão ser baixadas" : "foram baixadas"} aqui com a data de confirmação de lá.`);
@@ -764,6 +811,11 @@ async function importarAjustes(t: Tabelas, simular: boolean): Promise<Resultado>
 // ---------- lojas: a coluna "Loja" do backup vira a empresa (pelo nome fantasia ou razão social)
 
 let lojasPorNome = new Map<string, string>();
+
+/** Ainda em aberto: reserva as peças, ou já lançou o estoque mas falta faturar (ex.: "CONCLUIDA - FATURAR"). */
+function emAberto(sit: { estoque: string; financeiro: boolean } | undefined) {
+  return !sit || sit.estoque === "RESERVAR" || (sit.estoque === "LANCAR" && !sit.financeiro);
+}
 const chaveLoja = chaveNome;
 /** Documento já importado antes do cadastro das lojas: passa para a loja certa (com o financeiro dele). */
 async function moverParaLoja(modelo: "ordemServico" | "venda" | "orcamento", id: string, empresaId: string | undefined, origem: "OS" | "VENDA" | null) {
@@ -773,6 +825,65 @@ async function moverParaLoja(modelo: "ordemServico" | "venda" | "orcamento", id:
 }
 /** Empresa da loja do Gestão Click; undefined se não houver empresa com esse nome (fica a loja atual, ou nenhuma). */
 const lojaDe = (nome: string | undefined) => (nome ? lojasPorNome.get(chaveLoja(nome)) : undefined);
+
+// ---------- notas fiscais emitidas no Gestão Click (só consulta) e a numeração que continua delas
+
+const STATUS_GC: Record<string, "AUTORIZADA" | "CANCELADA" | "REJEITADA" | "DENEGADA" | "INUTILIZADA"> = {
+  aprovada: "AUTORIZADA", autorizada: "AUTORIZADA", cancelada: "CANCELADA", reprovada: "REJEITADA", rejeitada: "REJEITADA", denegada: "DENEGADA", inutilizada: "INUTILIZADA",
+};
+
+async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
+  const tabelas: [ModeloGc, Linha[]][] = [["NFE", t.notas_fiscais ?? []], ["NFCE", t.notas_fiscais_consumidor ?? []], ["NFSE", t.notas_fiscais_servicos ?? []]];
+  const r: Resultado = { tipo: "notas", simulado: simular, lidas: tabelas.reduce((s, [, ls]) => s + ls.length, 0), criados: 0, atualizados: 0, ignorados: [], avisos: [] };
+  const empresas = await prisma.empresa.findMany({ select: { id: true, cnpj: true } });
+  const cnpjDe = (id: string | undefined) => empresas.find((e) => e.id === id)?.cnpj;
+  const maiores = new Map<string, number>();
+  const porModelo = new Map<string, number>();
+  for (const [modelo, linhas] of tabelas) {
+    for (const [i, l] of linhas.entries()) {
+      // NFS-e: o número que o MXERP controla é o da DPS (o RPS no Gestão Click); a NFS-e tem o número dado pelo governo
+      const numero = Number(modelo === "NFSE" ? l.rps || l.numero : l.numero), serie = Number(l.serie) || 1;
+      if (!numero) { r.ignorados.push({ linha: i + 2, motivo: "nota sem número" }); continue; }
+      const ambiente = /homolog/i.test(l.ambiente ?? "") ? "HOMOLOGACAO" : "PRODUCAO";
+      const chave = digitosGc(l.chave ?? "");
+      const empresaId = (chave.length === 44 && empresas.find((e) => e.cnpj === chave.slice(6, 20))?.id) || lojaDe(l.loja) || (empresas.length === 1 ? empresas[0].id : undefined);
+      const cnpj = cnpjDe(empresaId);
+      if (cnpj && ambiente === "PRODUCAO") {
+        const k = modelo === "NFSE" ? `DPS-${cnpj}-${serie}-P` : `NF-${cnpj}-${modelo === "NFE" ? 55 : 65}-${serie}-P`;
+        maiores.set(k, Math.max(maiores.get(k) ?? 0, numero));
+      }
+      const idLegado = `nota:${modelo}:${serie}:${numero}:${ambiente}`;
+      const ja = await prisma.notaFiscal.findFirst({ where: { OR: [{ idLegado }, { modelo, serie, numero, ambiente }, ...(chave.length === 44 ? [{ chave }] : [])] }, select: { id: true } });
+      if (ja) { r.ignorados.push({ linha: i + 2, motivo: `${modelo} ${numero} já existe no ERP` }); continue; }
+      porModelo.set(modelo, (porModelo.get(modelo) ?? 0) + 1);
+      r.criados++;
+      if (simular) continue;
+      const status = modelo === "NFSE" ? "AUTORIZADA" : STATUS_GC[chaveNome(l.situacao ?? "")] ?? "AUTORIZADA";
+      const emitidaEm = dataHoraBr(`${l["data de emissao"]} ${l["hora de emissao"] || "12:00:00"}`) ?? dataBr(l["data de emissao"]);
+      const destinatario = modelo === "NFSE" ? l["razao social"] : l["nome do destinatario"];
+      await prisma.notaFiscal.create({
+        data: {
+          modelo, serie, numero, ambiente, status, empresaId: empresaId ?? null, idLegado,
+          chave: chave.length === 44 ? chave : null, protocolo: l.protocolo || null, emitidaEm,
+          valorTotal: numeroBr(modelo === "NFSE" ? l["valor do servico"] : l["valor total"]).toFixed(2),
+          destinatarioNome: destinatario ? destinatario.slice(0, 200) : null,
+          motivo: modelo === "NFSE" ? `Emitida no Gestão Click (NFS-e nº ${l.numero})` : `Emitida no Gestão Click${l["natureza de operacao"] ? ` · ${l["natureza de operacao"]}` : ""}`,
+          ...(emitidaEm ? { createdAt: emitidaEm } : {}),
+        },
+      });
+    }
+  }
+  // a numeração do MXERP continua depois da última nota do Gestão Click (nunca volta para trás)
+  if (!simular)
+    for (const [chave, valor] of maiores)
+      await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES (${chave}, ${valor}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${valor})`;
+  if (porModelo.size) r.avisos.push(`Notas do Gestão Click para consulta (sem XML): ${[...porModelo].map(([m, n]) => `${m === "NFE" ? "NF-e" : m === "NFCE" ? "NFC-e" : "NFS-e"} ${n}`).join(", ")}.`);
+  if (maiores.size) r.avisos.push(`A numeração das notas continua do Gestão Click: ${[...maiores].map(([k, v]) => `${k.startsWith("DPS") ? "DPS" : k.includes("-65-") ? "NFC-e" : "NF-e"} série ${k.split("-").at(-2)} a partir do nº ${v + 1}`).join("; ")}.`);
+  else if (r.lidas) r.avisos.push("Cadastre a empresa (CNPJ) antes: sem ela a numeração das notas não pode continuar a do Gestão Click.");
+  return r;
+}
+type ModeloGc = "NFE" | "NFCE" | "NFSE";
+const digitosGc = (s: string) => s.replace(/\D/g, "");
 
 // ---------- orquestração
 
@@ -796,12 +907,14 @@ export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: bo
     r.avisos.push(...avisosUnidades(t.produtos, simular));
     res.push(r);
   }
-  if (e.os) res.push(await importarOs(t, simular));
+  const historico = e.historico ?? true;
+  if (e.os) res.push(await importarOs(t, simular, historico));
   if (e.orcamentos && t.orcamentos) res.push(await importarOrcamentos(t, simular));
-  if (e.vendas && t.vendas) res.push(await importarVendas(t, simular));
+  if (e.vendas && t.vendas) res.push(await importarVendas(t, simular, historico));
   if (e.compras && t.compras) res.push(await importarCompras(t, simular));
   if (e.compras && t.ajustes_estoques) res.push(await importarAjustes(t, simular));
-  if (e.receber) res.push(await importarContas(t.contas_receber, "RECEBER", simular));
-  if (e.pagar) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas));
+  if (e.notas) res.push(await importarNotas(t, simular));
+  if (e.receber) res.push(await importarContas(t.contas_receber, "RECEBER", simular, false, !!e.pagas));
+  if (e.pagar) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas, !!e.pagas));
   return res;
 }

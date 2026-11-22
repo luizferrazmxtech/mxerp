@@ -5,19 +5,22 @@ import { importarBackup, type EstadoBackup } from "./actions";
 
 const NOMES: Record<string, string> = {
   clientes: "Clientes", fornecedores: "Fornecedores", servicos: "Serviços", produtos: "Produtos e estoque",
-  os: "OS em andamento", orcamentos: "Orçamentos", vendas: "Vendas", compras: "Compras", ajustes: "Ajustes de estoque", receber: "Contas a receber em aberto", pagar: "Contas a pagar em aberto",
+  os: "OS em andamento", orcamentos: "Orçamentos", vendas: "Vendas", compras: "Compras", ajustes: "Ajustes de estoque", receber: "Contas a receber", notas: "Notas fiscais", pagar: "Contas a pagar",
 };
 
 const ETAPAS = [
   { nome: "cadastros", rotulo: "Cadastros (clientes, fornecedores, produtos, serviços)", padrao: true },
   { nome: "estoque", rotulo: "Quantidade em estoque dos produtos", padrao: true },
   { nome: "os", rotulo: "OS em andamento, com os produtos já reservados", padrao: true },
+  { nome: "historico", rotulo: "Incluir também OS e vendas já concluídas ou canceladas (histórico)", padrao: true },
   { nome: "orcamentos", rotulo: "Orçamentos (todos, com itens, parcelas e histórico)", padrao: true },
   { nome: "vendas", rotulo: "Vendas (todas, com itens, parcelas e histórico; as em aberto reservam as peças)", padrao: true },
   { nome: "compras", rotulo: "Compras e ajustes de estoque (histórico; as confirmadas não mexem no saldo nem nas contas)", padrao: true },
+  { nome: "notas", rotulo: "Notas fiscais emitidas no Gestão Click (consulta) e a numeração continuando delas", padrao: false },
   { nome: "receber", rotulo: "Contas a receber em aberto", padrao: true },
   { nome: "pagar", rotulo: "Contas a pagar que vencem a partir de hoje", padrao: true },
-  { nome: "pagarVencidas", rotulo: "Incluir também as contas a pagar já vencidas", padrao: false },
+  { nome: "pagarVencidas", rotulo: "Incluir também as contas a pagar já vencidas (em aberto, para baixar pela conciliação)", padrao: false },
+  { nome: "pagas", rotulo: "Contas já pagas e recebidas no Gestão Click (histórico, entram baixadas)", padrao: false },
 ];
 
 export default function ImportadorBackup() {

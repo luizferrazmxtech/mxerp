@@ -15,8 +15,8 @@ const str = (x: FormDataEntryValue | null) => String(x ?? "").trim();
 const feito = (mensagem: string): Estado => { revalidatePath("/financeiro/conciliacao"); revalidatePath("/financeiro"); return { ok: true, mensagem }; };
 const falha = (e: unknown): Estado => ({ ok: false, mensagem: e instanceof Error ? e.message : String(e) });
 
-const resumo = (r: { novas: number; repetidas: number; baixadas: number; boletos?: number }) =>
-  `${r.novas} transações novas${r.repetidas ? ` (${r.repetidas} já tinham vindo antes)` : ""}, ${r.baixadas} contas baixadas automaticamente${r.boletos ? `, ${r.boletos} boleto${r.boletos > 1 ? "s" : ""} recebido${r.boletos > 1 ? "s" : ""} (já baixado${r.boletos > 1 ? "s" : ""} pela cobrança do Inter)` : ""}.`;
+const resumo = (r: { novas: number; repetidas: number; baixadas: number; boletos?: number; jaBaixadas?: number }) =>
+  `${r.novas} transações novas${r.repetidas ? ` (${r.repetidas} já tinham vindo antes)` : ""}, ${r.baixadas} contas baixadas automaticamente${r.boletos ? `, ${r.boletos} boleto${r.boletos > 1 ? "s" : ""} recebido${r.boletos > 1 ? "s" : ""} (já baixado${r.boletos > 1 ? "s" : ""} pela cobrança do Inter)` : ""}${r.jaBaixadas ? `, ${r.jaBaixadas} amarrada${r.jaBaixadas > 1 ? "s" : ""} a contas que já estavam baixadas` : ""}.`;
 
 export async function enviarExtrato(_: Estado, form: FormData): Promise<Estado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
@@ -36,8 +36,11 @@ export async function puxarInter(_: Estado, form: FormData): Promise<Estado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);
   try {
     const dias = Number(form.get("dias") || 7);
-    const b = await sincronizarBoletos({ dias });
-    const r = await sincronizarInter({ dias });
+    // extrato antigo (ex.: desde a migração do sistema anterior): só o extrato, em blocos de 90 dias
+    const desdeTxt = String(form.get("desde") || "");
+    const desde = /^\d{4}-\d{2}-\d{2}$/.test(desdeTxt) ? new Date(`${desdeTxt}T00:00:00Z`) : undefined;
+    const b = desde ? null : await sincronizarBoletos({ dias });
+    const r = await sincronizarInter(desde ? { desde } : { dias });
     await buscarRamos({ limite: 10 }).catch(() => null);
     return feito(`Inter (${r.conta}): ${resumo(r)}${b ? ` Boletos: ${b.baixados} pago(s) baixado(s)${b.erros.length ? ` · ${b.erros[0]}` : ""}.` : ""}`);
   } catch (e) { return falha(e); }
