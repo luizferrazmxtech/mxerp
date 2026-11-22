@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { exigirArea } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
-import { configInterServidor, infoCertificado } from "@/lib/financeiro/inter";
+import { configInterServidor, idInterAtual, infoCertificado } from "@/lib/financeiro/inter";
+import { lojaAtualId } from "@/lib/empresa/loja";
 import { Bloco, Pagina } from "@/components/ui/Pagina";
 import { FormInter, TestarRemover } from "./Formulario";
 
@@ -12,19 +13,29 @@ const dataHora = (d: Date) => d.toLocaleString("pt-BR", { timeZone: "America/Sao
 
 export default async function ConfigInterPagina() {
   const u = await exigirArea("/financeiro/conciliacao/inter");
-  const [r, contas, formas] = await Promise.all([
-    prisma.integracaoInter.findUnique({ where: { id: "inter" } }),
+  const [id, loja, nEmpresas] = await Promise.all([idInterAtual(), lojaAtualId(), prisma.empresa.count()]);
+  const [linha, empresa, contas, formas] = await Promise.all([
+    id ? prisma.integracaoInter.findUnique({ where: { id } }) : null,
+    loja ? prisma.empresa.findUnique({ where: { id: loja }, select: { razaoSocial: true, nomeFantasia: true, cnpj: true } }) : null,
     prisma.contaBancaria.findMany({ where: { ativa: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
     prisma.formaPagamento.findMany({ where: { ativa: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true, boletoInter: true } }),
   ]);
+  // a tela mostra só o Inter desta empresa (o sem dona, de antes de ter um por empresa, vale para todas até ganhar dona)
+  const r = linha && (!linha.empresaId || linha.empresaId === loja) ? linha : null;
   const cert = r ? infoCertificado(r.certificado) : null;
   const venceEm = cert ? Math.floor((cert.validoAte.getTime() - Date.now()) / 86400000) : null;
-  const doEnv = !r && !!configInterServidor();
+  const doEnv = !linha && !!configInterServidor();
+  const nomeEmpresa = empresa ? `${empresa.nomeFantasia || empresa.razaoSocial} (CNPJ ${empresa.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5")})` : null;
   const admin = u.papel === "ADMIN";
 
   return (
     <Pagina titulo="Banco Inter (API)" icone="conciliacao" trilha={[{ rotulo: "Financeiro", href: "/financeiro" }, { rotulo: "Conciliação", href: "/financeiro/conciliacao" }, { rotulo: "Banco Inter" }]}
       acoes={<Link href="/financeiro/conciliacao" className="btn-sec">Voltar à conciliação</Link>}>
+      {nEmpresas > 1 && nomeEmpresa && (
+        <p className="cartao mb-3 p-3 text-sm text-slate-700">
+          Banco Inter de <b>{nomeEmpresa}</b>. Cada empresa tem a sua conta do Inter, com extrato, conciliação e boletos separados. Para configurar a de outra empresa, troque a empresa no topo do menu.
+        </p>
+      )}
       <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
         <div>
           <Bloco titulo={<b>Situação</b>} icone="conciliacao">

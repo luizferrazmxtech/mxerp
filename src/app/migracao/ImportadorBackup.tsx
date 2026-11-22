@@ -5,7 +5,7 @@ import { importarBackup, type EstadoBackup } from "./actions";
 
 const NOMES: Record<string, string> = {
   clientes: "Clientes", fornecedores: "Fornecedores", servicos: "Serviços", produtos: "Produtos e estoque",
-  os: "OS em andamento", orcamentos: "Orçamentos", vendas: "Vendas", compras: "Compras", ajustes: "Ajustes de estoque", receber: "Contas a receber", notas: "Notas fiscais", pagar: "Contas a pagar",
+  os: "OS em andamento", orcamentos: "Orçamentos", vendas: "Vendas", compras: "Compras", ajustes: "Ajustes de estoque", receber: "Contas a receber", notas: "Notas fiscais", contratos: "Contratos", pagar: "Contas a pagar",
 };
 
 const ETAPAS = [
@@ -17,6 +17,7 @@ const ETAPAS = [
   { nome: "vendas", rotulo: "Vendas (todas, com itens, parcelas e histórico; as em aberto reservam as peças)", padrao: true },
   { nome: "compras", rotulo: "Compras e ajustes de estoque (histórico; as confirmadas não mexem no saldo nem nas contas)", padrao: true },
   { nome: "notas", rotulo: "Notas fiscais emitidas no Gestão Click (consulta) e a numeração continuando delas", padrao: false },
+  { nome: "contratos", rotulo: "Serviços recorrentes (entram como contratos ativos, cobrando a partir do próximo vencimento do Gestão Click)", padrao: true },
   { nome: "receber", rotulo: "Contas a receber em aberto", padrao: true },
   { nome: "pagar", rotulo: "Contas a pagar que vencem a partir de hoje", padrao: true },
   { nome: "pagarVencidas", rotulo: "Incluir também as contas a pagar já vencidas (em aberto, para baixar pela conciliação)", padrao: false },

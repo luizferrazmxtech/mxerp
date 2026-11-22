@@ -1567,8 +1567,10 @@ model ContaOpenFinance {
 
 /// Integração com a API PJ do Banco Inter, cadastrada pela tela (uma só, id "inter").
 /// Client secret e chave privada ficam cifrados (AES-256-GCM) com a chave do servidor (CHAVE_SEGREDOS ou CRON_SECRET do .env).
+/// Uma por empresa (CNPJ): "inter" é a primeira; as outras são "inter-<empresaId>". Cada uma com conta, extrato e boletos próprios.
 model IntegracaoInter {
   id                   String         @id @default("inter")
+  empresaId            String?        @unique // empresa dona desta conta do Inter (vazio = a principal, antes de ter outra)
   clientId             String
   clientSecretCifrado  String
   certificado          String // PEM do .crt (público)
@@ -1605,6 +1607,7 @@ model Boleto {
   lancamentoId      String?
   lancamento        Lancamento? @relation(fields: [lancamentoId], references: [id], onDelete: SetNull)
   token             String      @unique // link público do PDF
+  interId           String? // integração do Inter que registrou (vazio = "inter", a primeira)
   seuNumero         String
   codigoSolicitacao String?     @unique
   // EMITINDO, EM_PROCESSAMENTO, A_RECEBER, ATRASADO, RECEBIDO, MARCADO_RECEBIDO, CANCELADO, EXPIRADO, FALHA_EMISSAO, PROTESTO, ERRO
@@ -1626,6 +1629,7 @@ model Boleto {
   updatedAt         DateTime    @updatedAt
 
   @@index([lancamentoId])
+  @@index([interId])
   @@index([situacao])
   @@index([nossoNumero])
   @@index([txid])
@@ -2179,6 +2183,7 @@ model Contrato {
   servicos           ContratoServico[]
   cobrancas          ContratoCobranca[]
   historico          ContratoHistorico[]
+  idLegado           String?             @unique // serviço recorrente do Gestão Click
 
   @@index([situacao, proximoVencimento])
   @@index([empresaId])

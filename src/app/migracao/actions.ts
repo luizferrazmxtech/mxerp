@@ -42,7 +42,7 @@ export async function importarBackup(_: EstadoBackup, form: FormData): Promise<E
     const resultados = await semAuditoria(() => importarBackupGestaoClick(tabelas, {
       simular,
       destino: destino ? { empresaId: destino } : undefined,
-      etapas: { cadastros: on("cadastros"), estoque: on("estoque"), os: on("os"), orcamentos: on("orcamentos"), vendas: on("vendas"), compras: on("compras"), receber: on("receber"), pagar: on("pagar"), pagarVencidas: on("pagarVencidas"), historico: on("historico"), pagas: on("pagas"), notas: on("notas") },
+      etapas: { cadastros: on("cadastros"), estoque: on("estoque"), os: on("os"), orcamentos: on("orcamentos"), vendas: on("vendas"), compras: on("compras"), receber: on("receber"), pagar: on("pagar"), pagarVencidas: on("pagarVencidas"), historico: on("historico"), pagas: on("pagas"), notas: on("notas"), contratos: on("contratos") },
     }));
     if (!simular) await registrarAuditoria(u, { entidade: "Migracao", acao: "CRIAR", descricao: `Importou o backup do Gestão Click: ${resultados.map((r) => `${r.tipo} ${r.criados}`).join(", ")}` });
     return { ok: true, mensagem: simular ? "Simulação concluída, nada foi gravado" : "Backup importado", resultados };

@@ -33,7 +33,7 @@ export async function lerBackupGestaoClick(zip: Buffer): Promise<Tabelas> {
   return t;
 }
 
-export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; vendas?: boolean; compras?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean; historico?: boolean; pagas?: boolean; notas?: boolean };
+export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; vendas?: boolean; compras?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean; historico?: boolean; pagas?: boolean; notas?: boolean; contratos?: boolean };
 /** Segunda empresa (outro Gestão Click): tudo entra nesta loja, sem misturar números nem estoque com a primeira. */
 export type Destino = { empresaId: string };
 
@@ -913,6 +913,84 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
 type ModeloGc = "NFE" | "NFCE" | "NFSE";
 const digitosGc = (s: string) => s.replace(/\D/g, "");
 
+// ---------- serviços recorrentes (contratos)
+
+/**
+ * Serviços recorrentes do Gestão Click viram contratos EM ABERTO: ficam cadastrados com o próximo vencimento, mas só
+ * começam a gerar venda e boleto quando forem ativados no MXERP (para não cobrar em dobro enquanto o GC ainda cobra).
+ */
+async function importarContratos(t: Tabelas, simular: boolean): Promise<Resultado> {
+  const todos = t.servicos_recorrentes ?? [];
+  const r: Resultado = { tipo: "contratos", simulado: simular, lidas: todos.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
+  if (!todos.length) return r;
+  const servs = agruparPor("codigo")(t.servicos_recorrentes_servicos);
+  const ctx = await contextoComercial(t);
+  let total = 0, ativos = 0, primeira: Date | null = null;
+  const conferir: string[] = [];
+  const renumerados: string[] = [];
+  for (const c of todos) {
+    const numero = Number(c["n do contrato"]);
+    if (!numero) { r.ignorados.push({ linha: 0, motivo: "contrato sem número" }); continue; }
+    const idLegado = leg(`contrato:${numero}`);
+    if (await prisma.contrato.findUnique({ where: { idLegado }, select: { id: true } })) { r.ignorados.push({ linha: numero, motivo: `contrato ${numero} já trazido` }); continue; }
+    const proximo = /^\d{4}-\d{2}-\d{2}/.test(c["proximo vencimento"] ?? "") ? new Date(`${c["proximo vencimento"].slice(0, 10)}T00:00:00Z`) : dataBr(c["proximo vencimento"]);
+    if (!proximo) { r.ignorados.push({ linha: numero, motivo: `contrato ${numero} sem próximo vencimento` }); continue; }
+    const valor = numeroBr(c["valor total"]);
+    total += valor;
+    r.criados++;
+    if (simular) continue;
+    const rep = (c["repetir esta venda"] ?? "").toLowerCase();
+    const meses = Number(/(\d+)/.exec(rep)?.[1] ?? 1) * (/ano/.test(rep) ? 12 : 1);
+    const periodicidade = meses >= 12 ? "ANUAL" : meses >= 6 ? "SEMESTRAL" : meses >= 3 ? "TRIMESTRAL" : "MENSAL";
+    const vezes = Number(/(\d+)/.exec(c["quantidade de vezes"] ?? "")?.[1] ?? 0);
+    const envio = (c["enviar por e mail"] ?? "").toLowerCase();
+    const ocupado = await prisma.contrato.findUnique({ where: { numero }, select: { id: true } });
+    const num = ocupado ? Math.max((await prisma.contrato.aggregate({ _max: { numero: true } }))._max.numero ?? 0, (await prisma.sequencia.findUnique({ where: { chave: "CONTRATO" } }))?.valor ?? 0) + 1 : numero;
+    if (ocupado) renumerados.push(`${numero} → ${num}`);
+    const inicio = dataHoraBr(c["cadastrado em"]) ?? new Date();
+    const antecedencia = Number(/(\d+)/.exec(c["gerar fatura"] ?? "")?.[1] ?? 10);
+    const geraEm = new Date(proximo.getTime() - antecedencia * 86400000);
+    // vencimento que já devia ter sido faturado: fica em aberto para conferir se o Gestão Click já cobrou
+    const atrasado = geraEm.getTime() < Date.now() - 86400000;
+    const ativo = !/n[aã]o/i.test(c["gerar servico"] ?? "") && !atrasado;
+    if (atrasado) conferir.push(`${num} (${proximo.toISOString().slice(0, 10).split("-").reverse().join("/")})`);
+    if (ativo) { ativos++; if (!primeira || geraEm < primeira) primeira = geraEm; }
+    await prisma.$transaction(async (tx) => {
+      const cliente = await ctx.cliente(tx, c.cliente, "um contrato");
+      const itens = [];
+      for (const [i, s] of (servs.get(c["n do contrato"]) ?? []).entries()) {
+        const q = numeroBr(s.quantidade) || 1, vu = numeroBr(s["valor unit"]);
+        const servico = await ctx.servico(tx, s.servico, vu);
+        itens.push({ ordem: i, servicoId: servico.id, quantidade: q, valorUnit: vu.toFixed(2), subtotal: (numeroBr(s["valor total"]) || q * vu).toFixed(2) });
+      }
+      await tx.contrato.create({
+        data: {
+          numero: num, idLegado, empresaId: lojaDe(c.loja) ?? null, clienteId: cliente.id, vendedorId: ctx.usuarioPorNome(c.vendedor),
+          situacao: ativo ? "ATIVO" : "EM_ABERTO", canal: c["canal de venda"] || "Presencial",
+          dataInicio: new Date(inicio.toISOString().slice(0, 10) + "T00:00:00Z"), periodicidade, diaVencimento: proximo.getUTCDate(), proximoVencimento: proximo,
+          termino: vezes > 0 ? "VEZES" : "SEM", totalCobrancas: vezes > 0 ? vezes : null,
+          totalServicos: itens.reduce((a, x) => a + Number(x.subtotal), 0).toFixed(2), total: valor.toFixed(2),
+          formaPagamentoId: ctx.formaPorNome(c["forma de pagamento"]),
+          diasAntecedencia: antecedencia,
+          enviarBoleto: /boleto/.test(envio), diasLembrete: /lembrete/.test(envio) ? 0 : null, canalEmail: !/n[aã]o enviar/.test(envio),
+          observacoes: c.observacoes || null, criadoPorId: ctx.usuarioPorNome(c["cadastrado por"]),
+          createdAt: inicio,
+          servicos: { create: itens },
+          historico: { create: [{ descricao: `Migrado do Gestão Click (serviço recorrente nº ${numero}${destino ? ` de ${destino.nome}` : ""}): ${ativo ? "ativo, cobra a partir do próximo vencimento que o Gestão Click ainda não gerou" : "parado no Gestão Click, entra em aberto"}` }] },
+        },
+      });
+    });
+  }
+  if (!simular) {
+    const max = (await prisma.contrato.aggregate({ _max: { numero: true } }))._max.numero ?? 0;
+    await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('CONTRATO', ${max}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${max})`;
+  }
+  r.avisos.push(`${r.criados} contratos (serviços recorrentes), somando ${total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} por cobrança${simular ? "" : `: ${ativos} ativos e ${r.criados - ativos} em aberto`}. Os ativos cobram a partir do próximo vencimento do Gestão Click${primeira ? ` (a primeira fatura sai em ${primeira.toLocaleDateString("pt-BR", { timeZone: "UTC" })})` : ""}: pare a cobrança no Gestão Click antes disso, para não cobrar em dobro.`);
+  if (conferir.length) r.avisos.push(`${conferir.length} contratos ficaram em aberto porque o próximo vencimento já devia ter sido faturado. Confira no Gestão Click se já cobrou e ative em Contratos: ${conferir.join(", ")}`);
+  if (renumerados.length) r.avisos.push(`${renumerados.length} contratos ganharam número novo porque o número já existia: ${renumerados.join(", ")}`);
+  return r;
+}
+
 // ---------- orquestração
 
 export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: boolean; etapas?: Etapas; destino?: Destino } = {}) {
@@ -949,6 +1027,7 @@ export async function importarBackupGestaoClick(t: Tabelas, opts: { simular?: bo
   if (e.compras && t.compras) res.push(await importarCompras(t, simular));
   if (e.compras && t.ajustes_estoques) res.push(await importarAjustes(t, simular));
   if (e.notas) res.push(await importarNotas(t, simular));
+  if (e.contratos) res.push(await importarContratos(t, simular));
   if (e.receber) res.push(await importarContas(t.contas_receber, "RECEBER", simular, false, !!e.pagas));
   if (e.pagar) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas, !!e.pagas));
   return res;

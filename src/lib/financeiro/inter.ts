@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { decifrar } from "@/lib/seguranca/segredos";
 import { importarExtrato, type TransacaoExtrato } from "./extrato";
 import { diaSP } from "@/lib/datas";
+import { lojaAtualId } from "@/lib/empresa/loja";
 
 /**
  * Banco Inter (API PJ): puxa o extrato direto do banco e joga na conciliação.
@@ -34,6 +35,8 @@ export type TransporteInter = (metodo: MetodoHttp, url: string, headers: Record<
 export type ConfigInter = {
   clientId: string; clientSecret: string; cert: string; key: string; conta: string | null; base: string;
   escopos?: string; contaBancariaId?: string | null; contaErp: string; origem?: "tela" | "servidor";
+  /** registro da IntegracaoInter (uma por empresa) */
+  id?: string;
 };
 type Config = ConfigInter;
 
@@ -50,20 +53,68 @@ export function configInterServidor(): ConfigInter | null {
   };
 }
 
-/** Configuração em uso: a da tela; se não houver, a do .env. */
-export async function lerConfigInter(): Promise<ConfigInter | null> {
-  const r = await prisma.integracaoInter.findUnique({ where: { id: "inter" }, include: { contaBancaria: true } });
-  if (!r) return configInterServidor();
+/** Id da integração de uma empresa nova (a primeira é "inter"). */
+export const idInterNovo = (empresaId: string) => `inter-${empresaId}`;
+
+/**
+ * Integração do Inter que atende a empresa: a dela; se ela não tem, a que ainda não tem dona (instalação com uma
+ * empresa só). Sem empresa (agendador, registros antigos sem loja): a primeira. null = essa empresa não tem Inter,
+ * e então não emite boleto nem puxa extrato (nunca usa a conta de outro CNPJ).
+ */
+export async function idInterDaEmpresa(empresaId: string | null | undefined): Promise<string | null> {
+  const linhas = await prisma.integracaoInter.findMany({ select: { id: true, empresaId: true }, orderBy: { id: "asc" } });
+  if (!linhas.length) return configInterServidor() ? "inter" : null;
+  if (empresaId) return (linhas.find((l) => l.empresaId === empresaId) ?? linhas.find((l) => !l.empresaId))?.id ?? null;
+  return (linhas.find((l) => l.id === "inter") ?? linhas[0]).id;
+}
+
+/** Integração da loja escolhida no topo do menu. */
+export const idInterAtual = async () => idInterDaEmpresa(await lojaAtualId());
+
+/**
+ * Integração que a tela de configuração edita na loja atual (cria a da empresa se ela ainda não tem).
+ * A sem dona, de antes de ter uma por empresa, fica com a primeira empresa cadastrada.
+ */
+export async function idInterParaSalvar(): Promise<{ id: string; empresaId: string | null }> {
+  const loja = await lojaAtualId();
+  const linhas = await prisma.integracaoInter.findMany({ select: { id: true, empresaId: true } });
+  if (!loja) return { id: (linhas.find((l) => l.id === "inter") ?? linhas[0])?.id ?? "inter", empresaId: null };
+  const dela = linhas.find((l) => l.empresaId === loja);
+  if (dela) return { id: dela.id, empresaId: loja };
+  const semDona = linhas.find((l) => !l.empresaId);
+  const primeira = (await prisma.empresa.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } }))?.id ?? null;
+  if (semDona && (primeira === loja || !primeira)) return { id: semDona.id, empresaId: loja };
+  if (semDona && primeira && !linhas.some((l) => l.empresaId === primeira)) await prisma.integracaoInter.update({ where: { id: semDona.id }, data: { empresaId: primeira } });
+  return { id: linhas.length ? idInterNovo(loja) : "inter", empresaId: loja };
+}
+
+/** Todas as integrações configuradas (para o agendador). */
+export async function idsInter(): Promise<string[]> {
+  const ids = (await prisma.integracaoInter.findMany({ select: { id: true }, orderBy: { id: "asc" } })).map((l) => l.id);
+  return ids.length ? ids : configInterServidor() ? ["inter"] : [];
+}
+
+/**
+ * Configuração em uso: a da tela (da integração pedida, ou da loja atual); se não houver nenhuma na tela, a do .env.
+ * `interId` null = a empresa não tem Inter.
+ */
+export async function lerConfigInter(interId?: string | null): Promise<ConfigInter | null> {
+  const id = interId === undefined ? await idInterAtual() : interId;
+  if (!id) return null;
+  const r = await prisma.integracaoInter.findUnique({ where: { id }, include: { contaBancaria: true } });
+  if (!r) return (await prisma.integracaoInter.count()) ? null : configInterServidor();
   return {
     clientId: r.clientId, clientSecret: decifrar(r.clientSecretCifrado), cert: r.certificado, key: decifrar(r.chaveCifrada),
     conta: r.contaCorrente || null, base: r.ambiente === "sandbox" ? URL_INTER.sandbox : URL_INTER.producao,
-    escopos: r.escopos || ESCOPO_EXTRATO, contaBancariaId: r.contaBancariaId, contaErp: r.contaBancaria?.nome ?? "INTER MXTECH", origem: "tela",
+    escopos: r.escopos || ESCOPO_EXTRATO, contaBancariaId: r.contaBancariaId, contaErp: r.contaBancaria?.nome ?? "INTER MXTECH", origem: "tela", id: r.id,
   };
 }
 
-/** Só diz se existe alguma configuração (não abre os segredos). */
-export async function interConfigurado() {
-  return !!(await prisma.integracaoInter.count({ where: { id: "inter" } })) || !!configInterServidor();
+/** Só diz se existe configuração para a loja atual (ou a pedida), sem abrir os segredos. */
+export async function interConfigurado(interId?: string | null) {
+  const id = interId === undefined ? await idInterAtual() : interId;
+  if (!id) return false;
+  return !!(await prisma.integracaoInter.count({ where: { id } })) || (!(await prisma.integracaoInter.count()) && !!configInterServidor());
 }
 
 export function transporteMtls(cfg: Config): TransporteInter {
@@ -263,10 +314,11 @@ export function explicar(r: RespostaInter, escopo = ESCOPO_EXTRATO) {
 }
 
 /** Testa a configuração: pega o token e lê o saldo. Grava o resultado se a configuração for a da tela. */
-export async function testarInter(opts: { cliente?: ClienteInter } = {}) {
+export async function testarInter(opts: { cliente?: ClienteInter; interId?: string | null } = {}) {
   let ok = false, mensagem: string;
+  const id = opts.interId === undefined ? (opts.cliente?.configuracao.id ?? (await idInterAtual())) : opts.interId;
   try {
-    const cfg = await lerConfigInter();
+    const cfg = await lerConfigInter(id);
     if (!cfg && !opts.cliente) throw new Error("Integração com o Banco Inter ainda não configurada");
     const cliente = opts.cliente ?? new ClienteInter(cfg!);
     const saldo = await cliente.saldo();
@@ -282,7 +334,7 @@ export async function testarInter(opts: { cliente?: ClienteInter } = {}) {
   } catch (e) {
     mensagem = mensagemErro(e);
   }
-  await prisma.integracaoInter.updateMany({ where: { id: "inter" }, data: { ultimoTesteEm: new Date(), ultimoTesteOk: ok, ultimoTesteMsg: mensagem.slice(0, 500) } });
+  await prisma.integracaoInter.updateMany({ where: { id: id ?? "inter" }, data: { ultimoTesteEm: new Date(), ultimoTesteOk: ok, ultimoTesteMsg: mensagem.slice(0, 500) } });
   return { ok, mensagem };
 }
 
@@ -295,9 +347,10 @@ export function mensagemErro(e: unknown) {
 }
 
 /** Puxa os últimos `dias` do extrato do Inter, grava e baixa o que casar. */
-export async function sincronizarInter(opts: { dias?: number; desde?: Date; cliente?: ClienteInter } = {}) {
-  const cfg = await lerConfigInter();
-  if (!cfg && !opts.cliente) throw new Error("Integração com o Banco Inter ainda não configurada (Financeiro → Conciliação → Configurar Banco Inter)");
+export async function sincronizarInter(opts: { dias?: number; desde?: Date; cliente?: ClienteInter; interId?: string | null } = {}) {
+  const id = opts.interId === undefined ? (opts.cliente?.configuracao.id ?? (await idInterAtual())) : opts.interId;
+  const cfg = await lerConfigInter(id);
+  if (!cfg && !opts.cliente) throw new Error("Integração com o Banco Inter desta empresa ainda não configurada (Financeiro → Conciliação → Configurar Banco Inter)");
   const cliente = opts.cliente ?? new ClienteInter(cfg!);
   const nomeConta = cfg?.contaErp ?? "INTER MXTECH";
   const conta = cfg?.contaBancariaId
@@ -317,11 +370,11 @@ export async function sincronizarInter(opts: { dias?: number; desde?: Date; clie
     if (typeof (cliente as { saldoContabil?: unknown }).saldoContabil === "function") {
       await cliente.saldoContabil().then((v) => import("./saldos").then((m) => m.registrarSaldo(conta.id, fim, v, "INTER"))).catch(() => null);
     }
-    await prisma.integracaoInter.updateMany({ where: { id: "inter" }, data: { ultimaSincEm: new Date(), ultimaSincMsg: `${r.novas} novas, ${r.baixadas} baixadas${r.boletos ? `, ${r.boletos} boletos da cobrança` : ""}` } });
+    await prisma.integracaoInter.updateMany({ where: { id: id ?? "inter" }, data: { ultimaSincEm: new Date(), ultimaSincMsg: `${r.novas} novas, ${r.baixadas} baixadas${r.boletos ? `, ${r.boletos} boletos da cobrança` : ""}` } });
     return r;
   } catch (e) {
     const m = mensagemErro(e);
-    await prisma.integracaoInter.updateMany({ where: { id: "inter" }, data: { ultimaSincEm: new Date(), ultimaSincMsg: `Erro: ${m}`.slice(0, 500) } });
+    await prisma.integracaoInter.updateMany({ where: { id: id ?? "inter" }, data: { ultimaSincEm: new Date(), ultimaSincMsg: `Erro: ${m}`.slice(0, 500) } });
     throw new Error(m);
   }
 }

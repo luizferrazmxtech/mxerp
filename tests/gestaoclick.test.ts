@@ -422,3 +422,40 @@ describe("unidade e custo do Gestão Click", () => {
     expect(custoPorSaida(linha("CABO 5MM BRANCO", "47,00", "CX1", "MT", "1.99"))).toMatchObject({ custo: 0, semCusto: true });
   });
 });
+
+describe("serviços recorrentes do Gestão Click", () => {
+  it("entram como contratos ativos (os atrasados em aberto), com os serviços, sem duplicar e sem pegar o número de outro", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "Contrato" CASCADE`);
+    const t = await gc.lerBackupGestaoClick(await backup());
+    const ct = (n: string, cli: string, prox = "2099-12-10") => ({
+      "n do contrato": n, cliente: cli, "proximo vencimento": prox, "gerar servico": "Sim", "gerar fatura": "10 dias antes do vencimento", "canal de venda": "Presencial",
+      "repetir esta venda": "A cada 1 mês", "quantidade de vezes": "Para sempre", "enviar por e mail": "Enviar lembrete de pagamento e boleto",
+      vendedor: "", "forma de pagamento": "Boleto Bancário (SEGUNDA)", "valor total": "770", observacoes: "", "cadastrado por": "", "cadastrado em": "05/06/2025 15:51:12", loja: "MXTECH",
+    });
+    t.servicos_recorrentes = [ct("1", "FOLK STORE"), ct("2", "LAZARO"), ct("4", "LAZARO", "2020-01-15")];
+    t.servicos_recorrentes_servicos = [{ codigo: "1", servico: "VISITA TÉCNICA", quantidade: "1,00", "valor unit": "770,00", "valor total": "770,00" }];
+    const cli = await prisma.pessoa.create({ data: { nome: "JÁ EXISTE" } });
+    await prisma.contrato.create({ data: { numero: 2, clienteId: cli.id, dataInicio: new Date(), periodicidade: "MENSAL", diaVencimento: 5, proximoVencimento: new Date(), total: "10.00", totalServicos: "10.00" } });
+    const etapas = { cadastros: true, contratos: true };
+    const sim = await gc.importarBackupGestaoClick(t, { simular: true, etapas });
+    expect(sim.find((r) => r.tipo === "contratos")!.criados).toBe(3);
+    expect(await prisma.contrato.count()).toBe(1);
+
+    const res = await gc.importarBackupGestaoClick(t, { simular: false, etapas });
+    const r = res.find((x) => x.tipo === "contratos")!;
+    expect(r.avisos.join(" ")).toMatch(/2 → 3/);
+    expect(r.avisos.join(" ")).toMatch(/2 ativos e 1 em aberto.*30\/11\/2099/);
+    expect(r.avisos.join(" ")).toMatch(/Confira no Gestão Click.*4 \(15\/01\/2020\)/);
+    expect((await prisma.contrato.findUniqueOrThrow({ where: { idLegado: "contrato:4" } })).situacao).toBe("EM_ABERTO");
+    const c1 = await prisma.contrato.findUniqueOrThrow({ where: { idLegado: "contrato:1" }, include: { servicos: true, cliente: true } });
+    expect(c1).toMatchObject({ numero: 1, situacao: "ATIVO", periodicidade: "MENSAL", diaVencimento: 10, diasAntecedencia: 10, enviarBoleto: true, termino: "SEM" });
+    expect(c1.cliente.documento).toMatch(/11222333000181/);
+    expect(c1.servicos).toHaveLength(1);
+    expect(Number(c1.total)).toBe(770);
+    expect((await prisma.contrato.findUniqueOrThrow({ where: { idLegado: "contrato:2" } })).numero).toBe(3);
+    expect((await prisma.sequencia.findUniqueOrThrow({ where: { chave: "CONTRATO" } })).valor).toBe(4);
+
+    await gc.importarBackupGestaoClick(t, { simular: false, etapas });
+    expect(await prisma.contrato.count()).toBe(4);
+  });
+});
