@@ -73,7 +73,7 @@ export type LinhaAnalise = {
 // ---------- favorecido
 
 // prefixos de operação que os bancos põem antes do nome (Inter: "Pix recebido - Fulano - Fulano")
-const OPERACAO = /^(pix|ted|doc|tev|transferencia|pagamento|pagto|pgto|boleto|compra|debito|credito|deposito|recebimento|saque|estorno|tarifa|cobranca|liquidacao|envio|enviado|recebido|efetuado|de|cartao|no|na|do|da|em|via|conta|automatico|aut)(\s|$)/;
+const OPERACAO = /^(pix|ted|doc|tev|transferencia|pagamento|pagto|pgto|titulo|devolvido|devolvida|boleto|compra|debito|credito|deposito|recebimento|saque|estorno|tarifa|cobranca|liquidacao|envio|enviado|recebido|efetuado|de|cartao|no|na|do|da|em|via|conta|automatico|aut)(\s|$)/;
 
 /** Nome de quem pagou/recebeu, tirado da descrição do extrato, normalizado (sem acento, minúsculo, sem números). */
 export function favorecido(descricao: string): string {
@@ -338,34 +338,54 @@ export const RAMOS: { prefixo: string; ramo: string; categoria: string }[] = [
  * procurados no nome das categorias do plano de contas, na ordem; sem nenhuma, vale a categoria `padrao`.
  * A ordem da lista importa: a primeira que bate ganha.
  */
-export const RAMOS_NOME: { id: string; ramo: string; re?: RegExp; inicio?: RegExp; categorias: string[]; padrao: string }[] = [
-  { id: "plano-saude", ramo: "plano de saúde", re: /\b(assistencia medica|operadora de (planos? de )?saude|plano de saude|planos de saude|hapvida|unimed|amil|notredame|intermedica|bradesco saude|sulamerica saude|sul america saude|golden cross|prevent senior|porto seguro saude|odontoprev|odonto\w*|medial saude|sami saude|cassi)\b/, categorias: ["plano de saude", "assistencia medica", "convenio medico", "saude", "beneficio"], padrao: "Salários e encargos" },
+export const RAMOS_NOME: { id: string; ramo: string; re?: RegExp; inicio?: RegExp; categorias: string[]; padrao: string; confianca?: number }[] = [
+  // conhecidos (regras do Luiz, 22/11): valem mais que o histórico; `confianca` marca os conhecidos
+  { id: "fgts", ramo: "FGTS (Cef Matriz)", re: /\b(cef matriz|fgts|fgts digital)\b/, categorias: ["fgts"], padrao: "FGTS", confianca: 85 },
+  { id: "darf", ramo: "DARF (substituição tributária ou diferença de alíquota)", re: /\b(darf|icms st|substituicao tributaria|difal|diferencial de aliquota|diferenca de aliquota)\b/, categorias: ["icms st", "difal", "substituicao tributaria"], padrao: "ICMS ST e DIFAL", confianca: 80 },
+  { id: "receita-federal", ramo: "Receita Federal (Simples Nacional ou INSS)", re: /\b(receita federal|secretaria da receita|rfb|simples nacional|documento de arrecadacao)\b/, categorias: ["simples nacional"], padrao: "Simples Nacional", confianca: 80 },
+  { id: "exames", ramo: "exames de funcionários (medicina do trabalho)", confianca: 80, re: /\b(safety|seguranca do trabalho|medicina do trabalho|medicina ocupacional|saude ocupacional|ocupacional|sesmt|bessa|exames? (admissiona|periodic|demissiona)\w*)\b/, categorias: ["exames medicos", "exame", "medicina do trabalho"], padrao: "Exames médicos de funcionários" },
+  { id: "plano-saude", ramo: "saúde dos funcionários (plano de saúde)", confianca: 85, re: /\b(assistencia medica|operadora de (planos? de )?saud\w*|personal care|plano de saude|planos de saude|hapvida|unimed|amil|notredame|intermedica|bradesco saude|sulamerica saude|sul america saude|golden cross|prevent senior|porto seguro saude|odontoprev|odonto\w*|medial saude|sami saude|cassi)\b/, categorias: ["saude dos funcionarios", "plano de saude", "assistencia medica", "convenio medico", "saude", "beneficio"], padrao: "Plano de saúde dos funcionários" },
   { id: "saude", ramo: "saúde (clínica, hospital, farmácia)", re: /\b(clinica|hospital|laboratorio|diagnostico|medicina|medico|medicos|farmacia|drogaria|droga raia|drogasil|pague menos|panvel|ultrafarma|odontologia|fisioterapia|exames?)\b/, categorias: ["saude", "medic", "farmacia"], padrao: "Outras despesas" },
-  { id: "encargos", ramo: "encargos trabalhistas", re: /\b(fgts|inss|gps|esocial|previdencia social)\b/, categorias: ["encargo", "fgts", "inss"], padrao: "Salários e encargos" },
-  { id: "sindicato", ramo: "sindicato", re: /\b(sindicato|sind)\b/, categorias: ["sindic", "contribuicao"], padrao: "Salários e encargos" },
-  { id: "impostos", ramo: "impostos e taxas", re: /\b(receita federal|simples nacional|darf|dae|gare|gnre|prefeitura|municipio de|secretaria (da|de) fazenda|sefaz|tesouro nacional|fazenda nacional)\b/, categorias: ["imposto", "tributo", "taxa"], padrao: "Impostos sobre vendas (DAS/ICMS/ISS)" },
+  { id: "encargos", ramo: "INSS", re: /\b(inss|gps|esocial|previdencia social)\b/, categorias: ["inss"], padrao: "INSS", confianca: 80 },
+  { id: "sindicato", ramo: "sindicato", re: /\b(sindicato|sind)\b/, categorias: ["sindic", "contribuicao"], padrao: "Salários e encargos", confianca: 70 },
+  { id: "cartao", ramo: "fatura de cartão ou financiamento", re: /\b(pagamento fatura|fatura|nu pagamentos|nubank|banco c6|bradescard|portoseg|cloudwalk|credito financiamento|financiamento e investimento|cartoes|cartao de credito)\b/, categorias: ["cartao de credito", "fatura", "emprestimo", "financiamento"], padrao: "Fatura de cartão de crédito" },
+  { id: "associacao", ramo: "associação comercial", re: /\b(associacao comercial|camara de dirigentes lojistas|cdl|acisc)\b/, categorias: ["associac", "mensalidade", "contribuicao"], padrao: "Outras despesas" },
+  { id: "rh", ramo: "recursos humanos", re: /\b(recursos humanos|rh|recrutamento|selecao de pessoal)\b/, categorias: ["recursos humanos", "servicos de terceiros"], padrao: "Serviços de terceiros" },
+  { id: "impostos", ramo: "impostos e taxas", re: /\b(dae|gare|gnre|dgfin|diretoria geral de financas|prefeitura|municipio de|secretaria (da|de) fazenda|sefaz|tesouro nacional|fazenda nacional)\b/, categorias: ["imposto", "tributo", "taxa"], padrao: "Impostos sobre vendas (DAS/ICMS/ISS)" },
   { id: "energia", ramo: "energia elétrica", re: /\b(energia|eletricidade|enel|cpfl|cemig|copel|celesc|coelba|celpe|cosern|coelce|equatorial|neoenergia|elektro|energisa|eletropaulo|amazonas energia)\b/, inicio: /^(light|edp|rge)\b/, categorias: ["energia", "luz"], padrao: "Energia, água, internet, telefone" },
   { id: "agua", ramo: "água e esgoto", re: /\b(saneamento|sabesp|copasa|sanepar|cedae|embasa|compesa|casan|corsan|caesb|cagece|saae|daae|semae|aguas de|agua e esgoto)\b/, categorias: ["agua", "saneamento"], padrao: "Energia, água, internet, telefone" },
   { id: "telecom", ramo: "telefone e internet", re: /\b(telecom\w*|telefonica|telecomunicacoes|internet|fibra|provedor|algar|embratel|starlink)\b/, inicio: /^(vivo|claro|tim|oi|net|sky|nextel)\b/, categorias: ["internet", "telefon", "telecom"], padrao: "Energia, água, internet, telefone" },
-  { id: "combustivel", ramo: "posto de combustível", re: /\b(auto posto|posto de (gasolina|combustiveis?)|combustiveis?|ipiranga|petrobras|br mania|raizen|gasolina)\b/, inicio: /^(posto|shell|ale)\b/, categorias: ["combustivel", "veiculo"], padrao: "Combustível e veículos" },
+  { id: "combustivel", ramo: "posto de combustível", re: /\b(auto posto|posto de (gasolina|combustiveis?)|combustiveis?|ipiranga|petrobras|br mania|raizen|gasolina)\b/, inicio: /^(posto|shell|ale)\b/, categorias: ["combustivel", "veiculo"], padrao: "Combustível e veículos", confianca: 80 },
   { id: "veiculos", ramo: "veículos (peças, oficina, pedágio)", re: /\b(auto ?pecas|pneus?|borracharia|oficina|mecanica|funilaria|estacionamento|pedagio|sem parar|conectcar|veloe|move mais|detran|ipva|licenciamento)\b/, categorias: ["veiculo", "combustivel", "manutencao de veiculo"], padrao: "Combustível e veículos" },
   { id: "contabilidade", ramo: "contabilidade", re: /\b(contabil|contabeis|contabilidade|contadores|contador|escritorio contabil)\b/, categorias: ["contab", "honorario", "servicos de terceiros"], padrao: "Serviços de terceiros" },
   { id: "advocacia", ramo: "advocacia", re: /\b(advogados?|advocacia|sociedade de advogados|juridic\w*)\b/, categorias: ["juridic", "advoca", "honorario", "servicos de terceiros"], padrao: "Serviços de terceiros" },
-  { id: "seguros", ramo: "seguros", re: /\b(seguros?|seguradora|tokio marine|mapfre|allianz|hdi|zurich|liberty)\b/, inicio: /^(porto)\b/, categorias: ["seguro"], padrao: "Outras despesas" },
+  { id: "seguros", ramo: "seguros", re: /\b(seguros?|seguradora|tokio marine|mapfre|allianz|hdi|zurich|liberty)\b/, inicio: /^(porto)\b/, categorias: ["seguro"], padrao: "Seguros", confianca: 80 },
   { id: "aluguel", ramo: "aluguel e condomínio", re: /\b(aluguel|alugueis|imobiliaria|imoveis|condominio|administradora de (imoveis|condominios))\b/, categorias: ["aluguel", "condominio"], padrao: "Aluguel" },
-  { id: "marketplace", ramo: "compras em marketplace", re: /\b(mercado ?livre|mercado ?pago|shopee|amazon servicos|amazon com|magazine luiza|magalu|aliexpress|kabum|americanas)\b/, categorias: ["compra", "mercadoria"], padrao: "Compra de mercadorias (estoque)" },
-  { id: "software", ramo: "software e tecnologia", re: /\b(google|microsoft|adobe|amazon web services|aws|locaweb|hostgator|hostinger|godaddy|registro br|nic br|dropbox|zoom|canva|apple|totvs|omie|bling|tiny|conta azul|github|openai|anthropic|software|sistemas|informatica|tecnologia)\b/, categorias: ["software", "sistema", "tecnologia", "informatica", "servicos de terceiros"], padrao: "Serviços de terceiros" },
+  { id: "mercadoria", ramo: "fornecedor de mercadoria (eletrônicos, elétrica, informática)", re: /\b(eletronic\w*|eletrica|hidraulica|eletroeletronic\w*|baterias?|informatica|computer|computadores|componentes|distribuidora|distribuicao|atacadista|importadora)\b/, categorias: ["compra", "mercadoria"], padrao: "Compra de mercadorias (estoque)" },
+  { id: "marketplace", ramo: "compra de mercadoria (marketplace, normalmente Mercado Livre)", confianca: 80, re: /\b(marketplace|pix marketplace|shpp|shopee|mercado ?livre|mercado ?pago|shopee|amazon servicos|amazon com|magazine luiza|magalu|aliexpress|kabum|americanas)\b/, categorias: ["compra", "mercadoria"], padrao: "Compra de mercadorias (estoque)" },
+  { id: "software", ramo: "software e tecnologia", re: /\b(google|microsoft|adobe|amazon web services|aws|locaweb|hostgator|hostinger|godaddy|registro br|nic br|dropbox|zoom|canva|apple|totvs|omie|bling|tiny|conta azul|github|openai|anthropic|software|sistemas|tecnologia)\b/, categorias: ["software", "sistema", "tecnologia", "informatica", "servicos de terceiros"], padrao: "Serviços de terceiros" },
   { id: "frete", ramo: "frete e correios", re: /\b(correios|empresa brasileira de correios|jadlog|total express|loggi|sequoia|braspress|transportadora|transportes|logistica|melhor envio|frenet|kangu)\b/, categorias: ["frete", "correio", "transporte de mercadoria"], padrao: "Serviços de terceiros" },
   { id: "viagem", ramo: "viagem e deslocamento", re: /\b(uber|99 tecnologia|99pop|cabify|taxi|latam|gol linhas|azul linhas|passagens?|rodoviaria|buser|hotel|hoteis|pousada|booking|airbnb)\b/, categorias: ["viage", "deslocamento", "hosped", "transporte"], padrao: "Outras despesas" },
-  { id: "alimentacao", ramo: "alimentação", re: /\b(restaurante|lanchonete|padaria|panificadora|ifood|pizzaria|churrascaria|alimentacao|refeicoes|supermercados?|atacadao|assai|carrefour|hortifruti)\b/, categorias: ["alimenta", "refeic"], padrao: "Outras despesas" },
+  { id: "alimentacao", ramo: "alimentação", re: /\b(restaurante|lanchonete|padaria|panificadora|ifood|pizzaria|churrascaria|alimentacao|refeicoes|cafes?|supermercados?|atacadao|assai|carrefour|hortifruti)\b/, categorias: ["alimenta", "refeic"], padrao: "Outras despesas" },
   { id: "educacao", ramo: "educação e treinamento", re: /\b(escola|colegio|faculdade|universidade|cursos?|treinamentos?|educacao|ensino|senai|senac|sebrae)\b/, categorias: ["educa", "treinamento", "curso"], padrao: "Outras despesas" },
-  { id: "material", ramo: "material e manutenção", re: /\b(materiais? (de construcao|eletricos?)|ferragens|ferramentas|leroy merlin|telhanorte|madeireira|papelaria|kalunga|material de escritorio)\b/, categorias: ["material", "manutencao", "escritorio"], padrao: "Outras despesas" },
+  { id: "material", ramo: "material e manutenção", re: /\b(copias|copiadora|grafica|bordados|confeccoes|uniformes?|materiais? (de construcao|eletricos?)|ferragens|ferramentas|leroy merlin|telhanorte|madeireira|papelaria|kalunga|material de escritorio)\b/, categorias: ["material", "manutencao", "escritorio"], padrao: "Outras despesas" },
 ];
 
 /** Ramo pelo nome do favorecido (já normalizado, como sai de `favorecido`). */
 export function ramoDoNome(fav: string) {
   if (!fav) return null;
   return RAMOS_NOME.find((r) => r.re?.test(fav) || r.inicio?.test(fav)) ?? null;
+}
+
+/**
+ * Ramo "conhecido" (regras do Luiz, com `confianca`) da linha: pelo favorecido e, se não achar, pela descrição
+ * inteira ("Pagamento DARF", "Pix Marketplace" vêm na parte da operação, que o favorecido descarta).
+ */
+export function conhecidoDaLinha(descricao: string, fav = favorecido(descricao)) {
+  const r = ramoDoNome(fav);
+  if (r?.confianca) return r;
+  const d = normalizar(descricao).replace(/\s+/g, " ");
+  return RAMOS_NOME.find((x) => x.confianca && x.re?.test(d)) ?? null;
 }
 
 /** Categoria do plano de contas para o ramo: a primeira cujo nome tem um dos trechos do ramo; senão a padrão. */
@@ -448,6 +468,23 @@ export function pontuar(t: TransacaoAnalise, l: AbertoAnalise, h: Historico, f: 
   return { confianca: Math.min(99, p), motivos, nome };
 }
 
+/** Cliente/fornecedor cadastrado e as categorias das contas dele no sistema (compras, vendas, despesas lançadas). */
+export type CategoriasDaPessoa = { nomes: string[]; tipo: "PAGAR" | "RECEBER"; categorias: Map<string, number> };
+
+/** Pessoa cadastrada cujo nome confere com o favorecido do extrato (a com mais contas, quando mais de uma confere). */
+export function pessoaDaLinha(descricao: string, tipo: "PAGAR" | "RECEBER", pessoas: CategoriasDaPessoa[]) {
+  let melhor: CategoriasDaPessoa | null = null, n = 0;
+  for (const p of pessoas) {
+    if (p.tipo !== tipo || !p.nomes.some((x) => nomeConfere(descricao, x))) continue;
+    const total = [...p.categorias.values()].reduce((a, b) => a + b, 0);
+    if (total > n) { melhor = p; n = total; }
+  }
+  return melhor;
+}
+
+// nome de empresa (não de pessoa física)
+const EMPRESA = /\b(ltda|ltd|s a|sa|eireli|epp|me|mei|cia|comercio|servicos|industria|distribuidora|instituicao|banco|financeira|pagamentos|associacao|sindicato|condominio|residencial|clinica|posto|auto|tech|informatica|computer|eletronica|eletrica|matriz|federal|municipio|marketplace|seguros|cafes|copias|bordados)\b/;
+
 export function analisar(
   transacoes: TransacaoAnalise[],
   abertos: AbertoAnalise[],
@@ -457,6 +494,7 @@ export function analisar(
   ramos: Map<string, RamoFavorecido> = new Map(),
   pessoal: PessoalAnalise | null = null,
   regras: RegraAnalise[] = [],
+  pessoas: CategoriasDaPessoa[] = [],
 ): LinhaAnalise[] {
   // o que já foi lançado para empresas de cada ramo (classe CNAE de 4 dígitos) ensina mais que a tabela fixa
   const porCnae = new Map<string, Map<string, number>>();
@@ -503,6 +541,13 @@ export function analisar(
     usados.add(p.l);
   }
 
+  // Receita Federal: no mesmo mês costumam vir dois pagamentos (dia 20); o maior é o Simples Nacional, os outros INSS
+  const receitaPorMes = new Map<string, { id: string; v: number }[]>();
+  for (const t of transacoes) {
+    if (t.valor >= 0 || conhecidoDaLinha(t.descricao)?.id !== "receita-federal") continue;
+    const m = iso(t.data).slice(0, 7);
+    receitaPorMes.set(m, [...(receitaPorMes.get(m) ?? []), { id: t.id, v: Math.abs(t.valor) }]);
+  }
   const abertoPor = new Map(abertos.map((l) => [l.id, l]));
   const catPorNome = new Map(categorias.map((c) => [`${c.tipo}|${c.nome}`, c.id]));
   const catTipo = new Map(categorias.map((c) => [c.id, c.tipo]));
@@ -518,10 +563,42 @@ export function analisar(
 
     // sugestão de lançamento avulso: histórico do favorecido, senão palavras da descrição
     let avulso: { categoriaId: string; confianca: number; motivo: string } | null = null;
+    // nomes conhecidos (FGTS, Receita Federal, plano de saúde, posto) valem mais que o histórico
+    const conhecido = tipo === "PAGAR" ? conhecidoDaLinha(t.descricao, f) : null;
+    if (conhecido?.confianca) {
+      if (conhecido.id === "receita-federal") {
+        const d = normalizar(t.descricao);
+        const doMes = receitaPorMes.get(iso(t.data).slice(0, 7)) ?? [];
+        const maior = Math.max(...doMes.map((x) => x.v));
+        const inssNome = /\b(inss|gps|previdencia)\b/.test(d), simplesNome = /\b(simples|das)\b/.test(d);
+        const ehSimples = simplesNome || (!inssNome && Math.abs(t.valor) >= maior);
+        const alvo = ehSimples ? RAMOS_NOME.find((r) => r.id === "receita-federal")! : RAMOS_NOME.find((r) => r.id === "encargos")!;
+        const cat = categoriaDoRamo(alvo, categorias);
+        const motivo = inssNome || simplesNome ? `Receita Federal: ${ehSimples ? "Simples Nacional" : "INSS"} pela descrição`
+          : doMes.length > 1 ? `Receita Federal: ${ehSimples ? "o maior pagamento do mês é o Simples Nacional" : "o menor pagamento do mês é o INSS"}`
+            : "Receita Federal: único pagamento do mês, considerado Simples Nacional (confira)";
+        const conf = inssNome || simplesNome ? 85 : doMes.length === 2 ? 85 : doMes.length > 2 ? 70 : 65;
+        if (cat) avulso = { categoriaId: cat.id, confianca: conf, motivo: doMes.length > 2 && !inssNome && !simplesNome ? `${motivo} (${doMes.length} pagamentos à Receita no mês: confira)` : motivo };
+      } else {
+        const cat = categoriaDoRamo(conhecido, categorias);
+        if (cat) avulso = { categoriaId: cat.id, confianca: conhecido.confianca, motivo: `pelo nome: ${conhecido.ramo}` };
+      }
+    }
     const catHist = maisUsado(hist ? new Map([...hist.categorias].filter(([id]) => catTipo.get(id) === tipo)) : undefined);
-    if (catHist) {
+    if (avulso) {
+      // já decidido pelo nome conhecido
+    } else if (catHist) {
       const c = Math.round(Math.min(95, 50 + 15 * catHist.n) * (0.4 + 0.6 * catHist.parte));
       avulso = { categoriaId: catHist.id, confianca: c, motivo: `${catHist.n}× lançado nesta categoria antes` };
+    }
+    // cliente/fornecedor cadastrado: a categoria das contas dele no sistema (compras do fornecedor, vendas do cliente)
+    const pessoa = !avulso && f ? pessoaDaLinha(f, tipo, pessoas) : null;
+    const catPessoa = pessoa ? maisUsado(new Map([...pessoa.categorias].filter(([id]) => catTipo.get(id) === tipo))) : null;
+    if (avulso) {
+      // já decidido
+    } else if (pessoa && catPessoa) {
+      const c = Math.round(Math.min(80, 60 + 5 * catPessoa.n) * (0.6 + 0.4 * catPessoa.parte));
+      avulso = { categoriaId: catPessoa.id, confianca: c, motivo: `${tipo === "PAGAR" ? "fornecedor" : "cliente"} cadastrado (${pessoa.nomes[0]}): ${catPessoa.n} conta${catPessoa.n > 1 ? "s" : ""} dele nesta categoria` };
     } else {
       const d = normalizar(t.descricao);
       const r = REGRAS.find((x) => x.tipo === tipo && x.re.test(d));
@@ -615,6 +692,16 @@ export function analisar(
     const mesLinha = iso(t.data).slice(0, 7), mesHoje = iso(hoje).slice(0, 7);
     if (mesLinha < mesHoje && hoje.getUTCDate() >= 5) { pontos += 10; avisos.push(`mês ${mesLinha.slice(5)}/${mesLinha.slice(0, 4)} já fechou: DRE e contador ficam errados`); }
     const urgencia: Urgencia = pontos >= 60 ? "urgente" : pontos >= 30 ? "atencao" : "normal";
+    if (!avulso && !melhor) {
+      const d = normalizar(t.descricao);
+      if (/\bdevolvid[oa]\b|\bestorno\b/.test(d)) {
+        const orig = transacoes.find((x) => x.valor === -t.valor && x.data <= t.data && favorecido(x.descricao) === f);
+        avisos.unshift(orig ? `devolução do Pix de ${iso(orig.data).slice(8, 10)}/${iso(orig.data).slice(5, 7)} (mesmo valor): não é receita, lance as duas na mesma categoria` : "devolução de pagamento: não é receita, use a categoria da compra que foi devolvida");
+      } else if (tipo === "PAGAR" && f && !EMPRESA.test(f)) {
+        const meses = new Set(transacoes.filter((x) => x.valor < 0 && favs.get(x.id) === f).map((x) => iso(x.data).slice(0, 7)));
+        if (meses.size >= 2) avisos.unshift(`Pix para pessoa física em ${meses.size} meses: se for funcionário, cadastre com nome completo e CPF em Usuários que a conciliação reconhece`);
+      }
+    }
 
     return {
       transacaoId: t.id, data: iso(t.data), hora: horaSP(t.dataHora), ordem: `${iso(t.data)}|${horaSP(t.dataHora) ?? "00:00"}|${t.criadaEm?.toISOString() ?? ""}`, valor: t.valor, descricao: t.descricao, favorecido: f, conta: t.conta, contaBancariaId: t.contaBancariaId, tipo,
@@ -675,6 +762,8 @@ export async function documentosDosFavorecidos(linhas: { descricao: string; docu
 }
 
 export async function analisarExtrato(filtro: { contaBancariaId?: string } = {}) {
+  // FGTS, INSS, Simples Nacional e plano de saúde dos funcionários precisam existir para as sugestões pelo nome
+  await prisma.$transaction((tx) => garantirCategoriasPessoal(tx));
   const ts = await prisma.transacaoBancaria.findMany({
     where: { situacao: "PENDENTE", ...(filtro.contaBancariaId ? { contaBancariaId: filtro.contaBancariaId } : {}) },
     include: { contaBancaria: { select: { nome: true } } },
@@ -703,6 +792,19 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
   );
   const pessoal = await carregarPessoal();
   const regras = await prisma.regraConciliacao.findMany({ where: { ativa: true } });
+  // categorias das contas de cada cliente/fornecedor (compras, vendas, despesas): ensinam a categoria do avulso
+  const contasPessoas = await todasAsLojas(() => prisma.lancamento.findMany({
+    where: { pessoaId: { not: null }, transferenciaId: null }, orderBy: { vencimento: "desc" }, take: 8000,
+    select: { pessoaId: true, tipo: true, categoriaId: true, pessoa: { select: { nome: true, fantasia: true } } },
+  }));
+  const porPessoa = new Map<string, CategoriasDaPessoa>();
+  for (const l of contasPessoas) {
+    if (!l.pessoa) continue;
+    const k = `${l.pessoaId}|${l.tipo}`;
+    const e = porPessoa.get(k) ?? { nomes: [l.pessoa.nome, l.pessoa.fantasia].filter((x): x is string => !!x), tipo: l.tipo, categorias: new Map<string, number>() };
+    somar(e.categorias, l.categoriaId);
+    porPessoa.set(k, e);
+  }
   const docs = await documentosDosFavorecidos([...ts, ...conciliadas]);
   const ramos = new Map<string, RamoFavorecido>();
   for (const [f, d] of docs) if (d.documento || d.cnae) ramos.set(f, { cnae: d.cnae ?? "", documento: d.documento });
@@ -717,7 +819,7 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
       pessoaNomes: l.pessoa ? [l.pessoa.nome, l.pessoa.fantasia].filter((x): x is string => !!x) : [], pessoaDocumento: l.pessoa?.documento ?? null,
       boletos: l.boletos.flatMap((b) => [b.nossoNumero, b.txid]).filter((x): x is string => !!x),
     })),
-    h, categorias, diaSP(), ramos, pessoal, regras,
+    h, categorias, diaSP(), ramos, pessoal, regras, [...porPessoa.values()],
   );
 }
 
