@@ -15,8 +15,8 @@ const str = (x: FormDataEntryValue | null) => String(x ?? "").trim();
 const feito = (mensagem: string): Estado => { revalidatePath("/financeiro/conciliacao"); revalidatePath("/financeiro"); return { ok: true, mensagem }; };
 const falha = (e: unknown): Estado => ({ ok: false, mensagem: e instanceof Error ? e.message : String(e) });
 
-const resumo = (r: { novas: number; repetidas: number; baixadas: number }) =>
-  `${r.novas} transações novas${r.repetidas ? ` (${r.repetidas} já tinham vindo antes)` : ""}, ${r.baixadas} contas baixadas automaticamente.`;
+const resumo = (r: { novas: number; repetidas: number; baixadas: number; boletos?: number }) =>
+  `${r.novas} transações novas${r.repetidas ? ` (${r.repetidas} já tinham vindo antes)` : ""}, ${r.baixadas} contas baixadas automaticamente${r.boletos ? `, ${r.boletos} boleto${r.boletos > 1 ? "s" : ""} recebido${r.boletos > 1 ? "s" : ""} (já baixado${r.boletos > 1 ? "s" : ""} pela cobrança do Inter)` : ""}.`;
 
 export async function enviarExtrato(_: Estado, form: FormData): Promise<Estado> {
   await exigirUsuario(["ADMIN", "GERENTE"]);

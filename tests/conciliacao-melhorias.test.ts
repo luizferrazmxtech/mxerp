@@ -59,17 +59,79 @@ describe("ramo pelo nome do favorecido (sem CNPJ e sem histórico)", () => {
       t("t6", "2026-10-17", -100, "Pix enviado - Maria Vivo Claro"),
     ], [], vazio, plano, dia("2026-11-22"));
     expect(ls.map((l) => [l.acao, l.categoriaId])).toEqual([["LANCAR", "ps"], ["LANCAR", "util"], ["LANCAR", "util"], ["LANCAR", "comb"], ["LANCAR", "terc"], ["REVISAR", null]]);
-    expect(ls[0].motivos[0]).toBe("pelo nome: plano de saúde");
-    expect(ls[0].confianca).toBe(60);
-    expect(ls[0].ramo).toBe("plano de saúde (pelo nome)");
+    expect(ls[0].motivos[0]).toBe("pelo nome: saúde dos funcionários (plano de saúde)");
+    expect([ls[0].confianca, ls[3].confianca, ls[1].confianca]).toEqual([85, 80, 60]);
+    expect(ls[0].ramo).toBe("saúde dos funcionários (plano de saúde) (pelo nome)");
   });
   it("sem categoria parecida no plano usa a padrão; depois de confirmar uma, as do mesmo ramo seguem a escolha", () => {
-    const semPS = plano.filter((c) => c.id !== "ps");
-    const [a] = conc.analisar([t("t1", "2026-10-17", -299.9, "Pix enviado - Hapvida Assistencia Medica Sa")], [], vazio, semPS, dia("2026-11-22"));
-    expect([a.categoriaId, a.confianca]).toEqual(["sal", 55]);
-    const h = conc.montarHistorico([{ descricao: "Pix enviado - Hapvida Assistencia Medica Sa", lancamentos: [{ pessoaId: null, categoriaId: "out", centroCustoId: null, avulso: true }] }], []);
-    const [b] = conc.analisar([t("t2", "2026-11-17", -450, "Pagamento efetuado - UNIMED SAO CARLOS")], [], h, semPS, dia("2026-11-22"));
-    expect([b.categoriaId, b.confianca]).toEqual(["out", 70]);
+    const [a] = conc.analisar([t("t1", "2026-10-17", -299.9, "Pix enviado - Escola Futuro Brilhante")], [], vazio, plano, dia("2026-11-22"));
+    expect([a.categoriaId, a.confianca]).toEqual(["out", 55]);
+    const h = conc.montarHistorico([{ descricao: "Pix enviado - Restaurante Bom Sabor", lancamentos: [{ pessoaId: null, categoriaId: "terc", centroCustoId: null, avulso: true }] }], []);
+    const [b] = conc.analisar([t("t2", "2026-11-17", -45, "Pix enviado - Padaria Pao Quente")], [], h, plano, dia("2026-11-22"));
+    expect([b.categoriaId, b.confianca]).toEqual(["terc", 70]);
+  });
+
+  const regrasLuiz = [
+    { id: "out", nome: "Outras despesas", tipo: "PAGAR" as const }, { id: "imp", nome: "Impostos sobre vendas (DAS/ICMS/ISS)", tipo: "PAGAR" as const },
+    { id: "sn", nome: "Simples Nacional", tipo: "PAGAR" as const }, { id: "inss", nome: "INSS", tipo: "PAGAR" as const }, { id: "fgts", nome: "FGTS", tipo: "PAGAR" as const },
+    { id: "psf", nome: "Plano de saúde dos funcionários", tipo: "PAGAR" as const }, { id: "comb", nome: "Combustível e veículos", tipo: "PAGAR" as const },
+    { id: "st", nome: "ICMS ST e DIFAL", tipo: "PAGAR" as const }, { id: "ex", nome: "Exames médicos de funcionários", tipo: "PAGAR" as const },
+    { id: "seg", nome: "Seguros", tipo: "PAGAR" as const }, { id: "cm", nome: "Compra de mercadorias (estoque)", tipo: "PAGAR" as const },
+  ];
+  it("regras do Luiz: Receita Federal do mês (maior = Simples, menor = INSS), Cef Matriz = FGTS, Hapvida = saúde dos funcionários, posto = combustível, mesmo com histórico diferente", () => {
+    const h = conc.montarHistorico([{ descricao: "Pagamento efetuado - Receita Federal", lancamentos: [{ pessoaId: null, categoriaId: "imp", centroCustoId: null, avulso: true }] }, { descricao: "Pix enviado - Cef Matriz", lancamentos: [{ pessoaId: null, categoriaId: "out", centroCustoId: null, avulso: true }] }], []);
+    const ls = conc.analisar([
+      t("r1", "2026-10-20", -1850.33, "Pagamento efetuado - Receita Federal"),
+      t("r2", "2026-10-20", -712.4, "Pagamento efetuado - Receita Federal"),
+      t("r3", "2026-11-20", -1900, "Pagamento efetuado - Receita Federal"),
+      t("f1", "2026-11-19", -2864.64, "Pix enviado - Cef Matriz"),
+      t("h1", "2026-10-17", -299.9, "Pix enviado - Hapvida Assistencia Medica Sa - VFX"),
+      t("p1", "2026-10-17", -200, "Pix enviado - Posto Sao Jose"),
+      t("x1", "2026-10-17", -10, "Pagamento de imposto municipal"),
+    ], [], h, regrasLuiz, dia("2026-11-22"));
+    expect(ls.map((l) => [l.transacaoId, l.categoriaId, l.confianca])).toEqual([
+      ["r1", "sn", 85], ["r2", "inss", 85], ["r3", "sn", 65], ["f1", "fgts", 85], ["h1", "psf", 85], ["p1", "comb", 80], ["x1", null, 0],
+    ]);
+    expect(ls[1].motivos[0]).toBe("Receita Federal: o menor pagamento do mês é o INSS");
+    expect(ls[2].motivos[0]).toContain("único pagamento do mês");
+  });
+
+  it("regras do Luiz: DARF = ST/DIFAL, Pix Marketplace = compra de mercadoria, clínica de medicina do trabalho = exames, HDI = seguros", () => {
+    const h = conc.montarHistorico([{ descricao: "Pix enviado - HDI Seguros SA", lancamentos: [{ pessoaId: null, categoriaId: "cm", centroCustoId: null, avulso: true }] }], []);
+    const ls = conc.analisar([
+      t("d1", "2026-10-20", -431.2, "Pagamento DARF"),
+      t("m1", "2026-10-21", -89.9, "Pix Marketplace"),
+      t("m2", "2026-10-21", -150, "Pix enviado - Mercado Livre"),
+      t("c1", "2026-10-22", -120, "Pix enviado - Clinica Bessa Safety Ltda"),
+      t("s1", "2026-10-23", -350, "Pix enviado - HDI Seguros SA"),
+      t("r1", "2026-10-20", -1850.33, "Pagamento efetuado - Receita Federal"),
+    ], [], h, regrasLuiz, dia("2026-11-22"));
+    expect(ls.map((l) => [l.transacaoId, l.categoriaId, l.confianca])).toEqual([
+      ["d1", "st", 80], ["m1", "cm", 80], ["m2", "cm", 80], ["c1", "ex", 80], ["s1", "seg", 80], ["r1", "sn", 65],
+    ]);
+  });
+
+  it("motor no geral: 'Pagamento de Título' não vira favorecido, fornecedor cadastrado ensina a categoria, devolução e pessoa física recorrente explicadas", () => {
+    expect(conc.favorecido("Pagamento de Título - JABU ELETRICA E HIDRAULICA LTDA")).toBe("jabu eletrica e hidraulica ltda");
+    expect(conc.favorecido("Pix enviado devolvido - Shpp Brasil Instituicao De Pag - Shpp Brasil Instituicao De Pag")).toBe("shpp brasil instituicao de pag");
+    const pessoas = [{ nomes: ["TECHFORM SOFTWARE E DESENVOLVIMENTO LTDA"], tipo: "PAGAR" as const, categorias: new Map([["cm", 3]]) }];
+    const ls = conc.analisar([
+      t("a", "2026-10-27", -822.99, "Pagamento de Título - TECHFORM SOFTWARE E DESENVOLVIM"),
+      t("b", "2026-10-15", -1295.44, "Pagamento de Título - PERSONAL CARE OPERADORA DE SAUD"),
+      t("c", "2026-09-16", -720.1, "Pix enviado  - Shpp Brasil Instituicao De Pag - VFX"),
+      t("d", "2026-09-29", 720.1, "Pix enviado devolvido - Shpp Brasil Instituicao De Pag - Shpp Brasil Instituicao De Pag"),
+      t("e", "2026-10-02", -1014.32, "Pix enviado  - Caua Leonardo Pereira - VFX"),
+      t("f", "2026-11-06", -1014.32, "Pix enviado  - Caua Leonardo Pereira - VFX"),
+      t("g", "2026-11-15", -725.34, "Pix enviado  - Receita Federal - VFX"),
+      t("h", "2026-11-15", -113.12, "Pix enviado  - Receita Federal - VFX"),
+      t("i", "2026-11-19", -3868.24, "Pix enviado  - Receita Federal - VFX"),
+    ], [], vazio, regrasLuiz, dia("2026-11-22"), new Map(), null, [], pessoas);
+    expect(ls.map((l) => [l.transacaoId, l.categoriaId, l.confianca])).toEqual([
+      ["a", "cm", 75], ["b", "psf", 85], ["c", "cm", 80], ["d", null, 0], ["e", null, 0], ["f", null, 0], ["g", "inss", 70], ["h", "inss", 70], ["i", "sn", 70],
+    ]);
+    expect(ls[0].motivos[0]).toContain("fornecedor cadastrado");
+    expect(ls[3].motivos[0]).toBe("devolução do Pix de 16/09 (mesmo valor): não é receita, lance as duas na mesma categoria");
+    expect(ls[4].motivos[0]).toContain("Pix para pessoa física em 2 meses");
   });
 });
 
@@ -225,5 +287,25 @@ describe("com banco", () => {
     expect(enviados[0]).toContain("Pendentes: 1");
     expect((await aviso.enviarAvisoConciliacao({ agora: new Date("2026-11-21T15:00:00Z"), transporte })).motivo).toBe("já enviado hoje");
     expect(await prisma.mensagemWhatsapp.count({ where: { entidade: "CONCILIACAO", situacao: "ENVIADA" } })).toBe(1);
+  });
+
+  it("boleto recebido sai sozinho da conciliação (a cobrança do Inter baixa); o do ERP é amarrado; Pix direto continua; reaberto não sai de novo", async () => {
+    const l = await conta_("RECEBER", 150, "Venda 10");
+    await prisma.boleto.create({ data: { lancamentoId: l.id, token: "tk-1", seuNumero: "1", valor: 150, vencimento: dia("2026-11-10"), nossoNumero: "00099", situacao: "A_RECEBER" } });
+    await ext.importarExtrato(conta, [
+      { data: dia("2026-11-10"), valor: 150, descricao: "Boleto de cobrança recebido - CLIENTE DO ERP", chave: "b1", documento: "00099" },
+      { data: dia("2026-11-10"), valor: 5990, descricao: "Boleto de cobrança recebido - FCRJ ORGANIZACAO CONTABIL LTDA.", chave: "b2" },
+      { data: dia("2026-11-10"), valor: 49.9, descricao: "Pix recebido - Ana Paula - Ana Paula", chave: "p1" },
+    ], { baixarAutomatico: false });
+    const sit = async (chave: string) => (await prisma.transacaoBancaria.findFirstOrThrow({ where: { chave }, select: { situacao: true, motivo: true } }));
+    expect(await sit("b1")).toEqual({ situacao: "CONCILIADA", motivo: null });
+    expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: l.id } })).pagoEm).not.toBeNull();
+    expect(await sit("b2")).toEqual({ situacao: "IGNORADA", motivo: "BOLETO_INTER" });
+    expect(await sit("p1")).toEqual({ situacao: "PENDENTE", motivo: null });
+    const b2 = (await prisma.transacaoBancaria.findFirstOrThrow({ where: { chave: "b2" } })).id;
+    await prisma.$transaction((tx) => ext.desfazerTx(tx, b2));
+    expect(await sit("b2")).toEqual({ situacao: "PENDENTE", motivo: "REABERTA" });
+    const ls = await conc.analisarExtrato();
+    expect(ls.map((x) => x.descricao).sort()).toEqual(["Boleto de cobrança recebido - FCRJ ORGANIZACAO CONTABIL LTDA.", "Pix recebido - Ana Paula - Ana Paula"]);
   });
 });

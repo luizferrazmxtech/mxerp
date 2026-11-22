@@ -74,7 +74,31 @@ export const CATEGORIAS_PESSOAL = {
 } as const;
 export type TipoPagamentoPessoal = keyof typeof CATEGORIAS_PESSOAL;
 
+/**
+ * Categorias que a conciliação reconhece pelo nome de quem recebeu (regras do Luiz, 22/11): FGTS (Cef Matriz), INSS e
+ * Simples Nacional (Receita Federal: no dia 20 costumam ser dois pagamentos, o maior é o Simples) e o plano de saúde
+ * dos funcionários (Hapvida). Encargos e plano ficam dentro de "Salários e encargos" (entram no painel de mão de obra).
+ */
+export const CATEGORIAS_CONCILIACAO = [
+  { codigo: "2.05.05", nome: "FGTS", pai: "Salários e encargos", grupoDre: "DESPESA_OPERACIONAL" },
+  { codigo: "2.05.06", nome: "INSS", pai: "Salários e encargos", grupoDre: "DESPESA_OPERACIONAL" },
+  { codigo: "2.05.07", nome: "Plano de saúde dos funcionários", pai: "Salários e encargos", grupoDre: "DESPESA_OPERACIONAL" },
+  { codigo: "2.05.08", nome: "Exames médicos de funcionários", pai: "Salários e encargos", grupoDre: "DESPESA_OPERACIONAL" },
+  { codigo: "2.01.01", nome: "Simples Nacional", pai: "Impostos sobre vendas (DAS/ICMS/ISS)", grupoDre: "DEDUCOES" },
+  { codigo: "2.01.02", nome: "ICMS ST e DIFAL", pai: "Impostos sobre vendas (DAS/ICMS/ISS)", grupoDre: "DEDUCOES" },
+  { codigo: "2.11.01", nome: "Seguros", pai: "Outras despesas", grupoDre: "OUTRAS_DESPESAS" },
+  { codigo: "2.13", nome: "Fatura de cartão de crédito", pai: null, grupoDre: "OUTRAS_DESPESAS" },
+] as const;
+
 export async function garantirCategoriasPessoal(tx: Tx) {
+  for (const c of CATEGORIAS_CONCILIACAO) {
+    const p = c.pai ? await tx.categoriaFinanceira.findUnique({ where: { nome_tipo: { nome: c.pai, tipo: "PAGAR" } }, select: { id: true } }) : null;
+    await tx.categoriaFinanceira.upsert({
+      where: { nome_tipo: { nome: c.nome, tipo: "PAGAR" } },
+      create: { nome: c.nome, tipo: "PAGAR", grupoDre: c.grupoDre, codigo: c.codigo, paiId: p?.id ?? null },
+      update: {},
+    });
+  }
   const pai = await tx.categoriaFinanceira.findUnique({ where: { nome_tipo: { nome: "Salários e encargos", tipo: "PAGAR" } } });
   const out = {} as Record<TipoPagamentoPessoal, string>;
   for (const [k, c] of Object.entries(CATEGORIAS_PESSOAL) as [TipoPagamentoPessoal, { codigo: string; nome: string }][]) {

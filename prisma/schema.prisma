@@ -1907,6 +1907,7 @@ model TransacaoBancaria {
   dataHora             DateTime? // data e hora do lançamento no banco, quando o extrato traz (ordena a conciliação)
   contraparteDocumento String? // CPF/CNPJ de quem pagou/recebeu, quando o banco manda (Inter: detalhes da transação)
   situacao             SituacaoConciliacao @default(PENDENTE)
+  motivo               String? // BOLETO_INTER: boleto recebido, baixado pela cobrança do Inter (sai sozinho da conciliação); REABERTA: a pessoa voltou para pendente
   lancamentos          Lancamento[]
   createdAt            DateTime            @default(now())
 

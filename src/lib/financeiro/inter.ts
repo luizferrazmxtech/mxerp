@@ -312,7 +312,7 @@ export async function sincronizarInter(opts: { dias?: number; cliente?: ClienteI
     if (typeof (cliente as { saldoContabil?: unknown }).saldoContabil === "function") {
       await cliente.saldoContabil().then((v) => import("./saldos").then((m) => m.registrarSaldo(conta.id, fim, v, "INTER"))).catch(() => null);
     }
-    await prisma.integracaoInter.updateMany({ where: { id: "inter" }, data: { ultimaSincEm: new Date(), ultimaSincMsg: `${r.novas} novas, ${r.baixadas} baixadas` } });
+    await prisma.integracaoInter.updateMany({ where: { id: "inter" }, data: { ultimaSincEm: new Date(), ultimaSincMsg: `${r.novas} novas, ${r.baixadas} baixadas${r.boletos ? `, ${r.boletos} boletos da cobrança` : ""}` } });
     return r;
   } catch (e) {
     const m = mensagemErro(e);
