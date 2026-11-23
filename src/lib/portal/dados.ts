@@ -122,7 +122,7 @@ export async function verVenda(pessoaId: string, id: string) {
       id: true, numero: true, data: true, situacao: true, observacoes: true, token: true, empresaId: true, prazoEntrega: true,
       totalProdutos: true, totalServicos: true, desconto: true, frete: true, total: true,
       situacaoCfg: { select: { nome: true, cor: true } }, vendedor: { select: { nome: true } },
-      itens: { orderBy: { ordem: "asc" }, select: { id: true, quantidade: true, valorUnit: true, subtotal: true, detalhes: true, produto: { select: { nome: true } } } },
+      itens: { orderBy: { ordem: "asc" }, select: { id: true, quantidade: true, valorUnit: true, subtotal: true, detalhes: true, descricao: true, produto: { select: { nome: true } } } },
       servicos: { orderBy: { ordem: "asc" }, select: { id: true, quantidade: true, valorUnit: true, subtotal: true, detalhes: true, servico: { select: { nome: true } } } },
       historico: { where: { situacao: { not: null } }, orderBy: { createdAt: "asc" }, select: { id: true, situacao: true, createdAt: true } },
     },
@@ -134,7 +134,7 @@ export async function verVenda(pessoaId: string, id: string) {
     situacao: situacaoVenda(v), cancelada: v.situacao === "CANCELADA", vendedor: v.vendedor?.nome ?? null,
     loja: v.empresaId ? ls.get(v.empresaId) ?? null : null,
     itens: [
-      ...v.itens.map((i) => ({ id: i.id, nome: i.produto.nome, detalhes: i.detalhes, quantidade: n(i.quantidade), valorUnit: n(i.valorUnit), subtotal: n(i.subtotal) })),
+      ...v.itens.map((i) => ({ id: i.id, nome: i.descricao || i.produto.nome, detalhes: i.detalhes, quantidade: n(i.quantidade), valorUnit: n(i.valorUnit), subtotal: n(i.subtotal) })),
       ...v.servicos.map((i) => ({ id: i.id, nome: i.servico.nome, detalhes: i.detalhes, quantidade: n(i.quantidade), valorUnit: n(i.valorUnit), subtotal: n(i.subtotal) })),
     ],
     totais: { produtos: n(v.totalProdutos), servicos: n(v.totalServicos), desconto: n(v.desconto), frete: n(v.frete), total: n(v.total) },

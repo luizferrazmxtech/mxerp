@@ -81,10 +81,14 @@ async function destinatarioDe(p: Pessoa | null, obrigatorio: boolean): Promise<D
 
 type ItemOrigem = {
   quantidade: unknown; valorUnit: unknown; desconto: unknown;
+  /** item avulso: descrição digitada (sem cadastro de produto) */
+  descricao?: string | null;
   produto: { codigo: string; gtin: string | null; nome: string; ncm: string | null; cest: string | null; unidade: string; origem: number; cfopInterno: string | null; cfopExterno: string | null; csosn: string | null; cstIcms: string | null; aliquotaIcms: unknown; cstPis: string | null; cstCofins: string | null };
 };
 
 function itensDe(itens: ItemOrigem[], interestadual: boolean): ItemNota[] {
+  const avulsos = itens.filter((i) => i.descricao);
+  if (avulsos.length) throw new FiscalError(`Item avulso não tem NCM nem dados fiscais (${avulsos.map((i) => i.descricao).join(", ")}): troque por um produto cadastrado para emitir a nota`);
   const semNcm = itens.filter((i) => !i.produto.ncm || i.produto.ncm.replace(/\D/g, "").length !== 8);
   if (semNcm.length) throw new FiscalError(`Produtos sem NCM válido: ${semNcm.map((i) => i.produto.codigo).join(", ")}`);
   return itens.map((i) => ({

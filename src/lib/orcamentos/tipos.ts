@@ -5,7 +5,9 @@ export { lerNumero };
 
 export type LinhaProduto = { id?: string; produtoId: string; nome: string; codigo: string; unidade: string; detalhes: string; quantidade: string; tipoValorId: string; valorUnit: string; desconto: string; descontoPct: boolean; valores?: { tipoValorId: string; valor: number }[]; disponivel?: number | null; nosCarros?: number | null;
   /** só OS: a peça sai deste local (o carro do técnico) em vez do estoque da loja; vazio = loja */
-  localOrigemId?: string };
+  localOrigemId?: string;
+  /** item avulso: digitado na hora, sem cadastro e sem estoque (o nome é a descrição digitada) */
+  avulso?: boolean };
 export type LinhaServico = { id?: string; servicoId: string; nome: string; codigo: string; detalhes: string; quantidade: string; valorUnit: string; desconto: string; descontoPct: boolean };
 export type Parcela = { vencimento: string; valor: string; formaPagamentoId: string; observacao: string };
 
@@ -53,6 +55,16 @@ export const subtotalProduto = (l: Pick<LinhaProduto, "quantidade" | "valorUnit"
   return arred(bruto - descontoLinha(bruto, l.desconto, l.descontoPct));
 };
 export const subtotalServico = subtotalProduto;
+
+/**
+ * Linhas de produto que entram no documento: as com produto escolhido e os itens avulsos com descrição.
+ * Item avulso com valor e sem descrição é erro (devolve a mensagem); linha avulsa vazia é ignorada.
+ */
+export function linhasProdutos(produtos: LinhaProduto[]): { linhas: LinhaProduto[]; erro?: string } {
+  const semNome = produtos.find((l) => l.avulso && !l.nome.trim() && (n(l.valorUnit) > 0 || l.detalhes.trim()));
+  if (semNome) return { linhas: [], erro: "Informe a descrição do item avulso" };
+  return { linhas: produtos.filter((l) => (l.avulso ? !!l.nome.trim() : !!l.produtoId)) };
+}
 
 /** Totais do orçamento: produtos, serviços, desconto geral (R$ ou %), frete e total. */
 export function totais(d: Pick<DadosOrcamento, "produtos" | "servicos" | "desconto" | "descontoPct" | "frete">) {

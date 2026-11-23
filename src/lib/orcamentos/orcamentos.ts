@@ -4,7 +4,8 @@ import { proximoNumero } from "@/lib/sequencia";
 import { diaSP, parseDia, periodoDia } from "@/lib/datas";
 import { salvarPedido } from "@/lib/vendas/pedidos";
 import { salvarOs } from "@/lib/os/os";
-import { descontoLinha, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento } from "./tipos";
+import { produtoAvulsoId } from "@/lib/itens/avulso";
+import { descontoLinha, linhasProdutos, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento } from "./tipos";
 import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 export * from "./tipos";
@@ -28,9 +29,11 @@ export async function salvarOrcamento(d: DadosOrcamento, u: Usuario, id?: string
   if (!t(d.clienteId)) throw new OrcamentoError("Informe o cliente");
   if (!t(d.data)) throw new OrcamentoError("Informe a data");
   if (!t(d.canal)) throw new OrcamentoError("Informe o canal de venda");
-  const produtos = d.produtos.filter((l) => l.produtoId);
+  const { linhas: produtos, erro } = linhasProdutos(d.produtos);
+  if (erro) throw new OrcamentoError(erro);
   const servicos = d.servicos.filter((l) => l.servicoId);
   if (!produtos.length && !servicos.length) throw new OrcamentoError("Adicione ao menos um produto ou serviço");
+  const avulsoId = produtos.some((l) => l.avulso) ? await produtoAvulsoId(prisma) : "";
   for (const l of [...produtos, ...servicos]) if (!(n(l.quantidade) > 0)) throw new OrcamentoError(`Informe a quantidade de ${l.nome || "todos os itens"}`);
   const tot = totais({ ...d, produtos, servicos });
   if (tot.total < 0) throw new OrcamentoError("O desconto é maior que o valor do orçamento");
@@ -60,7 +63,7 @@ export async function salvarOrcamento(d: DadosOrcamento, u: Usuario, id?: string
     camposExtras: (d.camposExtras ?? {}) as Prisma.InputJsonValue,
   };
   const filhos = {
-    produtos: { create: produtos.map((l, i) => ({ ordem: i, produtoId: l.produtoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)) })) },
+    produtos: { create: produtos.map((l, i) => ({ ordem: i, produtoId: l.avulso ? avulsoId : l.produtoId, descricao: l.avulso ? l.nome.trim() : null, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)) })) },
     servicos: { create: servicos.map((l, i) => ({ ordem: i, servicoId: l.servicoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalServico(l)) })) },
     parcelas: { create: parcelas },
   };
@@ -164,7 +167,7 @@ export async function gerarVendaDoOrcamento(id: string, u: Usuario) {
   const venda = await salvarPedido({
     tipo: o.tipo, numero: "", clienteId: o.clienteId, clienteNome: "", data: hoje, validade: "", vendedorId: o.vendedorId ?? "",
     prazoEntrega: o.prazoEntrega ? iso(o.prazoEntrega) : "", aosCuidados: "", canal: o.canal, centroCusto: o.centroCusto ?? "", introducao: "", situacaoId: aberta?.id ?? "",
-    produtos: o.produtos.map((i) => ({ produtoId: i.produtoId, nome: i.produto.nome, codigo: i.produto.codigo, unidade: i.produto.unidade, detalhes: i.detalhes ?? "", quantidade: String(Number(i.quantidade)), tipoValorId: i.tipoValorId ?? "", valorUnit: f(i.valorUnit), desconto: f(i.desconto), descontoPct: false })),
+    produtos: o.produtos.map((i) => ({ produtoId: i.produtoId, avulso: !!i.descricao, nome: i.descricao ?? i.produto.nome, codigo: i.produto.codigo, unidade: i.produto.unidade, detalhes: i.detalhes ?? "", quantidade: String(Number(i.quantidade)), tipoValorId: i.tipoValorId ?? "", valorUnit: f(i.valorUnit), desconto: f(i.desconto), descontoPct: false })),
     servicos: o.servicos.map((i) => ({ servicoId: i.servicoId, nome: i.servico.nome, codigo: i.servico.codigo, detalhes: i.detalhes ?? "", quantidade: String(Number(i.quantidade)), valorUnit: f(i.valorUnit), desconto: f(i.desconto), descontoPct: false })),
     transportadoraId: o.transportadoraId ?? "", transportadoraNome: "", frete: f(o.frete), mostrarEntrega: o.mostrarEntrega, enderecoEntregaId: o.enderecoEntregaId ?? "",
     desconto: f(o.desconto), descontoPct: false, exibirTotal: true, gerarCondicoes: true,
@@ -184,7 +187,7 @@ export async function gerarVendaDoOrcamento(id: string, u: Usuario) {
 
 /** "Gerar OS": abre uma ordem de serviço com os produtos (reservados) e serviços do orçamento. */
 export async function gerarOsDoOrcamento(id: string, u: Usuario) {
-  const o = await prisma.orcamento.findUniqueOrThrow({ where: { id }, include: { produtos: true, servicos: true } });
+  const o = await prisma.orcamento.findUniqueOrThrow({ where: { id }, include: { produtos: { orderBy: { ordem: "asc" } }, servicos: true } });
   if (o.osId) throw new OrcamentoError("Este orçamento já gerou uma OS");
   const { osId } = await salvarOs({
     cabecalho: {
@@ -197,6 +200,12 @@ export async function gerarOsDoOrcamento(id: string, u: Usuario) {
     servicos: o.servicos.map((l) => ({ servicoId: l.servicoId, quantidade: Number(l.quantidade), valorUnit: unitLiquido(l) })),
     usuarioId: u.id, permitirNegativo: true,
   });
+  // OS não tem item avulso: a descrição digitada vai para os detalhes da peça "Item avulso"
+  const avulsos = o.produtos.filter((l) => l.descricao);
+  if (avulsos.length) {
+    const naOs = await prisma.osItemProduto.findMany({ where: { osId, produtoId: avulsos[0].produtoId }, orderBy: [{ ordem: "asc" }, { createdAt: "asc" }, { id: "asc" }], select: { id: true } });
+    for (const [i, it] of naOs.entries()) if (avulsos[i]) await prisma.osItemProduto.update({ where: { id: it.id }, data: { detalhes: [avulsos[i].descricao, avulsos[i].detalhes].filter(Boolean).join(" · ") } });
+  }
   const os = await prisma.ordemServico.findUniqueOrThrow({ where: { id: osId }, select: { numero: true } });
   await prisma.$transaction([
     prisma.orcamento.update({ where: { id }, data: { osId } }),

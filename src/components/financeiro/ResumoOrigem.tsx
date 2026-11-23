@@ -36,7 +36,7 @@ async function carregar(origemTipo: string | null, origemId: string | null, cont
       rotulo: `Venda #${v.numero}`, href: `/vendas/${v.id}${conta}`, icone: "carrinho", data: v.data, situacao: v.situacaoCfg?.nome ?? v.situacao, corSituacao: v.situacaoCfg?.cor ?? "cinza",
       pessoa: v.cliente, papel: "Cliente", hrefPessoa: v.cliente ? `/clientes/${v.cliente.id}` : null, responsavel: v.vendedor?.nome,
       itens: [
-        ...v.itens.map((i) => ({ id: i.id, codigo: i.produto.codigo, nome: i.produto.nome, detalhes: i.detalhes, quantidade: i.quantidade, unidade: i.produto.unidade, valorUnit: i.valorUnit, subtotal: i.subtotal })),
+        ...v.itens.map((i) => ({ id: i.id, codigo: i.descricao ? "" : i.produto.codigo, nome: i.descricao || i.produto.nome, detalhes: i.detalhes, quantidade: i.quantidade, unidade: i.produto.unidade, valorUnit: i.valorUnit, subtotal: i.subtotal })),
         ...v.servicos.map((i) => ({ id: i.id, codigo: i.servico.codigo, nome: i.servico.nome, detalhes: i.detalhes, quantidade: i.quantidade, unidade: "SV", valorUnit: i.valorUnit, subtotal: i.subtotal })),
       ],
       produtos: Number(v.totalProdutos), servicos: Number(v.totalServicos), desconto: Number(v.desconto), frete: Number(v.frete), total: Number(v.total), observacoes: v.observacoes,

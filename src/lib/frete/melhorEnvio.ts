@@ -293,7 +293,7 @@ async function corpoCarrinho(v: VendaFrete, e: { servicoId: number; volumes: Pri
       ...(doc.length === 14 ? { company_document: doc, state_register: soDigitos(cli.inscricaoEstadual) || undefined } : { document: doc }),
       address: end.logradouro, complement: end.complemento, number: end.numero || "S/N", district: end.bairro, city: end.cidade, country_id: "BR", postal_code: end.cep, state_abbr: end.uf,
     },
-    products: v.itens.map((i) => ({ name: i.produto.nome.slice(0, 120), quantity: Number(i.quantidade), unitary_value: Math.round((Number(i.subtotal) / Math.max(Number(i.quantidade), 1)) * 100) / 100 })),
+    products: v.itens.map((i) => ({ name: (i.descricao || i.produto.nome).slice(0, 120), quantity: Number(i.quantidade), unitary_value: Math.round((Number(i.subtotal) / Math.max(Number(i.quantidade), 1)) * 100) / 100 })),
     volumes: vols.map((x) => ({ height: x.altura, width: x.largura, length: x.comprimento, weight: x.peso })),
     options: {
       insurance_value: c.seguro ? Math.round(total * 100) / 100 : 0, receipt: c.avisoRecebimento, own_hand: c.maoPropria, reverse: false,

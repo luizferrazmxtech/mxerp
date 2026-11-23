@@ -56,7 +56,7 @@ export default async function AdicionarDevolucao({ searchParams }: { searchParam
             <div><span className="text-slate-500">Loja</span><br /><b>{empresa?.nomeFantasia || empresa?.razaoSocial}</b></div>
           </div>
           <FormDevolucao vendaId={v.id} tipo={tipo} desconto={Number(v.desconto)} frete={Number(v.frete)}
-            itens={v.itens.map((i) => ({ id: i.id, codigo: i.produto.codigo, nome: i.produto.nome, unidade: i.produto.unidade, vendido: Number(i.quantidade), jaDevolvido: ja.get(i.id) ?? 0,
+            itens={v.itens.map((i) => ({ id: i.id, codigo: i.descricao ? "" : i.produto.codigo, nome: i.descricao || i.produto.nome, unidade: i.produto.unidade, vendido: Number(i.quantidade), jaDevolvido: ja.get(i.id) ?? 0,
               unit: Math.round((Number(i.subtotal) / Number(i.quantidade)) * fator * 100) / 100 }))} />
         </>
       )}

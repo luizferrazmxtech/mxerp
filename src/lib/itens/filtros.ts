@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { palavras, wherePalavras } from "@/lib/busca/palavras";
+import { CODIGO_AVULSO } from "./avulso";
 
 export type ParamsLista = Record<string, string | undefined>;
 
@@ -16,7 +17,7 @@ export async function idsPorPalavras(tabela: "Produto" | "Servico", q: string, c
 
 /** Filtros da lista de produtos (busca simples e avançada do Gestão Click). */
 export async function whereProdutos(sp: ParamsLista): Promise<Prisma.ProdutoWhereInput> {
-  const and: Prisma.ProdutoWhereInput[] = [];
+  const and: Prisma.ProdutoWhereInput[] = [{ codigo: { not: CODIGO_AVULSO } }]; // produto de sistema dos itens avulsos
   const cont = (v: string) => ({ contains: v.trim(), mode: "insensitive" as const });
   if (sp.q?.trim()) and.push({ id: { in: await idsPorPalavras("Produto", sp.q, ["nome", "codigo", "gtin"], "gtin") } });
   if (sp.nome?.trim()) and.push({ id: { in: await idsPorPalavras("Produto", sp.nome, ["nome"]) } });
