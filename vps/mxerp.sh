@@ -257,15 +257,17 @@ EOF
 }
 
 cmd_limpar_movimento() {
-  [ $# -ge 1 ] || falhar "uso: ./vps/mxerp.sh limpar-movimento CLIENTE"
-  local c=$1; existe "$c"
-  sed -n '2,8p' "$VPS/scripts/limpar-movimento.sql" | sed 's/^-- \{0,1\}//'
+  [ $# -ge 1 ] || falhar "uso: ./vps/mxerp.sh limpar-movimento CLIENTE [SERIE-DE-TESTE]  (ex.: limpar-movimento mxtech 10 apaga também as notas da série 10)"
+  local c=$1 serie=${2:-}; existe "$c"
+  [ -z "$serie" ] || [[ "$serie" =~ ^[0-9]+$ ]] || falhar "a série de teste é um número (ex.: 10)"
+  sed -n '2,9p' "$VPS/scripts/limpar-movimento.sql" | sed 's/^-- \{0,1\}//'
+  [ -z "$serie" ] || echo "SAEM TAMBÉM: as notas fiscais da série $serie (testes) e a numeração dela."
   local ok=${MXERP_CONFIRMAR:-}
   [ -n "$ok" ] || read -rp "Isto APAGA o movimento de '$c' (fica uma cópia antes). Digite LIMPAR: " ok
   [ "$ok" = LIMPAR ] || { echo "Cancelado."; exit 0; }
   verde "Cópia de segurança antes de limpar..."
   dc exec -T backup sh /scripts/backup-todos.sh antes-de-limpar "$c"
-  psql_admin -d "$c" < "$VPS/scripts/limpar-movimento.sql"
+  psql_admin -d "$c" ${serie:+-v serie_teste="$serie"} < "$VPS/scripts/limpar-movimento.sql"
   verde "Pronto. Agora importe o backup do Gestão Click na tela Migração (simule antes)."
 }
 cmd_atualizar() {

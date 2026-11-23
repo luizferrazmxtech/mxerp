@@ -77,10 +77,10 @@ Entre em `https://erp.mxtech.inf.br` com o mesmo usuário e senha do PC.
 Para entrar em produção com os dados do Gestão Click, depois de restaurar o banco do PC:
 
 ```bash
-./vps/mxerp.sh limpar-movimento mxtech
+./vps/mxerp.sh limpar-movimento mxtech 10
 ```
 
-Ele mostra o que sai e o que fica, faz uma cópia antes e apaga OS, vendas, orçamentos, compras, estoque e as contas que não foram conciliadas. Ficam as empresas, o certificado A1, os usuários, os cadastros, as notas emitidas e a numeração delas, as configurações, os contratos, o WhatsApp, as integrações e o extrato do banco com as contas já conciliadas nele.
+Ele mostra o que sai e o que fica, faz uma cópia antes e apaga OS, vendas, orçamentos, compras, estoque e todo o financeiro (o fluxo de caixa zera). O número no fim (opcional) é uma série de notas de teste: as notas dela e a numeração saem também. Ficam as empresas, o certificado A1, os usuários, os cadastros, as demais notas e a numeração delas, as configurações, os contratos, o WhatsApp, as integrações, as contas com boleto registrado ainda em aberto e o extrato do banco, que volta para conciliar com as contas do Gestão Click. Pode rodar de novo quantas vezes precisar antes de importar.
 
 Depois, na tela **Migração**, escolha o .zip, marque tudo (inclusive *contas a pagar já vencidas*, *contas já pagas* e *notas fiscais*), **Simule**, confira os avisos e **Grave**. As notas do Gestão Click entram só para consulta (sem XML) e a numeração do MXERP continua depois da última delas.
 

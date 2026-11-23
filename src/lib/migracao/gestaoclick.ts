@@ -992,6 +992,22 @@ async function importarContratos(t: Tabelas, simular: boolean): Promise<Resultad
   return r;
 }
 
+/** Unidades usadas nos produtos (venda e compra) que ainda não estão no cadastro de unidades. */
+async function cadastrarUnidades() {
+  const usadas = await prisma.$queryRaw<{ sigla: string }[]>`
+    SELECT DISTINCT u AS sigla FROM (SELECT unidade AS u FROM "Produto" UNION SELECT "unidadeCompra" FROM "Produto") x WHERE u IS NOT NULL AND u <> ''`;
+  let n = 0;
+  for (const { sigla } of usadas) {
+    if (await prisma.unidade.findUnique({ where: { sigla } })) continue;
+    await prisma.unidade.create({ data: { sigla, nome: NOME_UNIDADE[sigla] ?? sigla } });
+    n++;
+  }
+  return n;
+}
+const NOME_UNIDADE: Record<string, string> = {
+  UN: "Unidade", PC: "Peça", MT: "Metro", M: "Metro", CX: "Caixa", CX1: "Caixa", KG: "Quilograma", LT: "Litro", L: "Litro", PCT: "Pacote", RL: "Rolo", KIT: "Kit", PAR: "Par", M2: "Metro quadrado", HR: "Hora",
+};
+
 // ---------- orquestração
 
 /**
@@ -1028,7 +1044,20 @@ async function importarNaEmpresa(t: Tabelas, opts: { simular?: boolean; etapas?:
     const r = await importarProdutos(linhasProdutos(t.produtos), { simular, importarEstoque: !!e.estoque, loja: destino ? { empresaId: destino.empresaId, nome: destino.nome, sufixo: destino.cnpj } : undefined });
     if (destino) r.avisos.push(`Produtos que já existiam ficaram com o nome, o preço e o custo de antes; o estoque de ${destino.nome} entrou num depósito só dela.`);
     r.avisos.push(...avisosUnidades(t.produtos, simular));
+    if (!simular) {
+      const n = await cadastrarUnidades();
+      if (n) r.avisos.push(`${n} unidade(s) de medida usadas nos produtos entraram no cadastro de unidades.`);
+    }
     res.push(r);
+  }
+  if (e.cadastros && !simular) {
+    // tipos de endereço do Gestão Click (Comercial, Entrega, Cobrança…) no cadastro de tipos
+    const tipos = new Set<string>();
+    for (const l of [...(t.clientes_enderecos ?? []), ...(t.fornecedores_enderecos ?? []), ...(t.transportadoras_enderecos ?? [])]) {
+      const x = (l.tipo ?? "").trim();
+      if (x) tipos.add(x.charAt(0).toUpperCase() + x.slice(1).toLowerCase());
+    }
+    for (const nome of tipos) await prisma.tipoEndereco.upsert({ where: { nome }, create: { nome }, update: {} });
   }
   const historico = e.historico ?? true;
   if (e.os) res.push(await importarOs(t, simular, historico));

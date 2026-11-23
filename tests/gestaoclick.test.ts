@@ -148,6 +148,9 @@ describe("backup do Gestão Click", () => {
     // pessoas: PJ usa razão social e guarda o nome como fantasia; endereço comercial preferido ao de entrega; mesma empresa vira fornecedor
     const folk = await prisma.pessoa.findUniqueOrThrow({ where: { documento: "11222333000181" } });
     expect(folk).toMatchObject({ nome: "FOLK COMERCIO LTDA", fantasia: "FOLK STORE", logradouro: "Rua Nestor de Campos", cliente: true, fornecedor: true, tipoPessoa: "JURIDICA" });
+    // tipos de endereço e unidades dos produtos entram nos cadastros
+    expect((await prisma.tipoEndereco.findMany()).map((x) => x.nome)).toEqual(expect.arrayContaining(["Comercial", "Entrega"]));
+    expect((await prisma.unidade.findMany()).map((u) => u.sigla)).toEqual(expect.arrayContaining(["UN", "MT"]));
 
     const cabo305 = await prisma.produto.findUniqueOrThrow({ where: { codigo: "CX305" } });
     expect(cabo305.unidade).toBe("MT");
