@@ -9,11 +9,13 @@ import Paginacao, { lerPagina } from "@/components/ui/Paginacao";
 import Resumo from "@/components/ui/Resumo";
 import Suspenso from "@/components/ui/Suspenso";
 import Icone from "@/components/Icone";
+import TabelaReservas from "@/components/estoque/TabelaReservas";
+import { reservasDoProduto } from "@/lib/estoque/reservas";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Estoque" };
 
-type Params = { q?: string; f?: string; p?: string; pp?: string };
+type Params = { q?: string; f?: string; p?: string; pp?: string; reservas?: string };
 
 /** Filtros dos cartões do topo. */
 const FILTROS: Record<string, (l: LinhaEstoque) => boolean> = {
@@ -36,6 +38,10 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
   const conta = (f: (l: LinhaEstoque) => boolean) => controladas.filter(f).length;
   const pct = (n: number) => (controladas.length ? (n / controladas.length) * 100 : 0);
   const nFalta = conta(FILTROS.falta), nAbaixo = conta(FILTROS.abaixo), nRes = conta(FILTROS.reservado), nPend = conta(FILTROS.pendente);
+  // "Onde está reservado": modal com as vendas/OS que seguram o produto
+  const linhaRes = sp.reservas ? todas.find((l) => l.id === sp.reservas) : undefined;
+  const docsRes = linhaRes ? await reservasDoProduto(linhaRes.id) : [];
+  const fecharRes = urlCom(base, sp, { reservas: undefined });
   const cartao = (f: string) => ({ href: urlCom(base, sp, { f: sp.f === f ? undefined : f, p: undefined }), ativo: sp.f === f });
 
   return (
@@ -85,12 +91,13 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
                   </td>
                   <td className="text-[12px] text-slate-600">{l.locais ?? "—"}</td>
                   <td className="text-right">{qtd(l.fisico)} <span className="text-[11px] text-slate-500">{l.unidade}</span></td>
-                  <td className="text-right text-amber-700">{l.reservado ? qtd(l.reservado) : <span className="text-slate-400">—</span>}</td>
+                  <td className="text-right text-amber-700">{l.reservado || l.falta ? <Link href={urlCom(base, sp, { reservas: l.id })} scroll={false} className="hover:underline" title="Ver onde está reservado">{qtd(l.reservado)}</Link> : <span className="text-slate-400">—</span>}</td>
                   <td className={`text-right font-semibold ${l.situacao === "SEM_CONTROLE" ? "text-slate-500" : l.disponivel <= 0 ? "text-red-600" : "text-emerald-700"}`}>{qtd(l.disponivel)}{l.nosCarros > 0 && <span className="block text-[11px] font-normal text-slate-500" title="Livre nos carros das equipes (fora do disponível da loja)">+{qtd(l.nosCarros)} nos carros</span>}</td>
                   <td className="text-center"><span className={`pilula ${s.cor}`}>{s.rotulo}</span></td>
                   <td className="text-right">{brl(l.precoVenda)}</td>
                   <td>
                     <div className="flex justify-end gap-1">
+                      {(l.reservado > 0 || l.falta > 0) && <Link href={urlCom(base, sp, { reservas: l.id })} scroll={false} className="btn-icone text-amber-700" title="Onde está reservado"><Icone nome="hoje" size={13} /></Link>}
                       <Link href={`/estoque/produto/${l.id}`} className="btn-icone" title="Estoque do produto"><Icone nome="ver" size={13} /></Link>
                       <Suspenso direita classe="btn-icone" botao={<Icone nome="opcoes" size={13} />}>
                         <LinkSuspenso href={`/produtos/${l.id}?aba=movimentacoes`} icone="atualizar">Movimentações (kardex)</LinkSuspenso>
@@ -108,6 +115,27 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
         </table>
         <Paginacao base={base} params={sp} total={linhas.length} pagina={pagina} porPagina={porPagina} />
       </div>
+
+      {linhaRes && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-16">
+          <Link href={fecharRes} scroll={false} className="absolute inset-0" aria-label="Fechar" />
+          <div className="relative w-full max-w-4xl rounded bg-white shadow-xl">
+            <div className="flex items-center gap-2 border-b px-4 py-3">
+              <Icone nome="hoje" size={16} />
+              <h3 className="font-semibold">Onde está reservado · {linhaRes.codigo} {linhaRes.nome}</h3>
+              <Link href={fecharRes} scroll={false} className="btn-icone ml-auto" title="Fechar"><Icone nome="fechar" size={14} /></Link>
+            </div>
+            <div className="px-4 py-2 text-[13px] text-slate-600">
+              Físico {qtd(linhaRes.fisico)} · Reservado {qtd(linhaRes.reservado)}{linhaRes.falta > 0 && <> · <span className="text-red-700">em falta {qtd(linhaRes.falta)}</span></>} · Disponível {qtd(linhaRes.disponivel)}
+            </div>
+            <div className="max-h-[60vh] overflow-auto border-t"><TabelaReservas docs={docsRes} unidade={linhaRes.unidade} /></div>
+            <div className="flex justify-end gap-2 border-t px-4 py-3">
+              <Link href={`/estoque/produto/${linhaRes.id}`} className="btn-sec">Estoque do produto</Link>
+              <Link href={fecharRes} scroll={false} className="btn">Fechar</Link>
+            </div>
+          </div>
+        </div>
+      )}
     </Pagina>
   );
 }
