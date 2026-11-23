@@ -38,8 +38,8 @@ function Toggle({ ligado, onChange }: { ligado: boolean; onChange: (v: boolean) 
 }
 export { Toggle };
 
-export default function FormPessoa({ papel, inicial, vendedores, tiposEndereco, tiposContato, camposExtras }: {
-  papel: PapelPessoa; inicial: InicialPessoa; vendedores: { id: string; nome: string }[];
+export default function FormPessoa({ papel, inicial, vendedores, tiposEndereco, tiposContato, camposExtras, lojas = [] }: {
+  papel: PapelPessoa; inicial: InicialPessoa; vendedores: { id: string; nome: string }[]; lojas?: { id: string; nome: string }[];
   tiposEndereco: string[]; tiposContato: string[]; camposExtras: CampoExtraForm[];
 }) {
   const [d, setD] = useState(inicial);
@@ -125,6 +125,25 @@ export default function FormPessoa({ papel, inicial, vendedores, tiposEndereco, 
               <option value="1">Ativo</option><option value="0">Inativo</option>
             </select>
           </Campo>
+          {lojas.length > 1 && (
+            <div className="sm:col-span-2 lg:col-span-4">
+              <span className="rotulo">Empresas do grupo em que aparece</span>
+              <div className="flex flex-wrap gap-3 text-sm">
+                {lojas.map((l) => {
+                  const marcadas = d.lojas?.length ? d.lojas : lojas.map((x) => x.id);
+                  const sel = marcadas.includes(l.id);
+                  return (
+                    <label key={l.id} className="flex items-center gap-1.5">
+                      <input type="checkbox" checked={sel} onChange={() => {
+                        const nova = sel ? marcadas.filter((x) => x !== l.id) : [...marcadas, l.id];
+                        if (nova.length) set("lojas", nova.length === lojas.length ? [] : nova);
+                      }} /> {l.nome}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <Campo rotulo="Nome" obrigatorio><input className="campo" required value={d.nome} onChange={(e) => set("nome", e.target.value)} autoFocus={!d.id} /></Campo>
           <Campo rotulo="E-mail"><input className="campo" type="email" value={d.email} onChange={(e) => set("email", e.target.value)} /></Campo>
 

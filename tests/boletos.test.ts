@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 const URL = "postgresql://mxerp:mxerp@localhost:5432/mxerp_test?schema=public";
 process.env.DATABASE_URL = URL;
@@ -70,8 +71,8 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe(`TRUNCATE "AvisoBoleto","Boleto","Lancamento","TransacaoBancaria","Pessoa","FormaPagamento","CategoriaFinanceira","ContaBancaria","IntegracaoInter" CASCADE`);
   await prisma.$executeRawUnsafe(`DELETE FROM "Sequencia" WHERE chave = 'BOLETO'`);
   await prisma.$transaction((tx) => garantirPadroes(tx));
-  boleto = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "Boleto" } })).id;
-  pix = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "PIX" } })).id;
+  boleto = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Boleto" } } })).id;
+  pix = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "PIX" } } })).id;
   cat = (await prisma.categoriaFinanceira.findFirstOrThrow({ where: { nome: "Venda de produtos" } })).id;
   cliente = (await prisma.pessoa.create({ data: {
     nome: "FOLK COMERCIO LTDA", documento: "12345678000195", tipoPessoa: "JURIDICA", logradouro: "Rua das Flores", numero: "10", bairro: "Centro",
@@ -246,7 +247,7 @@ describe("boletos do Inter", () => {
     // 3) conta recebida à mão e o cliente pagou o boleto também
     const l2 = await parcela({ parcela: 2 });
     const b2 = await bol.emitirBoleto(l2.id, { cliente: f.cliente() });
-    const caixa = await prisma.contaBancaria.findUniqueOrThrow({ where: { nome: "Caixa" } });
+    const caixa = await prisma.contaBancaria.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Caixa" } } });
     await prisma.lancamento.update({ where: { id: l2.id }, data: { pagoEm: hoje, valorPago: 100, contaBancariaId: caixa.id } });
     f.pagar(b2.codigoSolicitacao!, 100, iso(hoje));
     // 4) boleto normal pago: baixa sem aviso

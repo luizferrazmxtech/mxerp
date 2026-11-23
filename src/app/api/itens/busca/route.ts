@@ -1,3 +1,4 @@
+import { sqlDoGrupo } from "@/lib/empresa/loja";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -19,7 +20,7 @@ export async function GET(req: Request) {
   if (u.get("tipo") === "servico") {
     const ids = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT s.id FROM "Servico" s
-       WHERE s.ativo AND ${wherePalavras(q, [Prisma.sql`s.nome`, Prisma.sql`s.codigo`])}
+       WHERE s.ativo AND ${wherePalavras(q, [Prisma.sql`s.nome`, Prisma.sql`s.codigo`])}${await sqlDoGrupo("s.lojas")}
        ORDER BY (lower(s.codigo) = ${exato}) DESC, (${semAcento(Prisma.sql`s.nome`)} LIKE ${primeira}) DESC, s.nome
        LIMIT 20`);
     const l = await prisma.servico.findMany({ where: { id: { in: ids.map((i) => i.id) } }, select: { id: true, codigo: true, nome: true, preco: true } });
@@ -29,7 +30,7 @@ export async function GET(req: Request) {
 
   const ids = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT p.id FROM "Produto" p
-     WHERE p.ativo AND (lower(coalesce(p.gtin, '')) = ${exato} OR ${wherePalavras(q, [Prisma.sql`p.nome`, Prisma.sql`p.codigo`, Prisma.sql`p.gtin`])})
+     WHERE p.ativo AND (lower(coalesce(p.gtin, '')) = ${exato} OR ${wherePalavras(q, [Prisma.sql`p.nome`, Prisma.sql`p.codigo`, Prisma.sql`p.gtin`])})${await sqlDoGrupo("p.lojas")}
      ORDER BY (lower(p.codigo) = ${exato} OR lower(coalesce(p.gtin, '')) = ${exato}) DESC, (${semAcento(Prisma.sql`p.nome`)} LIKE ${primeira}) DESC, p.nome
      LIMIT 20`);
   const l = await prisma.produto.findMany({

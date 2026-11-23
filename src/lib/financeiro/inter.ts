@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { decifrar } from "@/lib/seguranca/segredos";
 import { importarExtrato, type TransacaoExtrato } from "./extrato";
 import { diaSP } from "@/lib/datas";
-import { lojaAtualId } from "@/lib/empresa/loja";
+import { lojaAtualId, LOJA_ATUAL } from "@/lib/empresa/loja";
 
 /**
  * Banco Inter (API PJ): puxa o extrato direto do banco e joga na conciliação.
@@ -355,7 +355,7 @@ export async function sincronizarInter(opts: { dias?: number; desde?: Date; clie
   const nomeConta = cfg?.contaErp ?? "INTER MXTECH";
   const conta = cfg?.contaBancariaId
     ? await prisma.contaBancaria.findUniqueOrThrow({ where: { id: cfg.contaBancariaId } })
-    : await prisma.contaBancaria.upsert({ where: { nome: nomeConta }, create: { nome: nomeConta, banco: "077" }, update: {} });
+    : await prisma.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: nomeConta } }, create: { nome: nomeConta, banco: "077" }, update: {} });
   const fim = diaSP(); // hoje em Brasília: o Inter recusa dataFim no futuro
   const inicio = opts.desde ?? new Date(fim.getTime() - (opts.dias ?? 7) * 86400000);
   try {

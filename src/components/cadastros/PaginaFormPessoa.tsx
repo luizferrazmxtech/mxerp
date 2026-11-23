@@ -8,15 +8,16 @@ import FormPessoa, { type InicialPessoa } from "./FormPessoa";
 /** Página "Adicionar"/"Editar" de cliente, fornecedor ou transportadora. */
 export default async function PaginaFormPessoa({ papel, id }: { papel: PapelPessoa; id?: string }) {
   const cfg = PAPEIS[papel];
-  const [u, vendedores, te, tc, campos] = await Promise.all([
+  const [u, vendedores, te, tc, campos, empresas] = await Promise.all([
     usuarioAtual(),
     prisma.usuario.findMany({ where: { ativo: true }, orderBy: { nome: "asc" }, select: { id: true, nome: true } }),
     prisma.tipoEndereco.findMany({ orderBy: { nome: "asc" } }),
     prisma.tipoContato.findMany({ orderBy: { nome: "asc" } }),
     papel === "cliente" ? prisma.campoExtra.findMany({ where: { entidade: "CLIENTE" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }) : [],
+    prisma.empresa.findMany({ where: { ativa: true }, orderBy: { createdAt: "asc" }, select: { id: true, razaoSocial: true, nomeFantasia: true } }),
   ]);
   let inicial: InicialPessoa = {
-    tipoPessoa: "" as InicialPessoa["tipoPessoa"], ativo: true, nome: "", email: "", documento: "", nomeSocial: "", rg: "", nascimento: "",
+    tipoPessoa: "" as InicialPessoa["tipoPessoa"], ativo: true, lojas: [], nome: "", email: "", documento: "", nomeSocial: "", rg: "", nascimento: "",
     razaoSocial: "", inscricaoEstadual: "", ieIsento: false, inscricaoMunicipal: "", suframa: "", responsavel: "", contribuinteIcms: "NAO_CONTRIBUINTE",
     telefone: "", celular: "", fax: "", site: "", vendedorId: papel === "cliente" ? (u?.id ?? "") : "", pais: "Brasil",
     enderecos: [enderecoVazio()], contatos: [], limiteCredito: "", excederLimite: false, observacoes: "", camposExtras: {},
@@ -31,7 +32,7 @@ export default async function PaginaFormPessoa({ papel, id }: { papel: PapelPess
     const s = (x: string | null) => x ?? "";
     const pj = p.tipoPessoa === "JURIDICA";
     inicial = {
-      id: p.id, temFoto, tipoPessoa: p.tipoPessoa, ativo: p.ativo,
+      id: p.id, temFoto, tipoPessoa: p.tipoPessoa, ativo: p.ativo, lojas: p.lojas,
       nome: pj ? (p.fantasia ?? p.nome) : p.nome, razaoSocial: pj ? p.nome : "",
       email: s(p.email), documento: s(p.documento), nomeSocial: s(p.nomeSocial), rg: s(p.rg),
       nascimento: p.nascimento ? p.nascimento.toISOString().slice(0, 10) : "",
@@ -47,7 +48,7 @@ export default async function PaginaFormPessoa({ papel, id }: { papel: PapelPess
   const acao = id ? "Editar" : "Adicionar";
   return (
     <Pagina titulo={`${acao} ${cfg.rotulo.toLowerCase()}`} trilha={[{ rotulo: cfg.plural, href: cfg.base }, { rotulo: acao }]}>
-      <FormPessoa papel={papel} inicial={inicial} vendedores={vendedores}
+      <FormPessoa papel={papel} inicial={inicial} vendedores={vendedores} lojas={empresas.length > 1 ? empresas.map((e) => ({ id: e.id, nome: e.nomeFantasia || e.razaoSocial })) : []}
         tiposEndereco={te.map((x) => x.nome)} tiposContato={tc.map((x) => x.nome)}
         camposExtras={campos.map((c) => ({ id: c.id, nome: c.nome, tipo: c.tipo, opcoes: c.opcoes, obrigatorio: c.obrigatorio }))} />
     </Pagina>

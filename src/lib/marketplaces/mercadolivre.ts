@@ -1,7 +1,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Prisma, type IntegracaoMarketplace } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { naLoja } from "@/lib/empresa/loja";
+import { naLoja, LOJA_ATUAL } from "@/lib/empresa/loja";
 import { cifrar, decifrar } from "@/lib/seguranca/segredos";
 import { diaSP } from "@/lib/datas";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
@@ -341,14 +341,13 @@ async function padroesFinanceiros(r: IntegracaoMarketplace) {
     await garantirPadroes(tx);
     const conta = r.contaBancariaId ? await tx.contaBancaria.findUnique({ where: { id: r.contaBancariaId } }) : null;
     const forma = r.formaPagamentoId ? await tx.formaPagamento.findUnique({ where: { id: r.formaPagamentoId } }) : null;
-    const tarifa = await tx.categoriaFinanceira.upsert({
-      where: { nome_tipo: { nome: "Tarifas de marketplace", tipo: "PAGAR" } },
+    const tarifa = await tx.categoriaFinanceira.upsert({ where: { empresaId_nome_tipo: { empresaId: LOJA_ATUAL, nome: "Tarifas de marketplace", tipo: "PAGAR" } },
       create: { nome: "Tarifas de marketplace", tipo: "PAGAR", grupoDre: "DESPESA_OPERACIONAL", codigo: "2.13" }, update: {},
     });
-    await tx.canalVenda.upsert({ where: { nome: r.canalVenda }, create: { nome: r.canalVenda, ordem: 50 }, update: {} });
+    await tx.canalVenda.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: r.canalVenda } }, create: { nome: r.canalVenda, ordem: 50 }, update: {} });
     return {
-      contaId: (conta ?? (await tx.contaBancaria.upsert({ where: { nome: "Mercado Pago" }, create: { nome: "Mercado Pago", banco: "323" }, update: {} }))).id,
-      formaId: (forma ?? (await tx.formaPagamento.upsert({ where: { nome: "Mercado Pago" }, create: { nome: "Mercado Pago", tPag: "99", diasPrazo: 0 }, update: {} }))).id,
+      contaId: (conta ?? (await tx.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Mercado Pago" } }, create: { nome: "Mercado Pago", banco: "323" }, update: {} }))).id,
+      formaId: (forma ?? (await tx.formaPagamento.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Mercado Pago" } }, create: { nome: "Mercado Pago", tPag: "99", diasPrazo: 0 }, update: {} }))).id,
       tarifaId: tarifa.id,
     };
   });

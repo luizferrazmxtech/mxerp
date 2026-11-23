@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 const URL = "postgresql://mxerp:mxerp@localhost:5432/mxerp_test?schema=public";
 process.env.DATABASE_URL = URL;
@@ -66,7 +67,7 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe(`DELETE FROM "Configuracao" WHERE chave IN ('email','contratos','whatsapp')`);
   await prisma.$executeRawUnsafe(`TRUNCATE "MensagemWhatsapp"`);
   await prisma.$transaction((tx) => garantirPadroes(tx));
-  boleto = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "Boleto" } })).id;
+  boleto = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Boleto" } } })).id;
   cli = (await prisma.pessoa.create({ data: {
     nome: "JT ECOBIO LTDA", documento: "12345678000195", tipoPessoa: "JURIDICA", logradouro: "Rua das Flores", numero: "10", bairro: "Centro",
     cidade: "São Paulo", uf: "SP", cep: "01001-000", email: "financeiro@jtecobio.com", celular: "(11) 98765-4321",

@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 const URL = "postgresql://mxerp:mxerp@localhost:5432/mxerp_test?schema=public";
 process.env.DATABASE_URL = URL;
@@ -23,7 +24,7 @@ beforeAll(() => {
 beforeEach(async () => {
   await prisma.$executeRawUnsafe(`TRUNCATE "Lancamento","CentroCusto","CategoriaFinanceira","ContaBancaria","FormaPagamento","TransacaoBancaria" CASCADE`);
   await prisma.$transaction((tx) => garantirPadroes(tx));
-  caixa = (await prisma.contaBancaria.findUniqueOrThrow({ where: { nome: "Caixa" } })).id;
+  caixa = (await prisma.contaBancaria.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Caixa" } } })).id;
   inter = (await prisma.contaBancaria.create({ data: { nome: "Inter PJ", saldoInicial: 1000 } })).id;
 });
 

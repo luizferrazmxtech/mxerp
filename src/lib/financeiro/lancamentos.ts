@@ -2,6 +2,7 @@ import { Prisma, type OrigemDocumento } from "@prisma/client";
 import type { Tx } from "@/lib/db";
 import { garantirPadroes } from "./padroes";
 import { diaSP, somarDias } from "@/lib/datas";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 export type Pagamento = { formaPagamentoId: string; valor: number; parcelas?: number };
 
@@ -33,7 +34,7 @@ export async function gerarRecebimentos(
 ) {
   await garantirPadroes(tx);
   const data = diaSP(args.data ?? new Date());
-  const caixa = await tx.contaBancaria.findUniqueOrThrow({ where: { nome: "Caixa" } });
+  const caixa = await tx.contaBancaria.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Caixa" } } });
   for (const p of args.pagamentos) {
     const forma = await tx.formaPagamento.findUniqueOrThrow({ where: { id: p.formaPagamentoId } });
     const n = Math.max(1, p.parcelas ?? 1);

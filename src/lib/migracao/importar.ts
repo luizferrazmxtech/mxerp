@@ -246,6 +246,10 @@ export async function importarProdutos(linhas: Linha[], opts: { simular?: boolea
       local = (await prisma.local.findUnique({ where: { codigo: locTxt } })) ??
         (await prisma.local.create({ data: { depositoId: localPadrao!.depositoId, codigo: locTxt } }));
     }
+    // produto que já existe e está marcado só para outras empresas: passa a aparecer também na desta loja
+    if (existente && opts.loja && existente.lojas.length && !existente.lojas.includes(opts.loja.empresaId)) {
+      await prisma.produto.update({ where: { id: existente.id }, data: { lojas: { push: opts.loja.empresaId } } });
+    }
     const prod = existente && opts.loja
       ? existente
       : existente

@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { execSync } from "node:child_process";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 const URL = "postgresql://mxerp:mxerp@localhost:5432/mxerp_test?schema=public";
 process.env.DATABASE_URL = URL;
@@ -31,8 +32,8 @@ beforeEach(async () => {
     await est.entrada(tx, { produtoId: prod, localId: loc, quantidade: 10, origemTipo: "IMPLANTACAO" });
     await garantirPadroes(tx);
   });
-  pix = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "PIX" } })).id;
-  boleto = (await prisma.formaPagamento.findUniqueOrThrow({ where: { nome: "Boleto" } })).id;
+  pix = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "PIX" } } })).id;
+  boleto = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Boleto" } } })).id;
 });
 
 describe("financeiro e DRE", () => {
@@ -52,7 +53,7 @@ describe("financeiro e DRE", () => {
 
   it("baixar e estornar lançamento atualiza saldo da conta", async () => {
     const cat = await prisma.$transaction((tx) => categoria(tx, "Aluguel", "PAGAR"));
-    const caixa = await prisma.contaBancaria.findUniqueOrThrow({ where: { nome: "Caixa" } });
+    const caixa = await prisma.contaBancaria.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "Caixa" } } });
     const [l] = await prisma.$transaction((tx) =>
       fin.criarLancamentos(tx, { tipo: "PAGAR", descricao: "Aluguel", categoriaId: cat.id, valorTotal: 1500, primeiroVencimento: new Date() }));
     await prisma.$transaction((tx) => fin.baixarLancamento(tx, l.id, { data: new Date(), contaBancariaId: caixa.id, juros: 15 }));

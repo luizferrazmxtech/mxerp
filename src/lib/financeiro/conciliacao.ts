@@ -1,4 +1,4 @@
-import { todasAsLojas } from "@/lib/empresa/loja";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 import { prisma, type Tx } from "@/lib/db";
 import { diaSP } from "@/lib/datas";
 import { normalizar } from "@/lib/migracao/planilha";
@@ -216,7 +216,7 @@ export async function aprenderRegra(tx: Tx, d: { descricao: string; valor: numbe
   const texto = favorecido(d.descricao);
   if (texto.length < 3) return null;
   const tipo = d.valor < 0 ? "PAGAR" : "RECEBER";
-  const atual = await tx.regraConciliacao.findUnique({ where: { texto_modo_tipo: { texto, modo: "IGUAL", tipo } } });
+  const atual = await tx.regraConciliacao.findUnique({ where: { empresaId_texto_modo_tipo: { empresaId: LOJA_ATUAL, texto, modo: "IGUAL", tipo } } });
   const agora = new Date();
   if (!atual) return tx.regraConciliacao.create({ data: { texto, modo: "IGUAL", tipo, categoriaId: d.categoriaId, centroCustoId: d.centroCustoId || null, vezes: 1, ultimaEm: agora } });
   if (atual.origem === "MANUAL") {
@@ -731,7 +731,7 @@ export async function documentosDosFavorecidos(linhas: { descricao: string; docu
   }
   const lista = [...chaves.keys()];
   if (!lista.length) return new Map<string, { documento: string | null; cnae: string | null }>();
-  const [salvos, pessoas, notas, conciliadas] = await todasAsLojas(() => Promise.all([
+  const [salvos, pessoas, notas, conciliadas] = await (Promise.all([
     prisma.favorecidoExtrato.findMany({ where: { chave: { in: lista } } }),
     prisma.pessoa.findMany({ where: { documento: { not: null } }, select: { nome: true, fantasia: true, documento: true } }),
     prisma.notaRecebida.findMany({ select: { emitenteNome: true, emitenteDocumento: true }, distinct: ["emitenteDocumento"] }),
@@ -778,8 +778,8 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
   if (!ts.length) return [];
   const min = new Date(ts[0].data.getTime() - 90 * DIA);
   const max = new Date(ts[ts.length - 1].data.getTime() + 30 * DIA);
-  // a conta bancária é de todas as lojas: procura e aprende em todas
-  const [abertos, conciliadas, comCentro, categorias] = await todasAsLojas(() => Promise.all([
+  // cada empresa tem as suas contas bancárias: procura e aprende nos lançamentos da empresa atual
+  const [abertos, conciliadas, comCentro, categorias] = await (Promise.all([
     prisma.lancamento.findMany({
       where: { pagoEm: null, transferenciaId: null, vencimento: { gte: min, lte: max } },
       include: { pessoa: { select: { nome: true, fantasia: true, documento: true } }, boletos: { select: { nossoNumero: true, txid: true } } },
@@ -798,7 +798,7 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
   const pessoal = await carregarPessoal();
   const regras = await prisma.regraConciliacao.findMany({ where: { ativa: true } });
   // categorias das contas de cada cliente/fornecedor (compras, vendas, despesas): ensinam a categoria do avulso
-  const contasPessoas = await todasAsLojas(() => prisma.lancamento.findMany({
+  const contasPessoas = await (prisma.lancamento.findMany({
     where: { pessoaId: { not: null }, transferenciaId: null }, orderBy: { vencimento: "desc" }, take: 8000,
     select: { pessoaId: true, tipo: true, categoriaId: true, pessoa: { select: { nome: true, fantasia: true } } },
   }));
@@ -834,7 +834,7 @@ export async function carregarPessoal(): Promise<PessoalAnalise | null> {
   if (!funcs.length) return null;
   const categorias = await prisma.$transaction((tx) => garantirCategoriasPessoal(tx));
   // salário de referência: o último "Salário MM/AAAA - NOME" lançado
-  const salarios = await todasAsLojas(() => prisma.lancamento.findMany({
+  const salarios = await (prisma.lancamento.findMany({
     where: { categoriaId: categorias.SALARIO, descricao: { startsWith: `${CATEGORIAS_PESSOAL.SALARIO.nome.slice(0, 7)} ` } },
     orderBy: { competencia: "desc" }, take: 500, select: { descricao: true, valor: true },
   }));

@@ -28,15 +28,40 @@ const REFERENCIAS = new Set([
   "id", "origemId", "chave", "numero", "token", "osId", "vendaId", "compraId", "contratoId", "lancamentoId", "notaId",
   "caixaId", "contaBancariaId", "depositoId", "localId", "transacaoId", "transferenciaId", "devolucaoId", "orcamentoId",
   "cotacaoId", "chamadoId", "inventarioId", "ajusteId", "boletoId", "empresaId", "idLegado", "chaveNfe",
+  // cadastros do grupo (Pessoa, Produto, Serviço): achar pelo documento ou código mesmo se for só de outra empresa
+  "documento", "codigo", "codigoCliente", "codigoFornecedor", "codigoTransportadora", "codigoBarras",
 ]);
 
-type Ctx = { loja?: string | null; todas?: boolean };
+/**
+ * Estrutura separada por empresa (coluna empresaId, "" = a principal, a primeira cadastrada): cada CNPJ tem o seu
+ * plano de contas, centros de custo, formas de pagamento, contas bancárias, regras da conciliação, modelos de
+ * mensagem, situações, canais e campos extras. A empresa nova nasce com uma cópia da principal (estrutura.ts).
+ * Para achar pelo nome, use `{ empresaId_nome: { empresaId: LOJA_ATUAL, nome } }`: a extensão troca pela empresa atual.
+ */
+export const MODELOS_ESTRUTURA = new Set([
+  "CategoriaFinanceira", "CentroCusto", "FormaPagamento", "ContaBancaria", "RegraConciliacao", "ModeloMensagem",
+  "SituacaoOsConfig", "SituacaoVendaConfig", "SituacaoCompraConfig", "SituacaoOrcamento", "CanalVenda", "CampoExtra",
+]);
+/** Guardados por chave: a da principal com a chave pura; a das outras empresas, "chave#emp:<id>". */
+const MODELOS_CHAVE = new Set(["Configuracao", "FavorecidoExtrato"]);
+/** Cadastros do grupo: aparecem nas empresas marcadas no cadastro (lojas; vazio = todas). */
+export const MODELOS_GRUPO = new Set(["Pessoa", "Produto", "Servico"]);
+/** Marcador trocado pela empresa da estrutura atual ("" na principal). */
+export const LOJA_ATUAL = "\u0000empresa-atual";
+const SUFIXO = "#emp:";
+
+type Ctx = { loja?: string | null; todas?: boolean; estrutura?: string | null };
 const contexto = new AsyncLocalStorage<Ctx>();
 
 /** Roda com uma loja definida (agendador, scripts, processamento de contratos). */
 export const naLoja = <T>(lojaId: string | null, fn: () => Promise<T>) => contexto.run({ loja: lojaId }, async () => await fn());
 /** Roda sem filtro de loja (relatórios consolidados, conciliação bancária, migração). */
-export const todasAsLojas = <T>(fn: () => Promise<T>) => contexto.run({ todas: true }, async () => await fn());
+export const todasAsLojas = async <T>(fn: () => Promise<T>) => {
+  // a estrutura (plano de contas, contas bancárias…) continua a da empresa de quem está usando
+  const { prisma } = await import("@/lib/db");
+  const estrutura = await lojaReal(prisma as unknown as PrismaClient);
+  return contexto.run({ todas: true, estrutura }, async () => await fn());
+};
 
 type EmpresaResumo = { id: string; ativa: boolean };
 let cacheEmpresas: { lista: EmpresaResumo[]; ate: number } | null = null;
@@ -73,8 +98,14 @@ export function escolherLoja(permitidas: { id: string }[], doCookie: string | nu
  * Usa o cliente sem extensão (base) para não entrar em laço.
  */
 export async function lojaDoContexto(base: PrismaClient): Promise<string | null> {
+  if (contexto.getStore()?.todas) return null;
+  return lojaReal(base);
+}
+
+/** Loja de quem está usando, mesmo dentro de todasAsLojas. */
+async function lojaReal(base: PrismaClient): Promise<string | null> {
   const ctx = contexto.getStore();
-  if (ctx?.todas) return null;
+  if (ctx?.todas) return ctx.estrutura ?? null;
   if (ctx && "loja" in ctx) return ctx.loja ?? null;
   let sessao: string | undefined, cookieLoja: string | undefined;
   try {
@@ -128,6 +159,95 @@ const comLoja = (data: unknown, loja: string) => {
   return d.empresaId === undefined ? { ...d, empresaId: loja } : d;
 };
 
+/** Empresa da estrutura atual: "" para a principal (ou sem empresa no contexto), senão o id. */
+export async function empresaDaEstrutura(base: PrismaClient): Promise<string> {
+  const loja = await lojaReal(base);
+  if (!loja) return "";
+  return (await empresas(base))[0]?.id === loja ? "" : loja;
+}
+
+/** Troca o marcador LOJA_ATUAL pela empresa (em where/data, em qualquer nível). */
+function trocarMarcador(v: unknown, emp: string): unknown {
+  if (v === LOJA_ATUAL) return emp;
+  if (Array.isArray(v)) return v.map((x) => trocarMarcador(x, emp));
+  if (v && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype) {
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, trocarMarcador(x, emp)]));
+  }
+  return v;
+}
+const temMarcador = (v: unknown): boolean =>
+  v === LOJA_ATUAL || (Array.isArray(v) ? v.some(temMarcador) : !!v && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype && Object.values(v).some(temMarcador));
+
+const comEmpresa = (data: unknown, emp: string) => {
+  if (!data || typeof data !== "object") return data;
+  const d = data as Record<string, unknown>;
+  return d.empresaId === undefined ? { ...d, empresaId: emp } : d;
+};
+const GRAVA_LISTA = new Set(["updateMany", "deleteMany", "updateManyAndReturn"]);
+
+async function estrutura(base: PrismaClient, operation: string, a: Record<string, unknown>, query: (a: unknown) => Promise<unknown>) {
+  const emp = await empresaDaEstrutura(base);
+  let x = temMarcador(a) ? (trocarMarcador(a, emp) as Record<string, unknown>) : a;
+  if (operation === "create") x = { ...x, data: comEmpresa(x.data, emp) };
+  else if (operation === "createMany" || operation === "createManyAndReturn") x = { ...x, data: Array.isArray(x.data) ? x.data.map((d) => comEmpresa(d, emp)) : comEmpresa(x.data, emp) };
+  else if (operation === "upsert") x = { ...x, create: comEmpresa(x.create, emp) };
+  else if ((LEITURAS.has(operation) || GRAVA_LISTA.has(operation)) && !consultaPorReferencia(x.where)) {
+    const f = { empresaId: emp };
+    x = { ...x, where: x.where && Object.keys(x.where as object).length ? { AND: [x.where, f] } : f };
+  }
+  return query(x);
+}
+
+/** Configuração/favorecido: a chave ganha o sufixo da empresa (menos na principal), e o resultado volta sem ele. */
+async function porChave(base: PrismaClient, operation: string, a: Record<string, unknown>, query: (a: unknown) => Promise<unknown>) {
+  const emp = await empresaDaEstrutura(base);
+  if (!emp) {
+    if (LEITURAS.has(operation) || GRAVA_LISTA.has(operation)) {
+      const f = { NOT: { chave: { contains: SUFIXO } } };
+      return query({ ...a, where: a.where && Object.keys(a.where as object).length ? { AND: [a.where, f] } : f });
+    }
+    return query(a);
+  }
+  const suf = `${SUFIXO}${emp}`;
+  const comSufixo = (w: unknown) => {
+    if (!w || typeof w !== "object") return w;
+    const o = w as Record<string, unknown>;
+    if (typeof o.chave === "string") return { ...o, chave: o.chave + suf };
+    if (o.chave && typeof o.chave === "object") {
+      const c = o.chave as Record<string, unknown>;
+      return { ...o, chave: { ...c, ...(Array.isArray(c.in) ? { in: c.in.map((k) => `${k}${suf}`) } : {}), ...(typeof c.equals === "string" ? { equals: c.equals + suf } : {}) } };
+    }
+    return o;
+  };
+  const tirar = (r: unknown): unknown => {
+    if (Array.isArray(r)) return r.map(tirar);
+    if (r && typeof r === "object" && typeof (r as { chave?: unknown }).chave === "string") {
+      const o = r as { chave: string };
+      return o.chave.endsWith(suf) ? { ...o, chave: o.chave.slice(0, -suf.length) } : o;
+    }
+    return r;
+  };
+  const x: Record<string, unknown> = { ...a };
+  if (x.where) x.where = comSufixo(x.where);
+  if (operation === "create") x.data = comSufixo(x.data);
+  if (operation === "createMany" || operation === "createManyAndReturn") x.data = Array.isArray(x.data) ? x.data.map(comSufixo) : comSufixo(x.data);
+  if (operation === "upsert") x.create = comSufixo(x.create);
+  if ((LEITURAS.has(operation) || GRAVA_LISTA.has(operation)) && !(x.where && typeof (x.where as { chave?: unknown }).chave === "string")) {
+    const f = { chave: { endsWith: suf } };
+    x.where = x.where && Object.keys(x.where as object).length ? { AND: [x.where, f] } : f;
+  }
+  return tirar(await query(x));
+}
+
+/** Clientes, produtos e serviços: do grupo, e aparecem só nas empresas marcadas em "lojas" (vazio = em todas). */
+async function doGrupo(base: PrismaClient, operation: string, a: Record<string, unknown>, query: (a: unknown) => Promise<unknown>) {
+  if (!LEITURAS.has(operation) || consultaPorReferencia(a.where)) return query(a);
+  const loja = await lojaDoContexto(base);
+  if (!loja) return query(a);
+  const f = { OR: [{ lojas: { has: loja } }, { lojas: { isEmpty: true } }] };
+  return query({ ...a, where: a.where && Object.keys(a.where as object).length ? { AND: [a.where, f] } : f });
+}
+
 /** Extensão do Prisma: grava a loja nos registros novos e filtra as listagens. `base` = cliente sem extensões. */
 export function extensaoLoja(base: PrismaClient) {
   return {
@@ -135,7 +255,11 @@ export function extensaoLoja(base: PrismaClient) {
     query: {
       $allModels: {
         async $allOperations({ model, operation, args, query }: { model?: string; operation: string; args: unknown; query: (a: unknown) => Promise<unknown> }) {
-          if (!model || !MODELOS_POR_LOJA.has(model)) return query(args);
+          if (!model) return query(args);
+          if (MODELOS_ESTRUTURA.has(model)) return estrutura(base, operation, (args ?? {}) as Record<string, unknown>, query);
+          if (MODELOS_CHAVE.has(model)) return porChave(base, operation, (args ?? {}) as Record<string, unknown>, query);
+          if (MODELOS_GRUPO.has(model)) return doGrupo(base, operation, (args ?? {}) as Record<string, unknown>, query);
+          if (!MODELOS_POR_LOJA.has(model)) return query(args);
           const a = (args ?? {}) as Record<string, unknown>;
           if (operation === "create" || operation === "createMany" || operation === "upsert" || LEITURAS.has(operation)) {
             if (LEITURAS.has(operation) && consultaPorReferencia(a.where)) return query(args);
@@ -166,4 +290,10 @@ export async function lojaAtualId(): Promise<string | null> {
 export async function sqlDaLoja(coluna: string) {
   const loja = await lojaAtualId();
   return loja ? Prisma.sql` AND (${Prisma.raw(coluna)} IS NULL OR ${Prisma.raw(coluna)} = ${loja})` : Prisma.empty;
+}
+
+/** Trecho SQL "AND (cadastro marcado para a loja atual ou para todas)" para as buscas em SQL puro de clientes e itens. */
+export async function sqlDoGrupo(coluna: string) {
+  const loja = await lojaAtualId();
+  return loja ? Prisma.sql` AND (coalesce(cardinality(${Prisma.raw(coluna)}), 0) = 0 OR ${loja} = ANY(${Prisma.raw(coluna)}))` : Prisma.empty;
 }

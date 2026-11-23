@@ -7,6 +7,7 @@ import { normalizar } from "@/lib/migracao/planilha";
 import { favorecido } from "@/lib/financeiro/conciliacao";
 import { enviarAvisoConciliacao, salvarConfigAviso } from "@/lib/financeiro/avisoConciliacao";
 import type { Resultado } from "@/components/financeiro/FormAcao";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 
 const CAMINHO = "/financeiro/conciliacao/regras";
 const ok = (mensagem: string, ir?: string): Resultado => { revalidatePath(CAMINHO); revalidatePath("/financeiro/conciliacao"); return { ok: true, mensagem, ir }; };
@@ -29,7 +30,7 @@ export async function salvarRegraAcao(_: Resultado, form: FormData): Promise<Res
       texto, modo, tipo: cat.tipo, categoriaId, centroCustoId: String(form.get("centroCustoId") ?? "") || null,
       descricao: String(form.get("descricao") ?? "").trim().slice(0, 300) || null, ativa: form.get("ativa") !== "0", origem: "MANUAL",
     };
-    const outra = await prisma.regraConciliacao.findUnique({ where: { texto_modo_tipo: { texto, modo, tipo: cat.tipo } } });
+    const outra = await prisma.regraConciliacao.findUnique({ where: { empresaId_texto_modo_tipo: { empresaId: LOJA_ATUAL, texto, modo, tipo: cat.tipo } } });
     if (outra && outra.id !== id) throw new Error(`Já existe uma regra para "${texto}". Altere aquela.`);
     if (id) await prisma.regraConciliacao.update({ where: { id }, data: dados });
     else await prisma.regraConciliacao.create({ data: dados });
