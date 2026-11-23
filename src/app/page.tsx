@@ -7,6 +7,7 @@ import { melhorPior, percentual, saudacao } from "@/lib/inicio/escala";
 import { cor } from "@/lib/orcamentos/tipos";
 import { brl, data, qtd } from "@/lib/ui/format";
 import { diaSP, somarDias } from "@/lib/datas";
+import { lojaAtual, nomeLoja } from "@/lib/empresa/atual";
 import { Pagina } from "@/components/ui/Pagina";
 import Icone from "@/components/Icone";
 import { Anel, GraficoColunas } from "@/components/inicio/Graficos";
@@ -78,13 +79,24 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
   const mesAtual = MESES[Number(d.meses[d.meses.length - 1].chave.slice(5)) - 1];
   const primeiroNome = (u?.nome ?? "").split(" ")[0].toUpperCase();
   const fin = d.financeiro;
-  const avisosBoleto = fin ? await avisosPendentes() : 0;
+  const [avisosBoleto, empresa] = await Promise.all([fin ? avisosPendentes() : 0, lojaAtual()]);
+  const hojeExtenso = new Date().toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const dia = (n: number) => somarDias(diaSP(), n).toISOString().slice(0, 10);
   const [hoje, amanha, em7] = [dia(0), dia(1), dia(7)];
   const ven = d.vendas;
 
   return (
-    <Pagina titulo={`${saudacao()}${primeiroNome ? `, ${primeiroNome}` : ""}`} trilha={[]}>
+    <Pagina titulo="Início" icone="inicio" trilha={[]}>
+      <div className="cartao relative mb-4 flex flex-wrap items-center gap-x-6 gap-y-3 overflow-hidden px-5 py-4">
+        <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rotate-12 rounded-[36px] border-[18px] border-marca/10" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/marca/logo-claro.svg" alt="MXTECH" className="h-16 w-auto" />
+        <div className="hidden h-12 w-px bg-slate-200 sm:block" />
+        <div className="relative">
+          <div className="text-[22px] font-light text-slate-800">{saudacao()}{primeiroNome ? <>, <b className="font-semibold">{primeiroNome}</b></> : ""}</div>
+          <div className="text-[13px] text-slate-500 first-letter:uppercase">{hojeExtenso}{empresa ? ` · ${nomeLoja(empresa)}` : ""}</div>
+        </div>
+      </div>
       {sp.negado && (
         <div className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">Você não tem permissão para abrir aquela tela. Fale com o administrador.</div>
       )}

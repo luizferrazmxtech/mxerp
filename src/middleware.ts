@@ -34,7 +34,7 @@ export async function middleware(req: NextRequest) {
   if (req.body && (req.headers.get("content-type") ?? "").startsWith("multipart/form-data")) await req.arrayBuffer().catch(() => null);
   const caminho = req.nextUrl.pathname;
   if (caminho === "/area-cliente" || caminho.startsWith("/area-cliente/")) return portal(req, caminho);
-  if (LIVRES.includes(caminho) || caminho.startsWith("/api/inter/webhook/") || caminho.startsWith("/api/contador/arquivo/") || caminho.startsWith("/api/mercadolivre/notificacoes/") || ["/proposta/", "/cobranca/", "/compra/", "/cotacao/"].some((p) => caminho.startsWith(p))) return NextResponse.next(); // links públicos (proposta, cobrança, compra e cotação)
+  if (LIVRES.includes(caminho) || caminho.startsWith("/api/inter/webhook/") || caminho.startsWith("/api/contador/arquivo/") || caminho.startsWith("/api/mercadolivre/notificacoes/") || ["/proposta/", "/cobranca/", "/compra/", "/cotacao/", "/marca/"].some((p) => caminho.startsWith(p))) return NextResponse.next(); // links públicos (proposta, cobrança, compra e cotação) e o logo (tela de login)
   const usuario = await usuarioDoToken(req.cookies.get(COOKIE)?.value);
   const api = caminho.startsWith("/api/");
   if (!usuario) {
