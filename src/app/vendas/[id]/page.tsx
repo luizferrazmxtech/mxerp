@@ -20,6 +20,10 @@ import VoltarConta from "@/components/financeiro/VoltarConta";
 import NotasDoDocumento from "@/components/NotasDoDocumento";
 import { FormAnexo } from "@/components/cadastros/FormsVer";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
+import CancelarBalcao from "@/components/vendas/CancelarBalcao";
+import { usuarioAtual } from "@/lib/auth/atual";
+import { podeAcessar } from "@/lib/auth/permissoes";
+import { pode } from "@/lib/auth/permissoesAcao";
 import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import { avisoSituacao, baseVendas, tituloVendas } from "@/components/vendas/ListaVendas";
@@ -38,7 +42,7 @@ function Vazio({ icone, titulo, texto }: { icone: string; titulo: string; texto?
   return <div className="cartao flex flex-col items-center px-4 py-10 text-center text-slate-500"><Icone nome={icone} size={28} /><b className="mt-2 text-slate-700">{titulo}</b>{texto && <span className="text-[13px]">{texto}</span>}</div>;
 }
 
-export default async function VerVenda({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string; conta?: string }> }) {
+export default async function VerVenda({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string; conta?: string; cancelar?: string }> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const v = await prisma.venda.findUnique({
     where: { id },
@@ -99,6 +103,10 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
   const ondeItem = (itemId: string) => reservas.filter((r) => r.origemItemId === itemId).map((r) => `${r.local?.codigo ?? "EM FALTA"} (${qtd(r.quantidade)})${r.status === "BAIXADA" ? " · saiu" : ""}`).join(", ");
   const concluida = v.situacao === "CONCLUIDA";
   const podeEditar = !balcao && (v.situacaoCfg?.permiteEdicao ?? true);
+  const eu = await usuarioAtual();
+  const verFinanceiro = !!eu && podeAcessar(eu.papel, "/financeiro");
+  const podeCancelar = balcao && concluida && !!eu && (await pode(eu.papel, "pdv.cancelar"));
+  const recebido = lancamentos.filter((l) => l.pagoEm).reduce((s, l) => s + Number(l.valor), 0);
 
   return (
     <Pagina voltar={baseVendas(tl)} titulo="Visualizar venda" trilha={[{ rotulo: tituloVendas(tl), href: baseVendas(tl) }, { rotulo: "Visualizar" }]}>
@@ -116,8 +124,9 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
             {!balcao && <BotaoAcao acao={clonarVendaAcao.bind(null, id)} icone="copiar">Gerar cópia</BotaoAcao>}
             {concluida && v.itens.length > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, id, "NFE")} icone="notas" confirmar={`Emitir a NF-e da venda nº ${v.numero}?`}>Emitir NF-e</BotaoAcao>}
             {concluida && v.servicos.length > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da venda nº ${v.numero}?`}>Emitir NFS-e</BotaoAcao>}
-            <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&q=${encodeURIComponent(`Venda de nº ${v.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+            {verFinanceiro && <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&doc=${id}`} icone="financeiro">Ver no financeiro</LinkSuspenso>}
             {concluida && v.itens.length > 0 && <LinkSuspenso href={`/vendas/devolucoes/adicionar?venda=${v.numero}`} icone="atualizar">Troca ou devolução</LinkSuspenso>}
+            {podeCancelar && <LinkSuspenso href={`${base}?cancelar=1`} icone="fechar">Cancelar venda</LinkSuspenso>}
             <BotaoExcluir acao={excluirVendaEVoltarAcao.bind(null, id, baseVendas(tl))} pergunta={`Excluir a venda nº ${v.numero}? O estoque volta e as contas a receber em aberto são apagadas.`} rotulo="Excluir venda" />
           </Suspenso>
           <Suspenso direita classe="btn bg-emerald-600 hover:bg-emerald-700" botao={<><Icone nome="compartilhar" size={15} /> Compartilhar <Icone nome="abaixo" size={13} /></>}>
@@ -135,6 +144,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
         </Link>
       )}
 
+      {sp.cancelar && (podeCancelar || (balcao && v.situacao === "CANCELADA")) && <CancelarBalcao id={id} numero={v.numero} recebido={brl(recebido)} formas={[...new Set(v.pagamentos.map((p) => p.formaPagamento.nome))].join(", ")} voltar={base} />}
       {sp.situacao && <FormSituacao id={id} numero={v.numero} atual={v.situacaoId ?? ""} situacoes={situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacao(s) }))} voltar={base} acao={alterarSituacaoVendaAcao} rotulo="da venda" />}
 
       <div className="grid gap-4 lg:grid-cols-[300px_1fr]">

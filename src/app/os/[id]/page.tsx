@@ -1,3 +1,5 @@
+import { usuarioAtual } from "@/lib/auth/atual";
+import { podeAcessar } from "@/lib/auth/permissoes";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -47,6 +49,8 @@ function Vazio({ icone, titulo, texto }: { icone: string; titulo: string; texto?
 }
 
 export default async function VerOs({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string; carro?: string; q?: string; conta?: string; whatsapp?: string }> }) {
+  const eu = await usuarioAtual();
+  const verFinanceiro = !!eu && podeAcessar(eu.papel, "/financeiro");
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const o = await prisma.ordemServico.findUnique({
     where: { id },
@@ -140,7 +144,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             {concluida && o.produtos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFE")} icone="notas" confirmar={`Emitir a NF-e das peças da OS nº ${o.numero}?`}>Emitir NF-e</BotaoAcao>}
             <LinkSuspenso href={`${base}/separacao`} icone="locais">Lista de separação</LinkSuspenso>
             {o.produtos.length > 0 && <LinkSuspenso href={`${base}?carro=1`} icone="frete">Itens no carro</LinkSuspenso>}
-            <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&q=${encodeURIComponent(`OS de nº ${o.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+            {verFinanceiro && <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&doc=${o.id}`} icone="financeiro">Ver no financeiro</LinkSuspenso>}
             <BotaoExcluir acao={excluirOsEVoltarAcao.bind(null, id)} pergunta={`Excluir a OS nº ${o.numero}? As peças voltam ao estoque e as contas a receber em aberto são apagadas.`} rotulo="Excluir OS" />
           </Suspenso>
           <Suspenso direita classe="btn bg-emerald-600 hover:bg-emerald-700" botao={<><Icone nome="compartilhar" size={15} /> Compartilhar <Icone nome="abaixo" size={13} /></>}>

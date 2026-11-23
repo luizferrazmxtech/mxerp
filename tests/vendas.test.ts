@@ -70,6 +70,35 @@ describe("vendas", () => {
     expect(await prisma.lancamento.count({ where: { origemId: v.id } })).toBe(0);
   });
 
+  it("cancelar venda do PDV estorna o recebimento, devolve o estoque e registra no histórico", async () => {
+    const ped = await import("@/lib/vendas/pedidos");
+    const cli = await prisma.pessoa.create({ data: { nome: "Maria", cliente: true } });
+    const v = await vendas.vendaBalcao({ clienteId: cli.id, itens: [{ produtoId: prod, quantidade: 2 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 19.8 }, { formaPagamentoId: credito, valor: 60, parcelas: 3 }] });
+    expect(v.clienteId).toBe(cli.id);
+    expect((await fisico()).fisico).toBe(3);
+    const u = { id: "", nome: "Gerente" };
+    const r = await ped.cancelarVendaBalcao(v.id, u, { motivo: "cliente desistiu" });
+    expect(r.estornado).toBeCloseTo(19.8);
+    expect((await fisico()).fisico).toBe(5);
+    expect(await prisma.lancamento.count({ where: { origemId: v.id } })).toBe(0);
+    const depois = await prisma.venda.findUniqueOrThrow({ where: { id: v.id }, include: { historico: true } });
+    expect(depois.situacao).toBe("CANCELADA");
+    expect(depois.historico[0].descricao).toMatch(/estornado.*Motivo: cliente desistiu/);
+    await expect(ped.cancelarVendaBalcao(v.id, u)).rejects.toThrow(/já está cancelada/);
+  });
+
+  it("não cancela venda do PDV com recebimento já conciliado", async () => {
+    const ped = await import("@/lib/vendas/pedidos");
+    const u = { id: "", nome: "Gerente" };
+    const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39.9 }] });
+    const l = await prisma.lancamento.findFirstOrThrow({ where: { origemId: v.id } });
+    await prisma.transacaoPagSeguro.create({ data: { codigo: "T1", dataVenda: new Date(), meio: "PIX", valorBruto: 39.9, valorLiquido: 39.9, situacao: "CONCILIADA", lancamentoId: l.id } });
+    await expect(ped.cancelarVendaBalcao(v.id, u)).rejects.toThrow(/conciliado/);
+    await prisma.transacaoPagSeguro.deleteMany({});
+    expect((await fisico()).fisico).toBe(4);
+    expect(await prisma.lancamento.count({ where: { origemId: v.id } })).toBe(1);
+  });
+
   it("divide parcelas sem perder centavos", () => {
     expect(dividirParcelas(100, 3)).toEqual([33.34, 33.33, 33.33]);
   });

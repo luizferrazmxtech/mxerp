@@ -17,6 +17,7 @@ export const ACOES = {
   "venda.etiqueta": { grupo: "Vendas", rotulo: "Comprar e cancelar etiquetas de frete (Melhor Envio)", padrao: VENDE },
   "pdv.desconto": { grupo: "PDV", rotulo: "Dar desconto no PDV", padrao: VENDE },
   "pdv.sangria": { grupo: "PDV", rotulo: "Fazer sangria e suprimento", padrao: VENDE },
+  "pdv.cancelar": { grupo: "PDV", rotulo: "Cancelar venda do PDV (estorna o recebimento)", padrao: GER },
   "os.situacao": { grupo: "Ordens de serviço", rotulo: "Mudar a situação de OS", padrao: TODOS },
   "os.excluir": { grupo: "Ordens de serviço", rotulo: "Excluir OS", padrao: GER },
   "os.tecnicoItens": { grupo: "Ordens de serviço", rotulo: "Lançar itens e marcar instalados pela tela do técnico", padrao: TODOS },
