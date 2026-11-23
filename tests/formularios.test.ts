@@ -88,7 +88,7 @@ describe("caixa do PDV", () => {
   it("abre, vende no balcão ligado ao caixa e fecha com o resumo", async () => {
     const c = await caixa.abrirCaixa(usuario, 100, true);
     expect((await caixa.abrirCaixa(usuario, 50)).id).toBe(c.id); // não abre dois
-    expect(await prisma.lancamento.count({ where: { descricao: "Abertura de caixa do PDV", pagoEm: { not: null } } })).toBe(1);
+    expect(await prisma.lancamento.count({ where: { descricao: "Abertura de caixa do PDV nº 1", pagoEm: { not: null } } })).toBe(1);
     await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1, valorUnit: 500 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 500 }], usuarioId: usuario, caixaId: c.id });
     const r = await caixa.resumoCaixa(c.id);
     expect(r.vendas).toBe(1);
@@ -113,5 +113,35 @@ describe("caixa do PDV", () => {
     expect(pernas.map((l) => [l.tipo, l.contaBancaria!.nome, Number(l.valor)]).sort()).toEqual([["PAGAR", "Caixa", 400], ["RECEBER", "Banco", 400]]);
     await caixa.fecharCaixa(c.id, usuario, 250);
     await expect(caixa.movimentarCaixa(c.id, usuario, { tipo: "SUPRIMENTO", valor: 10 })).rejects.toThrow(/não está aberto/);
+  });
+
+  it("fecha com conferência por forma, lança a quebra no financeiro e aparece no relatório de caixas", async () => {
+    const pix = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "PIX" } } })).id;
+    const c1 = await caixa.abrirCaixa(usuario, 50);
+    const c = await caixa.abrirCaixa(usuario, 50);
+    expect(c.numero).toBe(1);
+    await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1, valorUnit: 500 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 200 }, { formaPagamentoId: pix, valor: 300 }], usuarioId: usuario, caixaId: c.id });
+    await caixa.movimentarCaixa(c.id, usuario, { tipo: "SANGRIA", valor: 100, motivo: "cofre" });
+    const r = await caixa.resumoCaixa(c.id);
+    expect(r.esperadoPorForma.map((x) => [x.forma, x.esperado])).toEqual([["Dinheiro", 150], ["PIX", 300]]);
+    // outro usuário não fecha sem a opção de gerente
+    const gerente = (await prisma.usuario.create({ data: { nome: "Gerente", email: "g@x.test", senhaHash: "x", papel: "GERENTE" } })).id;
+    await expect(caixa.fecharCaixa(c.id, gerente, { Dinheiro: 140 })).rejects.toThrow(/não está aberto/);
+    const f = await caixa.fecharCaixa(c.id, gerente, { Dinheiro: 140, PIX: 300 }, "faltou troco", { qualquerOperador: true, lancarDiferenca: true });
+    expect([Number(f.valorFechamento), Number(f.valorEsperado), f.fechadoPorId]).toEqual([140, 150, gerente]);
+    expect(caixa.lerConferencia(f.conferencia)).toEqual([{ forma: "Dinheiro", esperado: 150, contado: 140 }, { forma: "PIX", esperado: 300, contado: 300 }]);
+    const quebra = await prisma.lancamento.findUniqueOrThrow({ where: { id: f.lancamentoDiferencaId! }, include: { contaBancaria: true } });
+    expect([quebra.tipo, Number(quebra.valor), quebra.contaBancaria?.nome, !!quebra.pagoEm, quebra.descricao]).toEqual(["PAGAR", 10, "Caixa", true, "Quebra de caixa do PDV nº 1"]);
+    await expect(caixa.fecharCaixa(c.id, usuario, 0)).rejects.toThrow(/não está aberto/);
+
+    const c2 = await caixa.abrirCaixa(usuario, 20);
+    expect(c2.numero).toBe(2);
+    const { linhasCaixas } = await import("@/lib/pdv/relatorio");
+    const linhas = await linhasCaixas({});
+    expect(linhas.map((l) => l.numero)).toEqual([2, 1]);
+    const [aberto, fechado] = linhas;
+    expect([aberto.aberto, aberto.esperado, aberto.diferenca]).toEqual([true, 20, null]);
+    expect([fechado.vendido, fechado.vendas, fechado.sangrias, fechado.esperado, fechado.contado, fechado.diferenca, fechado.fechadoPor]).toEqual([500, 1, 100, 150, 140, -10, "Gerente"]);
+    expect(c1.id).toBe(c.id);
   });
 });

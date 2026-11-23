@@ -114,6 +114,7 @@ model Usuario {
   sessoes             Sessao[]
   pagamentosRecebidos Lancamento[]       @relation("LancamentoFuncionario")
   caixas              CaixaPdv[]
+  caixasFechados      CaixaPdv[]          @relation("CaixaFechadoPor")
   clientesVendedor    Pessoa[]           @relation("PessoaVendedor")
   contratos           Contrato[]
   pessoasCriadas      Pessoa[]           @relation("PessoaCriadoPor")
@@ -1051,11 +1052,23 @@ model CaixaPdv {
   fechadoEm       DateTime?
   valorFechamento Decimal?         @db.Decimal(14, 2)
   observacao      String?
+  /// nº sequencial do caixa (Sequencia CAIXA), mostrado no relatório de caixas
+  numero          Int?
+  /// dinheiro que devia estar na gaveta no fechamento (abertura + vendas em dinheiro + reforços − sangrias)
+  valorEsperado   Decimal?         @db.Decimal(14, 2)
+  /// conferência do fechamento por forma de pagamento: [{ forma, esperado, contado }]
+  conferencia     Json?
+  /// quem fechou (o próprio operador ou um gerente que fechou o caixa esquecido)
+  fechadoPorId    String?
+  fechadoPor      Usuario?         @relation("CaixaFechadoPor", fields: [fechadoPorId], references: [id])
+  /// lançamento da sobra/quebra de dinheiro no financeiro (conta Caixa), quando pedido no fechamento
+  lancamentoDiferencaId String?
   vendas          Venda[]
   movimentos      MovimentoCaixa[]
 
   @@index([usuarioId, fechadoEm])
   @@index([empresaId])
+  @@index([abertoEm])
 }
 
 enum TipoMovimentoCaixa {

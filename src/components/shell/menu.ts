@@ -54,6 +54,7 @@ export const MENU: ItemMenu[] = [
     rotulo: "Vendas", icone: "vendas", filhos: [
       { rotulo: "Gerenciar vendas", href: "/vendas", icone: "gerenciar" },
       { rotulo: "Balcão", href: "/vendas/balcao", icone: "balcao" },
+      { rotulo: "Caixas", href: "/vendas/caixas", icone: "caixa" },
       { rotulo: "Trocas e devoluções", href: "/vendas/devolucoes", icone: "atualizar" },
       { rotulo: "Envios (Melhor Envio)", href: "/frete", icone: "frete" },
       {

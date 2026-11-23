@@ -3,17 +3,18 @@
 import { useFormAcao } from "@/components/ui/useFormAcao";
 import { movimentarCaixaAcao, type ResultadoSimples } from "./actions";
 
-export default function MovimentoCaixa({ tipo, contas, disponivel }: { tipo: "SANGRIA" | "SUPRIMENTO"; contas: { id: string; nome: string }[]; disponivel: number }) {
+export default function MovimentoCaixa({ tipo, contas, disponivel, voltar }: { tipo: "SANGRIA" | "SUPRIMENTO"; contas: { id: string; nome: string }[]; disponivel: number; voltar?: string }) {
   const [r, , pendente, formAcao] = useFormAcao<ResultadoSimples>(movimentarCaixaAcao, null);
   const sangria = tipo === "SANGRIA";
   return (
     <form {...formAcao} className="space-y-3">
       <input type="hidden" name="tipo" value={tipo} />
+      {voltar && <input type="hidden" name="voltar" value={voltar} />}
       <label className="block"><span className="rotulo">Valor (R$)</span>
         <input name="valor" className="campo text-right" inputMode="decimal" required autoFocus /></label>
       {sangria && <p className="text-[12px] text-slate-500">Dinheiro na gaveta agora: {disponivel.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</p>}
       <label className="block"><span className="rotulo">Motivo</span>
-        <input name="motivo" className="campo" placeholder={sangria ? "Ex.: depósito no banco, excesso na gaveta" : "Ex.: troco"} /></label>
+        <input name="motivo" className="campo" placeholder={sangria ? "Ex.: depósito no banco, excesso na gaveta" : "Ex.: troco, moedas"} /></label>
       <label className="block"><span className="rotulo">{sangria ? "Levar para a conta (opcional)" : "Retirado da conta (opcional)"}</span>
         <select name="contaId" className="campo" defaultValue="">
           <option value="">Só registrar no caixa</option>
@@ -22,7 +23,7 @@ export default function MovimentoCaixa({ tipo, contas, disponivel }: { tipo: "SA
         <span className="mt-1 block text-[12px] text-slate-500">Com uma conta escolhida, o valor vira uma transferência no financeiro {sangria ? "do Caixa para essa conta" : "dessa conta para o Caixa"}.</span>
       </label>
       {r && !r.ok && <p className="text-[13px] text-red-700">{r.mensagem}</p>}
-      <button className="btn w-full" disabled={pendente}>{sangria ? "Registrar sangria" : "Registrar suprimento"}</button>
+      <button className="btn w-full" disabled={pendente}>{sangria ? "Registrar sangria" : "Registrar reforço"}</button>
     </form>
   );
 }
