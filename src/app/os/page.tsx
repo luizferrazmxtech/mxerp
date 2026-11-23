@@ -67,7 +67,9 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
   const [nfses, porSituacao, faltaTotal] = await Promise.all([
     prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: { in: lista.map((o) => o.id) }, modelo: "NFSE", status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true } }),
     prisma.ordemServico.groupBy({ by: ["situacao"], where: whereOrdens({ ...sp, s: undefined }), _sum: { total: true }, _count: true }),
-    prisma.reserva.findMany({ where: { origemTipo: "OS", status: "ATIVA", localId: null }, select: { origemId: true }, distinct: ["origemId"] }),
+    // OS da empresa atual com peça em falta (a reserva não tem empresa: filtra pela OS)
+    prisma.reserva.findMany({ where: { origemTipo: "OS", status: "ATIVA", localId: null }, select: { origemId: true }, distinct: ["origemId"] })
+      .then((rs) => prisma.ordemServico.findMany({ where: { id: { in: rs.map((r) => r.origemId) } }, select: { id: true } })),
   ]);
   const nfseDe = new Map(nfses.map((n) => [n.origemId, n]));
   const grupo = (sits: string[]) => porSituacao.filter((g) => sits.includes(g.situacao)).reduce((a, g) => ({ n: a.n + g._count, v: a.v + Number(g._sum.total ?? 0) }), { n: 0, v: 0 });

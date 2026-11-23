@@ -1,7 +1,7 @@
 import { Prisma, OrigemDocumento } from "@prisma/client";
 import type { Tx } from "@/lib/db";
 import { alocar, arred, type Alocacao } from "./alocacao";
-import { lojaAtualId } from "@/lib/empresa/loja";
+import { lojaAtualId, sqlDaLoja } from "@/lib/empresa/loja";
 
 /**
  * Regras de estoque do MXERP.
@@ -69,17 +69,21 @@ export type ResumoEstoque = {
 };
 
 export async function resumoProduto(tx: Tx, produtoId: string): Promise<ResumoEstoque> {
+  // só os depósitos da empresa escolhida (o produto é do grupo, o estoque é de cada CNPJ)
+  const dl = await sqlDaLoja(`d."empresaId"`);
   const [s] = await tx.$queryRaw<{ fisico: Prisma.Decimal | null }[]>`
-    SELECT SUM(quantidade) AS fisico FROM "Saldo" WHERE "produtoId" = ${produtoId}`;
+    SELECT SUM(s.quantidade) AS fisico FROM "Saldo" s JOIN "Local" l ON l.id = s."localId" JOIN "Deposito" d ON d.id = l."depositoId"
+     WHERE s."produtoId" = ${produtoId} ${dl}`;
   const [r] = await tx.$queryRaw<{ reservado: Prisma.Decimal | null; falta: Prisma.Decimal | null }[]>`
-    SELECT SUM(quantidade) FILTER (WHERE "localId" IS NOT NULL) AS reservado,
-           SUM(quantidade) FILTER (WHERE "localId" IS NULL) AS falta
-      FROM "Reserva" WHERE "produtoId" = ${produtoId} AND status = 'ATIVA'`;
+    SELECT SUM(r.quantidade) FILTER (WHERE r."localId" IS NOT NULL) AS reservado,
+           SUM(r.quantidade) FILTER (WHERE r."localId" IS NULL) AS falta
+      FROM "Reserva" r LEFT JOIN "Local" l ON l.id = r."localId" LEFT JOIN "Deposito" d ON d.id = l."depositoId"
+     WHERE r."produtoId" = ${produtoId} AND r.status = 'ATIVA' AND (r."localId" IS NULL OR true ${dl})`;
   const [t] = await tx.$queryRaw<{ livre: Prisma.Decimal | null }[]>`
     SELECT SUM(s.quantidade - COALESCE((SELECT SUM(r.quantidade) FROM "Reserva" r
              WHERE r."produtoId" = s."produtoId" AND r."localId" = s."localId" AND r.status = 'ATIVA'), 0)) AS livre
       FROM "Saldo" s JOIN "Local" l ON l.id = s."localId" JOIN "Deposito" d ON d.id = l."depositoId"
-     WHERE s."produtoId" = ${produtoId} AND d."equipeId" IS NOT NULL`;
+     WHERE s."produtoId" = ${produtoId} AND d."equipeId" IS NOT NULL ${dl}`;
   const fisico = n(s?.fisico);
   const reservado = n(r?.reservado);
   const nosCarros = n(t?.livre);

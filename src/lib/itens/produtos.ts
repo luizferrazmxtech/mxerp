@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { sqlDaLoja } from "@/lib/empresa/loja";
 import { entrada } from "@/lib/estoque/estoque";
 import { proximoNumero } from "@/lib/sequencia";
 import { lerNumero, type DadosProduto } from "./tipos";
@@ -196,7 +197,7 @@ export async function livreNosCarrosPorProduto(ids: string[]) {
     SELECT s."produtoId", SUM(s.quantidade - COALESCE((SELECT SUM(r.quantidade) FROM "Reserva" r
              WHERE r."produtoId" = s."produtoId" AND r."localId" = s."localId" AND r.status = 'ATIVA'), 0))::float8 AS livre
       FROM "Saldo" s JOIN "Local" l ON l.id = s."localId" JOIN "Deposito" d ON d.id = l."depositoId"
-     WHERE d."equipeId" IS NOT NULL AND s."produtoId" = ANY(${ids})
+     WHERE d."equipeId" IS NOT NULL AND s."produtoId" = ANY(${ids}) ${await sqlDaLoja(`d."empresaId"`)}
      GROUP BY s."produtoId"`;
   return new Map(rows.map((x) => [x.produtoId, Number(x.livre)]));
 }

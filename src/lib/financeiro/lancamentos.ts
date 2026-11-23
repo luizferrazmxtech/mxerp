@@ -2,7 +2,7 @@ import { Prisma, type OrigemDocumento } from "@prisma/client";
 import type { Tx } from "@/lib/db";
 import { garantirPadroes } from "./padroes";
 import { diaSP, somarDias } from "@/lib/datas";
-import { LOJA_ATUAL } from "@/lib/empresa/loja";
+import { LOJA_ATUAL, sqlDaEstrutura } from "@/lib/empresa/loja";
 
 export type Pagamento = { formaPagamentoId: string; valor: number; parcelas?: number };
 
@@ -156,11 +156,12 @@ export async function estornarLancamento(tx: Tx, id: string) {
 
 /** Saldo atual de cada conta: saldo inicial + recebido - pago. */
 export async function saldosContas(tx: Tx) {
+  const daEmpresa = await sqlDaEstrutura(`c."empresaId"`);
   return tx.$queryRaw<{ id: string; nome: string; saldo: number }[]>`
     SELECT c.id, c.nome,
            (c."saldoInicial" + COALESCE(SUM(CASE WHEN l.tipo = 'RECEBER' THEN l."valorPago" ELSE -l."valorPago" END), 0))::float AS saldo
       FROM "ContaBancaria" c
       LEFT JOIN "Lancamento" l ON l."contaBancariaId" = c.id AND l."pagoEm" IS NOT NULL
-     WHERE c.ativa
+     WHERE c.ativa ${daEmpresa}
      GROUP BY c.id ORDER BY c.nome`;
 }

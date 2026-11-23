@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { todasAsLojas, LOJA_ATUAL } from "@/lib/empresa/loja";
+import { LOJA_ATUAL } from "@/lib/empresa/loja";
 import { diaSP } from "@/lib/datas";
 import { CATEGORIAS_PESSOAL, garantirCategoriasPessoal, type TipoPagamentoPessoal } from "./padroes";
 
@@ -92,14 +92,14 @@ export async function painelMaoDeObra(mes: string, meses = 12) {
     const filhos = await prisma.categoriaFinanceira.findMany({ where: { OR: [{ id: pai.id }, { paiId: pai.id }] }, select: { id: true } });
     for (const f of filhos) if (!tipoPorCat.has(f.id)) tipoPorCat.set(f.id, "ENCARGOS");
   }
-  const [ls, receitas, funcs] = await todasAsLojas(() => Promise.all([
+  const [ls, receitas, funcs] = await Promise.all([
     prisma.lancamento.findMany({
       where: { tipo: "PAGAR", categoriaId: { in: [...tipoPorCat.keys()] }, competencia: { gte: inicio, lte: fim }, transferenciaId: null },
       select: { id: true, categoriaId: true, valor: true, valorPago: true, competencia: true, pagoEm: true, descricao: true, funcionarioId: true },
     }),
     prisma.lancamento.groupBy({ by: ["competencia"], where: { tipo: "RECEBER", competencia: { gte: inicio, lte: fim }, transferenciaId: null }, _sum: { valor: true } }),
     prisma.usuario.findMany({ select: { id: true, nome: true, salario: true, ativo: true }, orderBy: { nome: "asc" } }),
-  ]));
+  ]);
   const pagamentos: PagamentoFolha[] = ls.map((l) => ({
     id: l.id, tipo: tipoPorCat.get(l.categoriaId)!, valor: Number(l.valorPago ?? l.valor), competencia: l.competencia, pagoEm: l.pagoEm, descricao: l.descricao, funcionarioId: l.funcionarioId,
   }));

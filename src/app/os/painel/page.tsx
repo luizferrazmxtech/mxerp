@@ -48,7 +48,9 @@ export default async function PainelOs() {
 
   const [abertas, falta, faturadas] = await Promise.all([
     prisma.ordemServico.findMany({ where: { situacao: { in: ABERTAS } }, select: { id: true, previsao: true, prioridade: true, total: true } }),
-    prisma.reserva.findMany({ where: { origemTipo: "OS", status: "ATIVA", localId: null }, select: { origemId: true }, distinct: ["origemId"] }),
+    // OS da empresa atual com peça em falta (a reserva não tem empresa: filtra pela OS)
+    prisma.reserva.findMany({ where: { origemTipo: "OS", status: "ATIVA", localId: null }, select: { origemId: true }, distinct: ["origemId"] })
+      .then((rs) => prisma.ordemServico.findMany({ where: { id: { in: rs.map((r) => r.origemId) } }, select: { id: true } })),
     prisma.ordemServico.findMany({
       where: { situacao: { in: ["CONCLUIDA", "FATURADA"] }, saida: { gte: meses[0].inicio } },
       select: { total: true, saida: true, tecnico: { select: { nome: true } } },

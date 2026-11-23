@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { todasAsLojas } from "@/lib/empresa/loja";
+import { sqlDaEstrutura, sqlDaLoja } from "@/lib/empresa/loja";
 import { somarDias } from "@/lib/datas";
 
 /**
@@ -23,13 +23,15 @@ export async function fluxoCaixa(f: FiltroFluxo) {
   const semTransf = todasContas ? Prisma.sql`AND l."transferenciaId" IS NULL` : Prisma.empty;
   const daConta = f.contaId ? Prisma.sql`AND l."contaBancariaId" = ${f.contaId}` : Prisma.empty;
   const doCentro = f.centroCustoId ? Prisma.sql`AND l."centroCustoId" = ${f.centroCustoId}` : Prisma.empty;
+  // só a empresa escolhida: os lançamentos dela e as contas bancárias dela
+  const daLoja = await sqlDaLoja(`l."empresaId"`), contasDaEmpresa = await sqlDaEstrutura(`c."empresaId"`);
 
   // saldo anterior = saldo inicial das contas + tudo o que foi baixado antes do período (independe de centro de custo)
   const [ant] = await prisma.$queryRaw<{ saldo: number }[]>`
-    SELECT (COALESCE((SELECT SUM("saldoInicial") FROM "ContaBancaria" c WHERE ${f.contaId ? Prisma.sql`c.id = ${f.contaId}` : Prisma.sql`c.ativa`}), 0)
+    SELECT (COALESCE((SELECT SUM("saldoInicial") FROM "ContaBancaria" c WHERE ${f.contaId ? Prisma.sql`c.id = ${f.contaId}` : Prisma.sql`c.ativa`} ${contasDaEmpresa}), 0)
           + COALESCE((SELECT SUM(CASE WHEN l.tipo = 'RECEBER' THEN l."valorPago" ELSE -l."valorPago" END)
                         FROM "Lancamento" l LEFT JOIN "ContaBancaria" c ON c.id = l."contaBancariaId"
-                       WHERE l."pagoEm" IS NOT NULL AND l."pagoEm" < ${f.de} ${daConta}
+                       WHERE l."pagoEm" IS NOT NULL AND l."pagoEm" < ${f.de} ${daConta} ${daLoja}
                          ${f.contaId ? Prisma.empty : Prisma.sql`AND (c.id IS NULL OR c.ativa)`}), 0))::float saldo`;
 
   const where = (realizado: boolean): Prisma.LancamentoWhereInput => ({
@@ -40,15 +42,15 @@ export async function fluxoCaixa(f: FiltroFluxo) {
     ...(f.centroCustoId ? { centroCustoId: f.centroCustoId } : {}),
   });
   const include = { pessoa: { select: { nome: true } }, categoria: { select: { nome: true } }, centroCusto: { select: { nome: true } }, contaBancaria: { select: { nome: true } } } as const;
-  // fluxo de caixa é das contas bancárias, que são de todas as lojas: mostra o consolidado (a DRE é por loja)
-  const [realizados, previstos] = await todasAsLojas(() => Promise.all([
+  // só os lançamentos da empresa escolhida (cada CNPJ tem as contas bancárias dele)
+  const [realizados, previstos] = await Promise.all([
     prisma.lancamento.findMany({ where: where(true), include, orderBy: [{ pagoEm: "asc" }, { createdAt: "asc" }] }),
     prisma.lancamento.findMany({ where: where(false), include, orderBy: [{ vencimento: "asc" }, { createdAt: "asc" }] }),
-  ]));
+  ]);
   // contas vencidas antes do período e ainda em aberto (aviso à parte; não entram no previsto do período)
   const [atrasado] = await prisma.$queryRaw<{ receber: number; pagar: number }[]>`
     SELECT COALESCE(SUM(valor) FILTER (WHERE tipo = 'RECEBER'), 0)::float receber, COALESCE(SUM(valor) FILTER (WHERE tipo = 'PAGAR'), 0)::float pagar
-      FROM "Lancamento" l WHERE l."pagoEm" IS NULL AND l.vencimento < ${f.de < f.hoje ? f.de : f.hoje} ${daConta} ${doCentro} ${semTransf}`;
+      FROM "Lancamento" l WHERE l."pagoEm" IS NULL AND l.vencimento < ${f.de < f.hoje ? f.de : f.hoje} ${daConta} ${doCentro} ${semTransf} ${daLoja}`;
 
   const linha = (l: (typeof realizados)[number], realizado: boolean): LinhaFluxo => ({
     id: l.id, data: realizado ? l.pagoEm! : l.vencimento, tipo: l.tipo, descricao: l.descricao, pessoa: l.pessoa?.nome ?? null,
@@ -90,7 +92,8 @@ export async function fluxoCaixa(f: FiltroFluxo) {
 export async function fluxoMensal(ate: Date, meses = 12, f: { contaId?: string; centroCustoId?: string } = {}) {
   const ini = new Date(Date.UTC(ate.getUTCFullYear(), ate.getUTCMonth() - meses + 1, 1));
   const fimMes = new Date(Date.UTC(ate.getUTCFullYear(), ate.getUTCMonth() + 1, 1));
-  const filtros = Prisma.sql`${f.contaId ? Prisma.sql`AND l."contaBancariaId" = ${f.contaId}` : Prisma.sql`AND l."transferenciaId" IS NULL`}
+  const daLoja = await sqlDaLoja(`l."empresaId"`);
+  const filtros = Prisma.sql`${daLoja} ${f.contaId ? Prisma.sql`AND l."contaBancariaId" = ${f.contaId}` : Prisma.sql`AND l."transferenciaId" IS NULL`}
                              ${f.centroCustoId ? Prisma.sql`AND l."centroCustoId" = ${f.centroCustoId}` : Prisma.empty}`;
   const rows = await prisma.$queryRaw<{ mes: string; receber: number; pagar: number }[]>`
     SELECT to_char(l."pagoEm", 'YYYY-MM') mes,
@@ -113,7 +116,7 @@ export async function fluxoMensal(ate: Date, meses = 12, f: { contaId?: string; 
            COALESCE(SUM(l."valorPago") FILTER (WHERE l.tipo = 'RECEBER'), 0)::float receber,
            COALESCE(SUM(l."valorPago") FILTER (WHERE l.tipo = 'PAGAR'), 0)::float pagar
       FROM "Lancamento" l LEFT JOIN "ContaBancaria" c ON c.id = l."contaBancariaId"
-     WHERE l."pagoEm" >= ${ini} AND l."pagoEm" < ${fimMes}
+     WHERE l."pagoEm" >= ${ini} AND l."pagoEm" < ${fimMes} ${daLoja}
        ${f.centroCustoId ? Prisma.sql`AND l."centroCustoId" = ${f.centroCustoId}` : Prisma.empty}
      GROUP BY 1 ORDER BY 2 + 3 DESC`;
   return { porMes, porConta };
