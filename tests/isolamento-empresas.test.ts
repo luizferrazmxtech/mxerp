@@ -20,6 +20,28 @@ beforeEach(limpar);
 afterAll(limpar);
 
 describe("com uma empresa escolhida, nada da outra aparece", () => {
+  it("caixas do PDV: o relatório de caixas só mostra os da empresa escolhida", async () => {
+    const { abrirCaixa } = await import("@/lib/pdv/caixa");
+    const { linhasCaixas } = await import("@/lib/pdv/relatorio");
+    const a = await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", cnpj: "12965283000195", createdAt: new Date("2026-01-01") } });
+    const b = await prisma.empresa.create({ data: { razaoSocial: "VFX INFO SERVICE", cnpj: "36130603000155" } });
+    limparCacheLojas();
+    const op = await prisma.usuario.create({ data: { nome: "T-OP", email: "t-op-caixa@x.test", senhaHash: "x" } });
+    try {
+      const ca = await naLoja(a.id, () => abrirCaixa(op.id, 10));
+      expect(ca.empresaId).toBe(a.id);
+      expect((await naLoja(a.id, () => linhasCaixas({ usuarioId: op.id }))).map((l) => l.id)).toEqual([ca.id]);
+      expect(await naLoja(b.id, () => linhasCaixas({ usuarioId: op.id }))).toHaveLength(0);
+      // o mesmo operador abre outro caixa na outra empresa (cada empresa tem a sua gaveta)
+      const cb = await naLoja(b.id, () => abrirCaixa(op.id, 5));
+      expect(cb.id).not.toBe(ca.id);
+      expect((await naLoja(b.id, () => linhasCaixas({ usuarioId: op.id }))).map((l) => l.abertura)).toEqual([5]);
+    } finally {
+      await prisma.caixaPdv.deleteMany({ where: { usuarioId: op.id } });
+      await prisma.usuario.delete({ where: { id: op.id } });
+    }
+  });
+
   it("OS com peça em falta, extrato, mensagens e fluxo de caixa ficam na empresa", async () => {
     const a = await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", cnpj: "12965283000195", createdAt: new Date("2026-01-01") } });
     const b = await prisma.empresa.create({ data: { razaoSocial: "VFX INFO SERVICE", cnpj: "36130603000155" } });

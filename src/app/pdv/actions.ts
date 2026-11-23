@@ -55,18 +55,27 @@ export async function abrirCaixaAcao(_: ResultadoSimples, form: FormData): Promi
     return { ok: false, mensagem: msg(e, "Erro ao abrir o caixa") };
   }
   revalidatePath("/pdv");
-  redirect("/pdv");
+  const volta = String(form.get("voltar") || "");
+  redirect(volta.startsWith("/") && !volta.startsWith("//") ? volta : "/pdv");
 }
 
 export async function fecharCaixaAcao(_: ResultadoSimples, form: FormData): Promise<ResultadoSimples> {
   const u = await exigirUsuario();
+  const caixaId = String(form.get("caixaId"));
+  // conferência por forma: campos "contado:<forma>"
+  const contado: Record<string, number> = {};
+  for (const [k, val] of form.entries()) if (k.startsWith("contado:")) contado[k.slice(8)] = num(val || "0");
+  const qualquerOperador = form.get("outro") === "1";
+  if (qualquerOperador && !(await pode(u.papel, "pdv.caixas"))) return { ok: false, mensagem: "Sem permissão para fechar o caixa de outro operador" };
   try {
-    await fecharCaixa(String(form.get("caixaId")), u.id, num(form.get("valor") || "0"), String(form.get("observacao") || ""));
+    await fecharCaixa(caixaId, u.id, Object.keys(contado).length ? contado : num(form.get("valor") || "0"), String(form.get("observacao") || ""),
+      { qualquerOperador, lancarDiferenca: form.get("lancar") === "on" });
   } catch (e) {
     return { ok: false, mensagem: msg(e, "Erro ao fechar o caixa") };
   }
   revalidatePath("/pdv");
-  redirect("/vendas/balcao");
+  revalidatePath("/vendas/caixas");
+  redirect(`/vendas/caixas/${caixaId}?fechado=1`);
 }
 
 export async function movimentarCaixaAcao(_: ResultadoSimples, form: FormData): Promise<ResultadoSimples> {
@@ -77,8 +86,9 @@ export async function movimentarCaixaAcao(_: ResultadoSimples, form: FormData): 
     if (!caixa) return { ok: false, mensagem: "Abra o caixa antes" };
     await movimentarCaixa(caixa.id, u.id, { tipo, valor: num(form.get("valor")), motivo: String(form.get("motivo") || ""), contaId: String(form.get("contaId") || "") || null });
   } catch (e) {
-    return { ok: false, mensagem: msg(e, tipo === "SANGRIA" ? "Erro ao registrar a sangria" : "Erro ao registrar o suprimento") };
+    return { ok: false, mensagem: msg(e, tipo === "SANGRIA" ? "Erro ao registrar a sangria" : "Erro ao registrar o reforço") };
   }
   revalidatePath("/pdv");
-  redirect("/pdv");
+  const volta = String(form.get("voltar") || "");
+  redirect(volta.startsWith("/") && !volta.startsWith("//") ? volta : "/pdv");
 }

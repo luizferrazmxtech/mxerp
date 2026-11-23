@@ -100,8 +100,9 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
         <span className="rounded border bg-white px-2 py-1">{caixa.vendas} venda(s) · {brl(caixa.total)}</span>
         <Link href="/vendas/balcao" className="ml-auto hover:underline">Vendas do balcão</Link>
         {podeSangria && <Link href="/pdv?acao=sangria" className="btn-sec py-1 text-[12px]" title="Retirar dinheiro da gaveta">Sangria</Link>}
-        {podeSangria && <Link href="/pdv?acao=suprimento" className="btn-sec py-1 text-[12px]" title="Colocar troco na gaveta">Suprimento</Link>}
+        {podeSangria && <Link href="/pdv?acao=suprimento" className="btn-sec py-1 text-[12px]" title="Colocar troco na gaveta">Reforço</Link>}
         <Link href="/pdv?acao=fechar" className="btn-sec py-1 text-[12px]"><Icone nome="caixa" size={13} /> Fechar caixa</Link>
+        <Link href="/vendas/caixas" className="btn-sec py-1 text-[12px]" title="Relatório dos caixas">Caixas</Link>
       </div>
 
       <div className="grid flex-1 gap-4 lg:grid-cols-[1fr_390px]">

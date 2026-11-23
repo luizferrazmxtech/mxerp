@@ -23,6 +23,7 @@ import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
 import Resumo from "@/components/ui/Resumo";
 import { brl } from "@/lib/ui/format";
+import { caixaAberto } from "@/lib/pdv/caixa";
 
 export type TipoLista = "PEDIDO" | "SERVICO" | "BALCAO";
 const COLUNAS = [
@@ -45,6 +46,8 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   const u = await usuarioAtual();
   const verFinanceiro = !!u && podeAcessar(u.papel, "/financeiro");
   const podeCancelar = balcao && !!u && (await pode(u.papel, "pdv.cancelar"));
+  const meuCaixa = balcao && u ? await caixaAberto(u.id) : null;
+  const podeSangria = balcao && !!u && (await pode(u.papel, "pdv.sangria"));
   const where = await whereVendas(tipo, sp);
   const { pagina, porPagina, skip, take } = lerPagina(sp);
   const [lista, total, soma, situacoes, empresas, cliente, produto, servico] = await Promise.all([
@@ -143,18 +146,30 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
     <Pagina titulo={titulo} icone={balcao ? "balcao" : "vendas"} trilha={[{ rotulo: titulo, href: base }, { rotulo: "Listar" }]}>
       <div className="no-print mb-3 flex flex-wrap items-center gap-2">
         {balcao ? <Link href="/pdv" className="btn"><Icone nome="carrinho" size={15} /> Vender</Link> : <Link href={`${base}/adicionar`} className="btn"><Icone nome="mais" size={15} /> Adicionar</Link>}
+        {balcao && (
+          <Suspenso classe="btn-sec" botao={<><Icone nome="caixa" size={15} /> Caixa{meuCaixa && <span className="ml-1 rounded bg-emerald-100 px-1 text-[10px] font-semibold text-emerald-800">aberto</span>} <Icone nome="abaixo" size={13} /></>}>
+            {meuCaixa ? (
+              <>
+                {podeSangria && <LinkSuspenso href={`/pdv?acao=sangria&voltar=${encodeURIComponent(base)}`} icone="pagar">Sangria</LinkSuspenso>}
+                {podeSangria && <LinkSuspenso href={`/pdv?acao=reforco&voltar=${encodeURIComponent(base)}`} icone="receber">Reforço de caixa</LinkSuspenso>}
+                <LinkSuspenso href={`/vendas/caixas/${meuCaixa.id}?acao=fechar`} icone="caixa">Fechar caixa</LinkSuspenso>
+              </>
+            ) : <LinkSuspenso href="/pdv" icone="caixa">Abrir caixa</LinkSuspenso>}
+            <LinkSuspenso href="/vendas/caixas" icone="lista">Relatório de caixas</LinkSuspenso>
+          </Suspenso>
+        )}
         <Suspenso classe="btn-sec" botao={<><Icone nome="ajustes" size={15} /> Mais ações <Icone nome="abaixo" size={13} /></>}>
           <a href={urlCom("/api/vendas/exportar", { ...filtros, tipo }, {})} className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="exportar" size={15} /> Exportar</a>
           <LinkSuspenso href={urlCom(base, sp, { acao: "imprimir" })} icone="imprimir">Imprimir</LinkSuspenso>
           <LinkSuspenso href={urlCom(base, sp, { acao: "situacoes" })} icone="atualizar">Alterar situação</LinkSuspenso>
           <LinkSuspenso href={urlCom(base, sp, { acao: "excluir" })} icone="excluir">Excluir</LinkSuspenso>
         </Suspenso>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
           <GerenciarColunas lista={base} colunas={cols} visiveis={vis} />
           <SeletorPeriodo base={base} params={sp} />
-          <form action={base} className="flex">
+          <form action={base} className="flex min-w-0 flex-1 sm:flex-none">
             {Object.entries(sp).filter(([k, v]) => v && !["q", "p"].includes(k)).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
-            <input name="q" defaultValue={sp.q} placeholder="Buscar por nº ou cliente" className="campo w-60 rounded-r-none" />
+            <input name="q" defaultValue={sp.q} placeholder="Buscar por nº ou cliente" className="campo w-full min-w-0 rounded-r-none sm:w-60" />
             <button className="btn rounded-l-none px-2.5" title="Buscar"><Icone nome="buscar" size={15} /></button>
           </form>
           <Link href={urlCom(base, sp, { busca: sp.busca === "1" ? undefined : "1" })} className={sp.busca === "1" ? "btn-sec" : "btn"} title="Busca avançada"><Icone nome="filtro" size={15} /></Link>
