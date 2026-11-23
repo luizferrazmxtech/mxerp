@@ -350,6 +350,25 @@ describe("importar tudo: histórico das contas e notas do Gestão Click", () => 
   });
 });
 
+describe("origem das notas do Gestão Click", () => {
+  it("liga a nota à venda do mesmo cliente e valor, emitida perto da data", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Empresa", "Venda" CASCADE`);
+    await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", nomeFantasia: "MXTECH", cnpj: "12965283000195" } });
+    const cli = await prisma.pessoa.create({ data: { nome: "T-CLIENTE NOTA", documento: "11144477735", cliente: true } });
+    const venda = await prisma.venda.create({ data: { numero: 990777, clienteId: cli.id, data: new Date("2026-10-05T13:00:00Z"), total: 250, totalProdutos: 250 } });
+    const t = await gc.lerBackupGestaoClick(await backup());
+    t.notas_fiscais = [
+      { loja: "MXTECH", numero: "6950", situacao: "Aprovada", serie: "1", chave: "", ambiente: "Produção", "data de emissao": "06/10/2026", "hora de emissao": "10:00:00", "valor total": "250,00", "nome do destinatario": "T-CLIENTE NOTA", "cpf do destinatario": "111.444.777-35" },
+      { loja: "MXTECH", numero: "6951", situacao: "Aprovada", serie: "1", chave: "", ambiente: "Produção", "data de emissao": "06/10/2026", "hora de emissao": "11:00:00", "valor total": "999,00", "nome do destinatario": "T-CLIENTE NOTA", "cpf do destinatario": "111.444.777-35" },
+    ];
+    const res = await gc.importarBackupGestaoClick(t, { simular: false, etapas: { notas: true } });
+    expect(res.find((r) => r.tipo === "notas")!.avisos.join(" ")).toMatch(/1 notas ficaram ligadas/);
+    expect(await prisma.notaFiscal.findFirstOrThrow({ where: { numero: 6950 } })).toMatchObject({ origemTipo: "VENDA", origemId: venda.id });
+    expect((await prisma.notaFiscal.findFirstOrThrow({ where: { numero: 6951 } })).origemId).toBeNull();
+    await prisma.pessoa.delete({ where: { id: cli.id } }).catch(() => null);
+  });
+});
+
 describe("segunda empresa (outro Gestão Click)", () => {
   it("entra na loja dela sem misturar números, estoque nem cadastros com a primeira", async () => {
     await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Empresa" CASCADE`);
