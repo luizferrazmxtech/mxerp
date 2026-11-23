@@ -28,6 +28,10 @@ async function portal(req: NextRequest, caminho: string) {
 const LIVRES = ["/login", "/api/saude", "/api/inter/sincronizar", "/api/contratos/processar", "/api/dfe/sincronizar", "/api/frete/sincronizar", "/api/pagseguro/sincronizar", "/api/contador/processar", "/api/openfinance/sincronizar", "/api/agenda/sincronizar", "/api/mercadolivre/sincronizar", "/api/conciliacao/aviso", "/api/relatorios/resumo"];
 
 export async function middleware(req: NextRequest) {
+  // Next 15.5 com middleware em Node: o corpo é copiado para o middleware e devolvido à rota sem esperar a cópia
+  // terminar. Num envio de arquivo de mais de ~2 MB a rota lia o corpo pela metade e o arquivo sumia do formulário
+  // ("Escolha o arquivo .zip"). Ler a cópia até o fim aqui garante que o corpo inteiro chegou antes de seguir.
+  if (req.body && (req.headers.get("content-type") ?? "").startsWith("multipart/form-data")) await req.arrayBuffer().catch(() => null);
   const caminho = req.nextUrl.pathname;
   if (caminho === "/area-cliente" || caminho.startsWith("/area-cliente/")) return portal(req, caminho);
   if (LIVRES.includes(caminho) || caminho.startsWith("/api/inter/webhook/") || caminho.startsWith("/api/contador/arquivo/") || caminho.startsWith("/api/mercadolivre/notificacoes/") || ["/proposta/", "/cobranca/", "/compra/", "/cotacao/"].some((p) => caminho.startsWith(p))) return NextResponse.next(); // links públicos (proposta, cobrança, compra e cotação)
