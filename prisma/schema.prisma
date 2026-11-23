@@ -2400,10 +2400,12 @@ model MensagemWhatsapp {
   erro        String?
   automatica  Boolean  @default(false) // mandada pelo sistema (situação da OS, rotina dos contratos)
   usuarioNome String?
+  empresaId   String? // loja (CNPJ) que mandou; ver src/lib/empresa/loja.ts
   createdAt   DateTime @default(now())
 
   @@index([entidade, entidadeId])
   @@index([createdAt])
+  @@index([empresaId])
 }
 
 /// Etiqueta de frete comprada no Melhor Envio para uma venda (uma venda pode ter mais de uma: reenvio, cancelada).
@@ -2532,6 +2534,7 @@ model IntegracaoMarketplace {
 /// Pedido vindo de um marketplace: vira venda (estoque + conta a receber) e é baixado quando o dinheiro é liberado.
 model PedidoMarketplace {
   id                 String    @id @default(cuid())
+  empresaId          String? // loja (CNPJ) da integração; ver src/lib/empresa/loja.ts
   canal              String // MERCADO_LIVRE
   externoId          String // nº do pedido no marketplace
   pacoteId           String? // carrinho (pack) do Mercado Livre
@@ -2558,6 +2561,7 @@ model PedidoMarketplace {
   @@unique([canal, externoId])
   @@index([etapa])
   @@index([dataPedido])
+  @@index([empresaId])
 }
 
 /// Anúncio (e variação) do marketplace ligado a um produto do MXERP. Preenchido sozinho pelo SKU; o que não casar é ligado na tela.

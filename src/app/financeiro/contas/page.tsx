@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { sqlDaEstrutura } from "@/lib/empresa/loja";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
 import { salvarContaBancariaAcao } from "@/lib/financeiro/acoes";
 import { brl, data } from "@/lib/ui/format";
@@ -13,12 +14,14 @@ export const metadata = { title: "Contas bancárias" };
 export default async function Contas({ searchParams }: { searchParams: Promise<{ novo?: string; editar?: string }> }) {
   const sp = await searchParams;
   await prisma.$transaction((tx) => garantirPadroes(tx));
+  const daEmpresa = await sqlDaEstrutura(`c."empresaId"`);
   const lista = await prisma.$queryRaw<{ id: string; nome: string; banco: string | null; agencia: string | null; conta: string | null; ativa: boolean; saldoInicial: number; saldo: number; ultima: Date | null; pendentes: number }[]>`
     SELECT c.id, c.nome, c.banco, c.agencia, c.conta, c.ativa, c."saldoInicial"::float "saldoInicial",
            (c."saldoInicial" + COALESCE(SUM(CASE WHEN l.tipo = 'RECEBER' THEN l."valorPago" ELSE -l."valorPago" END) FILTER (WHERE l."pagoEm" IS NOT NULL), 0))::float saldo,
            MAX(l."pagoEm") ultima,
            (SELECT COUNT(*) FROM "TransacaoBancaria" t WHERE t."contaBancariaId" = c.id AND t.situacao = 'PENDENTE')::int pendentes
       FROM "ContaBancaria" c LEFT JOIN "Lancamento" l ON l."contaBancariaId" = c.id
+     WHERE true ${daEmpresa}
      GROUP BY c.id ORDER BY c.ativa DESC, c.nome`;
   const editando = sp.editar ? lista.find((c) => c.id === sp.editar) : undefined;
   const ativas = lista.filter((c) => c.ativa);

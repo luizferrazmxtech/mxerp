@@ -20,7 +20,7 @@ export const COOKIE_LOJA = "mxerp_loja";
 export const MODELOS_POR_LOJA = new Set([
   "Venda", "OrdemServico", "Orcamento", "Compra", "Lancamento", "CaixaPdv", "NotaFiscal", "NotaRecebida",
   "InutilizacaoNumeracao", "Contrato", "Deposito", "AjusteEstoque", "Inventario", "Devolucao", "Cotacao", "Chamado",
-  "TransferenciaEstoque",
+  "TransferenciaEstoque", "MensagemWhatsapp", "PedidoMarketplace",
 ]);
 
 /** Campos que apontam para um registro específico: com eles a consulta não é filtrada pela loja. */
@@ -131,18 +131,26 @@ async function lojaReal(base: PrismaClient): Promise<string | null> {
 
 const LEITURAS = new Set(["findMany", "findFirst", "findFirstOrThrow", "count", "aggregate", "groupBy"]);
 
-/** true quando o where aponta para um registro específico (não é uma listagem). */
-export function consultaPorReferencia(where: unknown): boolean {
+/**
+ * true quando o where aponta para um registro específico (não é uma listagem).
+ * Com `idsSaoLista`, só valor exato conta como referência: `id: { in: [...] }` (ex.: OS com peça em falta, achadas
+ * pelas reservas) ou `localId: { not: null }` são listagens e continuam filtradas pela loja; senão a lista mostrava
+ * os documentos de todas as empresas.
+ */
+export function consultaPorReferencia(where: unknown, idsSaoLista = false): boolean {
   if (!where || typeof where !== "object") return false;
   const w = where as Record<string, unknown>;
+  const ref = (x: unknown) => consultaPorReferencia(x, idsSaoLista);
   for (const [k, v] of Object.entries(w)) {
+    // filtro (lista de ids, "não nulo", maior que…) não aponta para um registro: só valor exato ou { equals }
+    if (idsSaoLista && REFERENCIAS.has(k) && v && typeof v === "object" && !("equals" in v)) continue;
     if (REFERENCIAS.has(k) && v !== undefined && v !== null) return true; // "campo: null" é filtro, não referência
     if (k === "AND") {
       const lista = Array.isArray(v) ? v : [v];
-      if (lista.some(consultaPorReferencia)) return true;
+      if (lista.some(ref)) return true;
     }
     // OR em que todas as opções apontam para um registro (ex.: idLegado ou número)
-    if (k === "OR" && Array.isArray(v) && v.length && v.every(consultaPorReferencia)) return true;
+    if (k === "OR" && Array.isArray(v) && v.length && v.every(ref)) return true;
   }
   return false;
 }
@@ -248,6 +256,32 @@ async function doGrupo(base: PrismaClient, operation: string, a: Record<string, 
   return query({ ...a, where: a.where && Object.keys(a.where as object).length ? { AND: [a.where, f] } : f });
 }
 
+/**
+ * Registros sem empresa própria, que pertencem à empresa do documento ou da conta a que apontam: nas listagens,
+ * só aparecem os da empresa atual (extrato da conta bancária da empresa, boletos e avisos das contas dela,
+ * vale-compra da devolução dela, saldo e movimento do estoque nos depósitos dela, movimento do caixa dela).
+ */
+type FiltroDerivado = (loja: string, estrutura: string) => Record<string, unknown>;
+const daLoja = (loja: string) => ({ OR: [{ empresaId: loja }, { empresaId: null }] });
+export const MODELOS_DERIVADOS: Record<string, FiltroDerivado> = {
+  TransacaoBancaria: (_l, emp) => ({ contaBancaria: { empresaId: emp } }),
+  Boleto: (l) => ({ OR: [{ lancamento: daLoja(l) }, { lancamentoId: null }] }),
+  AvisoBoleto: (l) => ({ OR: [{ lancamento: daLoja(l) }, { lancamentoId: null }] }),
+  ValeCompra: (l) => ({ OR: [{ devolucao: daLoja(l) }, { devolucaoId: null }] }),
+  Saldo: (l) => ({ local: { deposito: daLoja(l) } }),
+  MovimentoEstoque: (l) => ({ local: { deposito: daLoja(l) } }),
+  Reserva: (l) => ({ OR: [{ local: { deposito: daLoja(l) } }, { localId: null }] }),
+  MovimentoCaixa: (l) => ({ caixa: daLoja(l) }),
+};
+
+async function derivado(base: PrismaClient, model: string, operation: string, a: Record<string, unknown>, query: (a: unknown) => Promise<unknown>) {
+  if (!LEITURAS.has(operation) || consultaPorReferencia(a.where, true)) return query(a);
+  const loja = await lojaDoContexto(base);
+  if (!loja) return query(a);
+  const f = MODELOS_DERIVADOS[model](loja, await empresaDaEstrutura(base));
+  return query({ ...a, where: a.where && Object.keys(a.where as object).length ? { AND: [a.where, f] } : f });
+}
+
 /** Extensão do Prisma: grava a loja nos registros novos e filtra as listagens. `base` = cliente sem extensões. */
 export function extensaoLoja(base: PrismaClient) {
   return {
@@ -259,10 +293,11 @@ export function extensaoLoja(base: PrismaClient) {
           if (MODELOS_ESTRUTURA.has(model)) return estrutura(base, operation, (args ?? {}) as Record<string, unknown>, query);
           if (MODELOS_CHAVE.has(model)) return porChave(base, operation, (args ?? {}) as Record<string, unknown>, query);
           if (MODELOS_GRUPO.has(model)) return doGrupo(base, operation, (args ?? {}) as Record<string, unknown>, query);
+          if (model in MODELOS_DERIVADOS) return derivado(base, model, operation, (args ?? {}) as Record<string, unknown>, query);
           if (!MODELOS_POR_LOJA.has(model)) return query(args);
           const a = (args ?? {}) as Record<string, unknown>;
           if (operation === "create" || operation === "createMany" || operation === "upsert" || LEITURAS.has(operation)) {
-            if (LEITURAS.has(operation) && consultaPorReferencia(a.where)) return query(args);
+            if (LEITURAS.has(operation) && consultaPorReferencia(a.where, true)) return query(args);
             const loja = await lojaDoContexto(base);
             if (!loja) return query(args);
             if (operation === "create") return query({ ...a, data: comLoja(a.data, loja) });
@@ -290,6 +325,13 @@ export async function lojaAtualId(): Promise<string | null> {
 export async function sqlDaLoja(coluna: string) {
   const loja = await lojaAtualId();
   return loja ? Prisma.sql` AND (${Prisma.raw(coluna)} IS NULL OR ${Prisma.raw(coluna)} = ${loja})` : Prisma.empty;
+}
+
+/** Trecho SQL "AND coluna = empresa da estrutura atual" ("" na principal) para contas bancárias e outros da estrutura. */
+export async function sqlDaEstrutura(coluna: string) {
+  const { prisma } = await import("@/lib/db");
+  const emp = await empresaDaEstrutura(prisma as unknown as PrismaClient);
+  return Prisma.sql` AND ${Prisma.raw(coluna)} = ${emp}`;
 }
 
 /** Trecho SQL "AND (cadastro marcado para a loja atual ou para todas)" para as buscas em SQL puro de clientes e itens. */
