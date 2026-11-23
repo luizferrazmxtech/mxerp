@@ -61,8 +61,8 @@ export default async function DocumentoOrcamento({ id, token }: { id?: string; t
           </tr></thead>
           <tbody>{o.produtos.map((l, i) => (
             <tr key={l.id} className="border-b border-slate-200 align-top">
-              {doc.numeroItem && <td className="px-2 py-1">{i + 1}</td>}{doc.codigoProduto && <td className="px-2 py-1">{l.produto.codigo}</td>}
-              <td className="px-2 py-1">{l.produto.nome}{l.detalhes && <div className="text-[0.85em] text-slate-600">{l.detalhes}</div>}{doc.descricaoProduto && l.produto.descricao && <div className="text-[0.85em] text-slate-600">{l.produto.descricao}</div>}</td>
+              {doc.numeroItem && <td className="px-2 py-1">{i + 1}</td>}{doc.codigoProduto && <td className="px-2 py-1">{l.descricao ? "" : l.produto.codigo}</td>}
+              <td className="px-2 py-1">{l.descricao || l.produto.nome}{l.detalhes && <div className="text-[0.85em] text-slate-600">{l.detalhes}</div>}{doc.descricaoProduto && !l.descricao && l.produto.descricao && <div className="text-[0.85em] text-slate-600">{l.produto.descricao}</div>}</td>
               {doc.ncm && <td className="px-2 py-1">{l.produto.ncm}</td>}{doc.unidade && <td className="px-2 py-1">{l.produto.unidade}</td>}
               <td className="px-2 py-1 text-right">{qt(l.quantidade)}</td>
               {doc.valorUnitario && <td className="px-2 py-1 text-right">{brl(l.valorUnit)}</td>}{doc.subtotal && <td className="px-2 py-1 text-right">{brl(l.subtotal)}</td>}

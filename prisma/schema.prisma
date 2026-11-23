@@ -1217,6 +1217,7 @@ model VendaItem {
   venda       Venda   @relation(fields: [vendaId], references: [id], onDelete: Cascade)
   produtoId   String
   produto     Produto @relation(fields: [produtoId], references: [id])
+  descricao   String? // item avulso: descrição digitada (produto = ITEM-AVULSO)
   quantidade  Decimal @db.Decimal(14, 4)
   valorUnit   Decimal @db.Decimal(14, 2)
   custoUnit   Decimal @default(0) @db.Decimal(14, 4)
@@ -2077,6 +2078,7 @@ model OrcamentoItem {
   ordem       Int       @default(0)
   produtoId   String
   produto     Produto   @relation(fields: [produtoId], references: [id])
+  descricao   String? // item avulso: descrição digitada (produto = ITEM-AVULSO)
   detalhes    String?
   quantidade  Decimal   @db.Decimal(14, 4)
   tipoValorId String?

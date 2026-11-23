@@ -7,7 +7,8 @@ import { cancelarRecebimentos } from "@/lib/financeiro/lancamentos";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
 import { diaSP, parseDia, periodoDia } from "@/lib/datas";
-import { descontoLinha, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento } from "@/lib/orcamentos/tipos";
+import { descontoLinha, linhasProdutos, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento } from "@/lib/orcamentos/tipos";
+import { produtoAvulsoId } from "@/lib/itens/avulso";
 import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 /**
@@ -120,9 +121,16 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
   if (!t(d.clienteId)) throw new PedidoError("Informe o cliente");
   if (!t(d.data)) throw new PedidoError("Informe a data");
   if (!t(d.canal)) throw new PedidoError("Informe o canal de venda");
-  const produtos = d.produtos.filter((l) => l.produtoId);
+  const { linhas: produtos, erro } = linhasProdutos(d.produtos);
+  if (erro) throw new PedidoError(erro);
   const servicos = d.servicos.filter((l) => l.servicoId);
   if (!produtos.length && !servicos.length) throw new PedidoError("Adicione ao menos um produto ou serviço");
+  // item avulso aponta para o produto de sistema (sem estoque) e guarda a descrição digitada
+  if (produtos.some((l) => l.avulso)) {
+    const avulsoId = await produtoAvulsoId(prisma);
+    for (const l of produtos) if (l.avulso) l.produtoId = avulsoId;
+  }
+  const descr = (l: { avulso?: boolean; nome: string }) => (l.avulso ? l.nome.trim() : null);
   for (const l of [...produtos, ...servicos]) if (!(n(l.quantidade) > 0)) throw new PedidoError(`Informe a quantidade de ${l.nome || "todos os itens"}`);
   const tot = totais({ ...d, produtos, servicos });
   if (tot.total < 0) throw new PedidoError("O desconto é maior que o valor da venda");
@@ -149,8 +157,9 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
     total: D(tot.total), condicao: d.condicao, formaPagamentoId: t(d.formaPagamentoId), intervaloDias: Math.trunc(n(d.intervaloDias)) || 30,
     observacoes: t(d.observacoes), observacaoInterna: t(d.observacaoInterna), camposExtras: (d.camposExtras ?? {}) as Prisma.InputJsonValue,
   };
-  const assinaturaItens = (l: { produtoId: string; quantidade: number }[]) => l.map((x) => `${x.produtoId}:${x.quantidade}`).sort().join("|");
-  const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, quantidade: n(l.quantidade) }));
+  const chave = (produtoId: string, descricao: string | null) => `${produtoId}~${descricao ?? ""}`;
+  const assinaturaItens = (l: { produtoId: string; descricao: string | null; quantidade: number }[]) => l.map((x) => `${chave(x.produtoId, x.descricao)}:${x.quantidade}`).sort().join("|");
+  const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, descricao: descr(l), quantidade: n(l.quantidade) }));
   const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null }[]) =>
     `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}`).join("|")}`;
 
@@ -160,7 +169,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
       await tx.vendaItem.deleteMany({ where: { vendaId } });
       await tx.vendaItemServico.deleteMany({ where: { vendaId } });
       for (const [i, l] of produtos.entries())
-        await tx.vendaItem.create({ data: { vendaId, ordem: i, produtoId: l.produtoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), custoUnit: custos.get(l.produtoId) ?? 0, desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)) } });
+        await tx.vendaItem.create({ data: { vendaId, ordem: i, produtoId: l.produtoId, descricao: descr(l), detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), custoUnit: custos.get(l.produtoId) ?? 0, desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)) } });
       await tx.vendaItemServico.createMany({ data: servicos.map((l, i) => ({ vendaId, ordem: i, servicoId: l.servicoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalServico(l)) })) });
     };
     const para = t(d.situacaoId) ? await tx.situacaoVendaConfig.findUniqueOrThrow({ where: { id: d.situacaoId } }) : await situacaoPadraoVenda(tx);
@@ -175,7 +184,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
       if (numero !== atual.numero && (await tx.venda.findUnique({ where: { numero } }))) throw new PedidoError(`Já existe a venda nº ${numero}`);
       const existentes = await tx.vendaItem.findMany({ where: { vendaId: id } });
       const antigas = await tx.vendaParcela.findMany({ where: { vendaId: id }, orderBy: { numero: "asc" } });
-      const mudouItens = assinaturaItens(existentes.map((e) => ({ produtoId: e.produtoId, quantidade: Number(e.quantidade) }))) !== assinaturaItens(novosItens);
+      const mudouItens = assinaturaItens(existentes.map((e) => ({ produtoId: e.produtoId, descricao: e.descricao, quantidade: Number(e.quantidade) }))) !== assinaturaItens(novosItens);
       const mudouFin = assinaturaFin(Number(atual.total), antigas) !== assinaturaFin(tot.total, parcelas);
       await tx.venda.update({ where: { id }, data: { ...dados, numero } });
       await tx.vendaParcela.deleteMany({ where: { vendaId: id } });
@@ -184,9 +193,9 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
       if (mudouItens) await aplicar(tx, id, de, para, { ...opts, usuarioId: u.id || undefined, refazerFinanceiro: mudouFin, refazerItens: () => criarItens(id) });
       else {
         // mesmos produtos e quantidades: troca valores sem mexer nas reservas/baixas
-        const porProduto = new Map(existentes.map((e) => [e.produtoId, e]));
+        const porProduto = new Map(existentes.map((e) => [chave(e.produtoId, e.descricao), e]));
         for (const [i, l] of produtos.entries()) {
-          const e = porProduto.get(l.produtoId);
+          const e = porProduto.get(chave(l.produtoId, descr(l)));
           if (e) await tx.vendaItem.update({ where: { id: e.id }, data: { ordem: i, detalhes: t(l.detalhes), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)) } });
         }
         await tx.vendaItemServico.deleteMany({ where: { vendaId: id } });
@@ -288,7 +297,7 @@ export async function clonarPedido(id: string, u: Usuario) {
   return salvarPedido({
     tipo: v.tipo === "SERVICO" ? "SERVICO" : "PRODUTO", numero: "", clienteId: v.clienteId ?? "", clienteNome: "", data: hoje, validade: "", vendedorId: v.vendedorId ?? "",
     prazoEntrega: "", aosCuidados: "", canal: v.canal, centroCusto: v.centroCusto ?? "", introducao: "", situacaoId: aberta?.id ?? "",
-    produtos: v.itens.map((i) => ({ produtoId: i.produtoId, nome: i.produto.nome, codigo: i.produto.codigo, unidade: i.produto.unidade, detalhes: i.detalhes ?? "", quantidade: String(Number(i.quantidade)), tipoValorId: i.tipoValorId ?? "", valorUnit: f(i.valorUnit), desconto: f(i.desconto), descontoPct: false })),
+    produtos: v.itens.map((i) => ({ produtoId: i.produtoId, avulso: !!i.descricao, nome: i.descricao ?? i.produto.nome, codigo: i.produto.codigo, unidade: i.produto.unidade, detalhes: i.detalhes ?? "", quantidade: String(Number(i.quantidade)), tipoValorId: i.tipoValorId ?? "", valorUnit: f(i.valorUnit), desconto: f(i.desconto), descontoPct: false })),
     servicos: v.servicos.map((i) => ({ servicoId: i.servicoId, nome: i.servico.nome, codigo: i.servico.codigo, detalhes: i.detalhes ?? "", quantidade: String(Number(i.quantidade)), valorUnit: f(i.valorUnit), desconto: f(i.desconto), descontoPct: false })),
     transportadoraId: v.transportadoraId ?? "", transportadoraNome: "", frete: f(v.frete), mostrarEntrega: v.mostrarEntrega, enderecoEntregaId: v.enderecoEntregaId ?? "",
     desconto: f(v.desconto), descontoPct: false, exibirTotal: true, gerarCondicoes: true, condicao: "AVISTA", formaPagamentoId: v.formaPagamentoId ?? "", vencimento: hoje,
@@ -374,7 +383,7 @@ export async function whereVendas(tipo: "PEDIDO" | "SERVICO" | "BALCAO", sp: Par
     const num = numeroPalavra(p), d = p.replace(/\D/g, "");
     return [...(num ? [{ numero: num }] : []), { cliente: { nome: contem(p) } }, { cliente: { fantasia: contem(p) } },
       ...(d.length >= 3 ? [{ cliente: { documento: { contains: d } } }] : []),
-      { itens: { some: { produto: { nome: contem(p) } } } }, { servicos: { some: { servico: { nome: contem(p) } } } }];
+      { itens: { some: { produto: { nome: contem(p) } } } }, { itens: { some: { descricao: contem(p) } } }, { servicos: { some: { servico: { nome: contem(p) } } } }];
   }));
   if (sp.codigo) w.push({ numero: Number(sp.codigo) || -1 });
   if (sp.de || sp.ate) w.push({ data: { ...(sp.de ? { gte: new Date(`${sp.de}T00:00:00-03:00`) } : {}), ...(sp.ate ? { lte: new Date(`${sp.ate}T23:59:59.999-03:00`) } : {}) } });

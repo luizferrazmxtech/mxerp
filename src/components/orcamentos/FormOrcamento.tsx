@@ -94,7 +94,12 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
             {d.produtos.map((l, i) => (
               <tr key={i}>
                 <td>
-                  {l.produtoId ? (
+                  {l.avulso ? (
+                    <div>
+                      <input className="campo" placeholder="Descrição do item avulso" autoFocus={!l.id && !l.nome} value={l.nome} onChange={(e) => setProd(i, { nome: e.target.value })} />
+                      <span className="text-[11px] text-slate-500">Item avulso: sem cadastro e sem estoque</span>
+                    </div>
+                  ) : l.produtoId ? (
                     <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}
                       {l.disponivel != null && <span className={`block text-[11px] ${l.disponivel < (lerNumero(l.quantidade) ?? 0) ? "text-red-600" : "text-slate-500"}`}>Disponível: {l.disponivel.toLocaleString("pt-BR")} {l.unidade}{l.nosCarros ? <span className="text-sky-700"> · {l.nosCarros.toLocaleString("pt-BR")} nos carros</span> : null}</span>}
                       {os && (op.carros ?? []).length > 0 && (
@@ -114,7 +119,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                   )}
                 </td>
                 {vi("detalhes") && <td><input className="campo" value={l.detalhes} onChange={(e) => setProd(i, { detalhes: e.target.value })} /></td>}
-                <td><DicaSaldo produtoId={l.produtoId || undefined}><input className="campo text-right" value={l.quantidade} onChange={(e) => setProd(i, { quantidade: e.target.value })} /></DicaSaldo></td>
+                <td><DicaSaldo produtoId={(!l.avulso && l.produtoId) || undefined}><input className="campo text-right" value={l.quantidade} onChange={(e) => setProd(i, { quantidade: e.target.value })} /></DicaSaldo></td>
                 <td>
                   <select className="campo" value={l.tipoValorId} onChange={(e) => {
                     const v = l.valores?.find((x) => x.tipoValorId === e.target.value);
@@ -131,7 +136,8 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
           </tbody>
         </table>
       </div>
-      <div className="p-3"><button type="button" className="btn-sec" onClick={() => set("produtos", [...d.produtos, novoProduto()])}><Icone nome="mais" size={14} /> Adicionar produto</button></div>
+      <div className="flex flex-wrap gap-2 p-3"><button type="button" className="btn-sec" onClick={() => set("produtos", [...d.produtos, novoProduto()])}><Icone nome="mais" size={14} /> Adicionar produto</button>
+        {!os && <button type="button" className="btn-sec" title="Item digitado na hora, sem cadastro de produto e sem movimentar estoque" onClick={() => set("produtos", [...d.produtos, { ...novoProduto(), avulso: true, unidade: "UN" }])}><Icone nome="mais" size={14} /> Adicionar item avulso</button>}</div>
     </Bloco>
   );
 
@@ -265,7 +271,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
               onEscolher={(p) => setD((x) => ({ ...x, transportadoraId: p?.id ?? "", transportadoraNome: p?.nome ?? "" }))} /></div>
           <Campo rotulo="Valor do frete (R$)"><input className="campo text-right" value={d.frete} onChange={(e) => setD((x) => ({ ...x, frete: e.target.value, freteServicoId: "", freteServicoNome: "", fretePrazoDias: "" }))} /></Campo>
           {op.freteMelhorEnvio && <div className="flex items-end"><CotarFrete clienteId={d.clienteId} enderecoEntregaId={d.mostrarEntrega ? d.enderecoEntregaId : ""} escolhido={d.freteServicoId ? Number(d.freteServicoId) : null}
-            itens={d.produtos.filter((l) => l.produtoId).map((l) => ({ produtoId: l.produtoId, quantidade: lerNumero(l.quantidade) ?? 0, valor: subtotalProduto(l) }))}
+            itens={d.produtos.filter((l) => l.produtoId && !l.avulso).map((l) => ({ produtoId: l.produtoId, quantidade: lerNumero(l.quantidade) ?? 0, valor: subtotalProduto(l) }))}
             onEscolher={(c) => setD((x) => ({ ...x, frete: n2(c.valor), freteServicoId: String(c.servicoId), freteServicoNome: `${c.transportadora} ${c.servico}`.trim(), fretePrazoDias: c.prazoDias != null ? String(c.prazoDias) : "" }))} /></div>}
         </div>}
         {!os && d.freteServicoNome && <p className="mt-2 text-[12px] text-slate-600"><Icone nome="frete" size={12} /> Frete escolhido: <b>{d.freteServicoNome}</b>{d.fretePrazoDias ? ` · entrega em até ${d.fretePrazoDias} dias úteis` : ""} (Melhor Envio)</p>}

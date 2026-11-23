@@ -88,6 +88,34 @@ describe("orçamentos", () => {
     expect(os.servicos).toHaveLength(1);
   });
 
+  it("item avulso: digitado sem cadastro, não reserva nem baixa estoque e segue do orçamento para a venda e a OS", async () => {
+    const avulso = { produtoId: "", avulso: true, nome: "Cabo sob medida 3m", codigo: "", unidade: "UN", detalhes: "", quantidade: "2", tipoValorId: "", valorUnit: "25,00", desconto: "", descontoPct: false };
+    await expect(orc.salvarOrcamento(dados({ produtos: [{ ...avulso, nome: " " }], servicos: [], parcelas: [], condicao: "AVISTA" }), u)).rejects.toThrow(/descrição do item avulso/);
+    const o = await orc.salvarOrcamento(dados({ produtos: [...dados().produtos, avulso], parcelas: orc.gerarParcelas(400, 3, "2026-12-01", 30, "") }), u);
+    const itens = await prisma.orcamentoItem.findMany({ where: { orcamentoId: o.id }, orderBy: { ordem: "asc" }, include: { produto: true } });
+    expect(itens.map((i) => i.descricao)).toEqual([null, "Cabo sob medida 3m"]);
+    expect(itens[1].produto).toMatchObject({ codigo: "ITEM-AVULSO", controlaEstoque: false, ativo: false });
+    expect(Number(o.total)).toBe(400);
+
+    const { vendaId } = await orc.gerarVendaDoOrcamento(o.id, u);
+    const vi = await prisma.vendaItem.findMany({ where: { vendaId }, orderBy: { ordem: "asc" } });
+    expect(vi.map((i) => i.descricao)).toEqual([null, "Cabo sob medida 3m"]);
+    // só o nobreak reserva; o avulso não tem estoque
+    expect(await prisma.reserva.count({ where: { origemId: vendaId } })).toBe(1);
+    expect(await prisma.reserva.count({ where: { produtoId: itens[1].produtoId } })).toBe(0);
+
+    const { osId } = await orc.gerarOsDoOrcamento(o.id, u);
+    const naOs = await prisma.osItemProduto.findFirstOrThrow({ where: { osId, produtoId: itens[1].produtoId } });
+    expect(naOs.detalhes).toBe("Cabo sob medida 3m");
+  });
+
+  it("produto de sistema do item avulso não aparece na lista de produtos", async () => {
+    await orc.salvarOrcamento(dados({ produtos: [{ produtoId: "", avulso: true, nome: "Taxa de entrega", codigo: "", unidade: "UN", detalhes: "", quantidade: "1", tipoValorId: "", valorUnit: "10,00", desconto: "", descontoPct: false }], servicos: [], condicao: "AVISTA", parcelas: [] }), u);
+    const { whereProdutos } = await import("@/lib/itens/filtros");
+    const lista = await prisma.produto.findMany({ where: await whereProdutos({}) });
+    expect(lista.map((p) => p.codigo)).toEqual(["NB"]);
+  });
+
   it("grupo bloqueado na situação não troca a situação; cópia volta para a situação inicial", async () => {
     const o = await orc.salvarOrcamento(dados(), u);
     const [aberto, andamento] = await prisma.situacaoOrcamento.findMany({ orderBy: { ordem: "asc" }, take: 2 });
