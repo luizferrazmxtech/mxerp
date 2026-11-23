@@ -92,7 +92,7 @@ export default async function VerCompra({ params, searchParams }: { params: Prom
           <Suspenso direita classe="btn-laranja" botao={<><Icone nome="editar" size={15} /> Editar <Icone nome="abaixo" size={13} /></>}>
             {podeEditar && <LinkSuspenso href={`${base}/editar`} icone="editar">Editar compra</LinkSuspenso>}
             <LinkSuspenso href={`${base}?situacao=1`} icone="atualizar">Alterar situação</LinkSuspenso>
-            <LinkSuspenso href={`/financeiro?tipo=PAGAR&periodo=todos&q=${encodeURIComponent(`Compra de nº ${c.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+            <LinkSuspenso href={`/financeiro?tipo=PAGAR&periodo=todos&doc=${c.id}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
             <LinkSuspenso href={`${base}?aba=anexos`} icone="anexos">Documentos</LinkSuspenso>
             <BotaoAcao acao={clonarCompraAcao.bind(null, id)} icone="copiar">Cópia</BotaoAcao>
             <BotaoExcluir acao={excluirCompraEVoltarAcao.bind(null, id, baseCompras(c.tipo))} pergunta={`Excluir a compra nº ${c.numero}? O estoque lançado sai e as contas a pagar em aberto são apagadas.`} rotulo="Excluir compra" />

@@ -100,7 +100,7 @@ export default async function ListaCompras({ tipo, sp }: { tipo: "PRODUTO" | "SE
                     <Link href={`/compras/${c.id}/editar`} className="btn-icone" title="Editar"><Icone nome="editar" size={13} /></Link>
                     <Suspenso direita classe="btn-icone" botao={<Icone nome="opcoes" size={13} />}>
                       <LinkSuspenso href={urlCom(base, sp, { situacao: c.id })} icone="atualizar">Alterar situação</LinkSuspenso>
-                      <LinkSuspenso href={`/financeiro?tipo=PAGAR&periodo=todos&q=${encodeURIComponent(`Compra de nº ${c.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+                      <LinkSuspenso href={`/financeiro?tipo=PAGAR&periodo=todos&doc=${c.id}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
                       <LinkSuspenso href={`/compras/${c.id}?compartilhar=1`} icone="compartilhar">Compartilhar</LinkSuspenso>
                       <a href={`/compras/${c.id}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> Imprimir</a>
                       <LinkSuspenso href={`/compras/${c.id}?aba=anexos`} icone="anexos">Documentos</LinkSuspenso>

@@ -41,7 +41,7 @@ export default async function PdvPage({ searchParams }: { searchParams: Promise<
   );
   return (
     <>
-      <Pdv formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo, pix: pixAtivo && f.pagseguro && f.tPag === "17" }))} podeDesconto={await pode(u.papel, "pdv.desconto")} podeSangria={await pode(u.papel, "pdv.sangria")}
+      <Pdv formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo, pix: pixAtivo && f.pagseguro && f.tPag === "17" }))} podeDesconto={await pode(u.papel, "pdv.desconto")} podeSangria={await pode(u.papel, "pdv.sangria")} podeCancelar={await pode(u.papel, "pdv.cancelar")}
         caixa={{ abertoEm: `${dataSP(caixa.abertoEm)} ${horaSP(caixa.abertoEm)}`, vendas: resumo.vendas, total: resumo.total }} />
       {acao === "fechar" && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-20">

@@ -9,6 +9,8 @@ import Pagamentos, { type Forma, type LinhaPag } from "@/components/Pagamentos";
 import Icone from "@/components/Icone";
 import { fecharBalcao, type ResultadoSimples } from "./actions";
 import PixPdv from "@/components/pagseguro/PixPdv";
+import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
+import type { PessoaBusca } from "@/lib/cadastros/tipos";
 
 type Item = { produtoId: string; codigo: string; nome: string; locais: string | null; quantidade: number; valorUnit: number };
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -17,7 +19,7 @@ function Tecla({ k, children }: { k: string; children: React.ReactNode }) {
   return <span className="whitespace-nowrap"><kbd className="rounded border bg-slate-50 px-1.5 text-[11px]">{k}</kbd> {children}</span>;
 }
 
-export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = true }: { formas: Forma[]; caixa: { abertoEm: string; vendas: number; total: number }; podeDesconto?: boolean; podeSangria?: boolean }) {
+export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = true, podeCancelar = false }: { formas: Forma[]; caixa: { abertoEm: string; vendas: number; total: number }; podeDesconto?: boolean; podeSangria?: boolean; podeCancelar?: boolean }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [opcoes, setOpcoes] = useState<LinhaEstoque[]>([]);
@@ -28,6 +30,8 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
   const [resultado, setResultado] = useState<ResultadoSimples>(null);
   const [chave, setChave] = useState(0); // recria o editor de pagamentos depois de cada venda
   const [pendente, startTransition] = useTransition();
+  const [cliente, setCliente] = useState<PessoaBusca | null>(null);
+  const campoCliente = useRef<HTMLDivElement>(null);
   const [pixValor, setPixValor] = useState<number | null>(null); // PIX do PagSeguro: QR aberto
   const busca = useRef<HTMLInputElement>(null);
   const campoDesconto = useRef<HTMLInputElement>(null);
@@ -52,6 +56,7 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => {
       if (e.key === "F2") { e.preventDefault(); busca.current?.focus(); }
+      if (e.key === "F3") { e.preventDefault(); campoCliente.current?.querySelector<HTMLInputElement>("input.campo")?.focus(); }
       if (e.key === "F4") { e.preventDefault(); campoDesconto.current?.focus(); campoDesconto.current?.select(); }
       if (e.key === "F8") { e.preventDefault(); fechar(); }
       if (e.key === "F10") { e.preventDefault(); router.push("/pdv?acao=fechar"); }
@@ -76,13 +81,14 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
     if (valorPix > 0 && !cobrancaPixId) { setPixValor(valorPix); return; }
     startTransition(async () => {
       const r = await fecharBalcao({
+        clienteId: cliente?.id,
         itens: itens.map((i) => ({ produtoId: i.produtoId, quantidade: i.quantidade, valorUnit: i.valorUnit })),
         pagamentos: pagamentos.filter((p) => p.valor > 0),
         desconto, cobrancaPixId,
       });
       setPixValor(null);
       setResultado(r);
-      if (r?.ok) { setItens([]); setDesconto(0); setChave((k) => k + 1); router.refresh(); busca.current?.focus(); }
+      if (r?.ok) { setItens([]); setDesconto(0); setCliente(null); setChave((k) => k + 1); router.refresh(); busca.current?.focus(); }
     });
   }
 
@@ -146,6 +152,10 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
         </div>
 
         <aside className="cartao flex h-fit flex-col gap-3 p-4 lg:sticky lg:top-[66px]">
+          <div ref={campoCliente} className="text-[13px]">
+            <span className="mb-1 block text-slate-600">Cliente (F3)</span>
+            <BuscaPessoa key={chave} papel="cliente" inicial={cliente} onEscolher={setCliente} placeholder="Consumidor final: digite nome, CPF/CNPJ ou telefone" />
+          </div>
           <div className="flex justify-between text-[13px] text-slate-600"><span>{itens.length} item(ns) · {unidades} un.</span></div>
           <div className="flex items-center justify-between text-[13px]">
             <span>Desconto (F4)</span>
@@ -163,6 +173,7 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
             <p className={`text-[13px] ${resultado.ok ? "text-emerald-700" : "text-red-700"}`}>
               {resultado.mensagem}{" "}
               {resultado.vendaId && <Link className="underline" href={`/vendas/${resultado.vendaId}?aba=notas`}>ver venda / emitir NFC-e</Link>}
+              {resultado.vendaId && podeCancelar && <> · <Link className="text-red-700 underline" href={`/vendas/${resultado.vendaId}?cancelar=1`}>cancelar esta venda</Link></>}
             </p>
           )}
         </aside>
@@ -170,7 +181,7 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
 
       {pixValor != null && <PixPdv valor={pixValor} onPago={(id) => fechar(id)} onFechar={() => setPixValor(null)} />}
       <div className="mt-4 flex flex-wrap justify-center gap-x-6 gap-y-1 rounded-md border bg-white py-2 text-[12px] text-slate-600">
-        <Tecla k="F2">Buscar produto</Tecla><Tecla k="F4">Desconto</Tecla><Tecla k="F8">Finalizar venda</Tecla>
+        <Tecla k="F2">Buscar produto</Tecla><Tecla k="F3">Cliente</Tecla><Tecla k="F4">Desconto</Tecla><Tecla k="F8">Finalizar venda</Tecla>
         <Tecla k="F10">Fechar caixa</Tecla><Tecla k="Esc">Limpar busca</Tecla>
       </div>
     </div>

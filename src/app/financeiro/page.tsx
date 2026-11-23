@@ -243,6 +243,13 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
         </form>
       )}
 
+      {sp.doc && (
+        <div className="no-print mb-3 flex items-center gap-2 rounded-lg border border-[#dee2e6] bg-white px-4 py-2.5 text-[13px] text-[#495057]">
+          <Icone nome="filtro" size={15} /> Mostrando só as contas do documento escolhido (venda, OS ou compra).
+          <Link href={urlCom(base, params, { doc: undefined, p: undefined })} className="ml-auto font-semibold text-[#0c1b25] underline">Ver todas</Link>
+        </div>
+      )}
+
       <Resumo cartoes={[
         { rotulo: "Total do período", valor: brl(totalV), legenda: `${plural(totPeriodo._count)} ${periodo ? "no período" : "no total"}`, icone: "dinheiro", cor: "tinta", pct: totalV > 0 ? 100 : 0, href: urlCom(base, params, { f: undefined, p: undefined }), ativo: false },
         {

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/auth/atual";
+import { podeAcessar } from "@/lib/auth/permissoes";
+import { pode } from "@/lib/auth/permissoesAcao";
 import { cor } from "@/lib/orcamentos/tipos";
 import { conteudo } from "@/components/orcamentos/ListaOrcamentos";
 import { ordemVendas, whereVendas, type ParamsVendas } from "@/lib/vendas/pedidos";
@@ -41,6 +43,8 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   const titulo = tituloVendas(tipo);
   const balcao = tipo === "BALCAO";
   const u = await usuarioAtual();
+  const verFinanceiro = !!u && podeAcessar(u.papel, "/financeiro");
+  const podeCancelar = balcao && !!u && (await pode(u.papel, "pdv.cancelar"));
   const where = await whereVendas(tipo, sp);
   const { pagina, porPagina, skip, take } = lerPagina(sp);
   const [lista, total, soma, situacoes, empresas, cliente, produto, servico] = await Promise.all([
@@ -118,7 +122,8 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
                       {v.situacao === "CONCLUIDA" && !nf && Number(v.totalProdutos) > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, v.id, "NFE")} icone="notas" confirmar={`Emitir a NF-e da venda nº ${v.numero}?`}>Emitir NF-e</BotaoAcao>}
                       {v.situacao === "CONCLUIDA" && Number(v.totalServicos) > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, v.id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da venda nº ${v.numero}?`}>Emitir NFS-e</BotaoAcao>}
                       {!balcao && <BotaoAcao acao={clonarVendaAcao.bind(null, v.id)} icone="copiar">Gerar cópia</BotaoAcao>}
-                      <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&q=${encodeURIComponent(`Venda de nº ${v.numero}`)}`} icone="financeiro">Ver no financeiro</LinkSuspenso>
+                      {verFinanceiro && <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&doc=${v.id}`} icone="financeiro">Ver no financeiro</LinkSuspenso>}
+                      {podeCancelar && v.situacao === "CONCLUIDA" && <LinkSuspenso href={`/vendas/${v.id}?cancelar=1`} icone="fechar">Cancelar venda</LinkSuspenso>}
                       <BotaoExcluir acao={excluirVendaAcao.bind(null, v.id)} pergunta={`Excluir a venda nº ${v.numero}? O estoque volta e as contas a receber em aberto são apagadas.`} rotulo="Excluir" />
                     </Suspenso>
                   </div>

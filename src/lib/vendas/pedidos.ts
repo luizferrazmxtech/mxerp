@@ -230,6 +230,38 @@ export async function alterarSituacaoPedido(id: string, situacaoId: string, u: U
   }, { timeout: 30000 });
 }
 
+/**
+ * Cancela uma venda do PDV (balcão) já concretizada: devolve o estoque e estorna os recebimentos que o caixa
+ * lançou como pagos (dinheiro, PIX, cartão). Não cancela se a NFC-e/NF-e estiver autorizada, se houver troca ou
+ * devolução, ou se algum recebimento já foi conciliado com o extrato do banco ou do PagSeguro.
+ */
+export async function cancelarVendaBalcao(id: string, u: Usuario, opts: { motivo?: string } = {}) {
+  return prisma.$transaction(async (tx) => {
+    const v = await travar(tx, id);
+    if (v.tipo !== "BALCAO") throw new PedidoError("Só vendas do PDV (balcão) são canceladas por aqui: use Alterar situação");
+    if (v.situacao === "CANCELADA") throw new PedidoError(`A venda nº ${v.numero} já está cancelada`);
+    if (await tx.devolucao.count({ where: { vendaId: id } })) throw new PedidoError("A venda tem trocas ou devoluções: não dá para cancelar");
+    const notas = await tx.notaFiscal.count({ where: { origemTipo: "VENDA", origemId: id, status: { in: ["AUTORIZADA", "ENVIADA"] } } });
+    if (notas) throw new PedidoError("A venda tem nota fiscal autorizada: cancele a nota antes (aba Notas fiscais)");
+    const lancs = await tx.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: id }, select: { id: true, valor: true, pagoEm: true, transacaoId: true } });
+    const ids = lancs.map((l) => l.id);
+    const conciliados = lancs.filter((l) => l.transacaoId).length
+      + (ids.length ? await tx.transacaoPagSeguro.count({ where: { lancamentoId: { in: ids } } }) : 0);
+    if (conciliados) throw new PedidoError("O recebimento desta venda já foi conciliado com o extrato (banco ou PagSeguro): desfaça a conciliação antes de cancelar");
+    const para = await situacaoDoEstado(tx, "CANCELADA");
+    if (!para) throw new PedidoError("Cadastre uma situação de venda que não lance estoque (ex.: Cancelada)");
+    const estornado = lancs.filter((l) => l.pagoEm).reduce((s, l) => s + Number(l.valor), 0);
+    await aplicar(tx, id, { estado: v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao), financeiro: !!v.situacaoCfg?.financeiro }, para, { forcar: true, usuarioId: u.id || undefined });
+    const fmt = (x: number) => x.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const motivo = opts.motivo?.trim();
+    await tx.vendaHistorico.create({ data: {
+      vendaId: id, situacao: para.nome, usuarioNome: u.nome,
+      descricao: `Venda do PDV cancelada${estornado ? `; recebimento de ${fmt(estornado)} estornado` : ""}; produtos voltaram ao estoque${motivo ? `. Motivo: ${motivo}` : ""}`,
+    } });
+    return { numero: v.numero, estornado, situacao: para.nome };
+  }, { timeout: 30000 });
+}
+
 /** Excluir: devolve o estoque, apaga as contas a receber em aberto e a venda. */
 export async function excluirPedido(id: string, opts: { forcar?: boolean } = {}) {
   return prisma.$transaction(async (tx) => {

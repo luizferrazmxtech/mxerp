@@ -8,7 +8,7 @@ import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { avisoBoletos, boletosDoDocumento } from "@/lib/financeiro/boletos";
 import { emitirNfseVenda, emitirNotaVenda } from "@/lib/fiscal/emissao";
 import { configVenda } from "./config";
-import { alterarSituacaoPedido, clonarPedido, excluirPedido, registrarDevolucao, salvarPedido, type DadosPedido } from "./pedidos";
+import { alterarSituacaoPedido, cancelarVendaBalcao, clonarPedido, excluirPedido, registrarDevolucao, salvarPedido, type DadosPedido } from "./pedidos";
 
 export type Resultado = { ok: boolean; mensagem: string } | null;
 const VENDE: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"];
@@ -37,11 +37,30 @@ export async function salvarPedidoForm(_: Resultado, form: FormData): Promise<Re
 export async function alterarSituacaoVendaAcao(_: Resultado, form: FormData): Promise<Resultado> {
   const u = await exigirAcao("venda.situacao");
   try {
+    // venda do PDV indo para uma situação que não lança (Cancelada): cancela estornando o recebimento do caixa
+    const venda = await prisma.venda.findUnique({ where: { id: String(form.get("id")) }, select: { tipo: true, situacao: true } });
+    const destino = await prisma.situacaoVendaConfig.findUnique({ where: { id: String(form.get("situacaoId")) }, select: { estoque: true } });
+    if (venda?.tipo === "BALCAO" && venda.situacao === "CONCLUIDA" && destino?.estoque === "NAO") return await cancelarBalcao(String(form.get("id")), String(form.get("observacao") ?? ""));
     const r = await alterarSituacaoPedido(String(form.get("id")), String(form.get("situacaoId")), u, { observacao: String(form.get("observacao") ?? ""), forcar: form.get("forcar") === "1", permitirNegativo: (await configVenda()).estoqueNegativo });
     const bol = avisoBoletos(await boletosDoDocumento({ origemTipo: "VENDA", origemId: String(form.get("id")) }));
     revalidatePath("/vendas", "layout");
     return { ok: true, mensagem: `Situação alterada para ${r.para.nome}.${bol ? ` ${bol}` : ""}` };
   } catch (e) { return erro(e); }
+}
+
+async function cancelarBalcao(id: string, motivo: string): Promise<Resultado> {
+  const u = await exigirAcao("pdv.cancelar");
+  const r = await cancelarVendaBalcao(id, u, { motivo });
+  revalidatePath("/vendas", "layout");
+  revalidatePath("/pdv");
+  revalidatePath("/financeiro");
+  const brl = (x: number) => x.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return { ok: true, mensagem: `Venda nº ${r.numero} cancelada.${r.estornado ? ` Recebimento de ${brl(r.estornado)} estornado do financeiro: devolva o valor ao cliente.` : ""} Os produtos voltaram ao estoque.` };
+}
+
+/** Visualizar venda › Cancelar venda (só PDV/balcão): devolve o estoque e estorna o recebimento. */
+export async function cancelarVendaBalcaoAcao(_: Resultado, form: FormData): Promise<Resultado> {
+  try { return await cancelarBalcao(String(form.get("id")), String(form.get("motivo") ?? "")); } catch (e) { return erro(e); }
 }
 
 export async function situacaoVendasEmMassaAcao(_: Resultado, form: FormData): Promise<Resultado> {

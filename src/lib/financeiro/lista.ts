@@ -40,7 +40,7 @@ export const boletoAbrivel = (b?: { id: string; situacao: string } | null) =>
 export const contaAvulsa = (l: { origemTipo: string | null }) => !l.origemTipo || l.origemTipo === "IMPLANTACAO";
 
 export type ParamsContas = {
-  tipo?: string; f?: string; q?: string; cat?: string; centro?: string; conta?: string; forma?: string; cli?: string;
+  tipo?: string; f?: string; q?: string; doc?: string; cat?: string; centro?: string; conta?: string; forma?: string; cli?: string;
   periodo?: string; pde?: string; pate?: string; de?: string; ate?: string;
   p?: string; pp?: string; o?: string; busca?: string; acao?: string;
 };
@@ -60,6 +60,8 @@ export function whereContas(tipo: "PAGAR" | "RECEBER", sp: ParamsContas): Prisma
   if (sp.conta) and.push({ contaBancariaId: sp.conta });
   if (sp.forma) and.push({ formaPagamentoId: sp.forma });
   if (sp.cli) and.push({ pessoaId: sp.cli });
+  // "Ver no financeiro" da venda, OS ou compra: as contas daquele documento
+  if (sp.doc) and.push({ origemId: sp.doc });
   const q = sp.q?.trim();
   // cada palavra em qualquer ordem: descrição ("Venda de nº 8698"), cliente/fornecedor ou o valor
   and.push(...cadaPalavra(q, (p): Prisma.LancamentoWhereInput[] => {
