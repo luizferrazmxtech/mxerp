@@ -19,7 +19,7 @@ export default async function MinhasOs({ searchParams }: { searchParams: Promise
   const u = await exigirUsuario();
   const gerencia = ehGerencia(u);
   const [lista, tecnicos] = await Promise.all([
-    osDoTecnico(u, { tecnicoId: sp.tec, todas: sp.ver === "todas", q: sp.q }),
+    osDoTecnico(u, { tecnicoId: sp.tec, todas: sp.ver === "todas", q: sp.q, cliente: sp.cli, antigas: sp.ordem === "antigas" }),
     gerencia ? prisma.usuario.findMany({ where: { ativo: true, OR: [{ tecnico: true }, { papel: "TECNICO" }] }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }) : [],
   ]);
   const link = (m: Record<string, string | undefined>) => {
@@ -33,17 +33,29 @@ export default async function MinhasOs({ searchParams }: { searchParams: Promise
         <span className="ml-auto text-[13px] text-slate-500">{lista.length} OS</span>
       </div>
 
-      <form className="mb-3 flex gap-2" action="/tecnico">
+      <form className="mb-3 space-y-2" action="/tecnico">
         {sp.ver && <input type="hidden" name="ver" value={sp.ver} />}
         {sp.tec && <input type="hidden" name="tec" value={sp.tec} />}
-        <input name="q" defaultValue={sp.q} placeholder="Nº da OS, cliente ou equipamento" className="campo h-11 flex-1 text-[15px]" inputMode="search" />
-        <button className="btn h-11 px-4" aria-label="Buscar"><Icone nome="buscar" size={18} /></button>
+        {sp.ordem && <input type="hidden" name="ordem" value={sp.ordem} />}
+        <div className="relative">
+          <Icone nome="pessoa" size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input name="cli" defaultValue={sp.cli} placeholder="Pesquisar por cliente (nome ou CPF/CNPJ)" className="campo h-11 pl-10 text-[15px]" inputMode="search" autoComplete="off" />
+        </div>
+        <div className="flex gap-2">
+          <input name="q" defaultValue={sp.q} placeholder="Nº da OS ou equipamento" className="campo h-11 flex-1 text-[15px]" inputMode="search" />
+          <button className="btn-marca h-11 px-4" aria-label="Buscar"><Icone nome="buscar" size={18} /> Buscar</button>
+          {(sp.cli || sp.q) && <Link href={link({ cli: undefined, q: undefined })} className="btn h-11 px-3" aria-label="Limpar busca"><Icone nome="fechar" size={18} /></Link>}
+        </div>
       </form>
 
       <div className="mb-3 flex flex-wrap gap-2">
         <div className="flex overflow-hidden rounded-md border bg-white text-[14px]">
           <Link href={link({ ver: undefined })} className={`px-4 py-2 ${sp.ver !== "todas" ? "bg-topo text-white" : ""}`}>Em aberto</Link>
           <Link href={link({ ver: "todas" })} className={`px-4 py-2 ${sp.ver === "todas" ? "bg-topo text-white" : ""}`}>Últimos 30 dias</Link>
+        </div>
+        <div className="flex overflow-hidden rounded-md border bg-white text-[14px]" title="Ordem pela data de entrada">
+          <Link href={link({ ordem: undefined })} className={`px-3 py-2 ${sp.ordem !== "antigas" ? "bg-topo text-white" : ""}`}>Entrada: recentes</Link>
+          <Link href={link({ ordem: "antigas" })} className={`px-3 py-2 ${sp.ordem === "antigas" ? "bg-topo text-white" : ""}`}>antigas</Link>
         </div>
         {gerencia && <SeletorTecnico atual={sp.tec ?? ""} tecnicos={tecnicos} />}
         <Link href="/tecnico/estoque" className="ml-auto flex items-center gap-1 rounded-md border bg-white px-3 py-2 text-[14px]"><Icone nome="frete" size={16} /> Estoque do carro</Link>
@@ -62,7 +74,7 @@ export default async function MinhasOs({ searchParams }: { searchParams: Promise
                   <b className="text-[16px]">OS {o.numero}</b>
                   <span className={`pilula ${c.pilula}`}>{o.situacaoCfg?.nome ?? o.situacao}</span>
                   {o.prioridade && <span className={`text-[12px] ${URGENTE.has(o.prioridade) ? "font-semibold text-red-600" : "text-slate-500"}`}>{rotuloPrioridade(o.prioridade)}</span>}
-                  <span className="ml-auto text-[12px] text-slate-500">{dia(o.entrada)}{o.previsao ? ` → ${dia(o.previsao)}` : ""}</span>
+                  <span className="ml-auto text-[12px] text-slate-500">Entrada {dia(o.entrada)}{o.previsao ? ` · prev. ${dia(o.previsao)}` : ""}</span>
                 </div>
                 <div className="mt-1 text-[15px] font-medium">{o.cliente.nome}</div>
                 {endereco && <div className="text-[13px] text-slate-500">{endereco}</div>}
@@ -82,7 +94,7 @@ export default async function MinhasOs({ searchParams }: { searchParams: Promise
         })}
         {!lista.length && (
           <li className="rounded-lg border border-dashed bg-white p-6 text-center text-[14px] text-slate-500">
-            {sp.q ? "Nenhuma OS encontrada." : "Nenhuma OS para você agora. As OS em que você for técnico ou da equipe aparecem aqui."}
+            {sp.q || sp.cli ? "Nenhuma OS encontrada." : "Nenhuma OS para você agora. As OS em que você for técnico ou da equipe aparecem aqui."}
           </li>
         )}
       </ul>

@@ -30,8 +30,11 @@ export async function whereDoTecnico(usuarioId: string): Promise<Prisma.OrdemSer
   return { OR: [{ tecnicoId: usuarioId }, { tecnicoIds: { has: usuarioId } }, ...(equipes.length ? [{ equipeId: { in: equipes } }] : [])] };
 }
 
-/** OS abertas (que ainda reservam peças) primeiro; com ?todas também as concluídas dos últimos 30 dias. */
-export async function osDoTecnico(u: UsuarioTecnico, opts: { tecnicoId?: string; todas?: boolean; q?: string } = {}) {
+/**
+ * OS abertas (que ainda reservam peças); com ?todas também as concluídas dos últimos 30 dias.
+ * Ordem pela data de entrada (mais recentes primeiro; `antigas` inverte). `cliente` procura no nome, fantasia ou documento.
+ */
+export async function osDoTecnico(u: UsuarioTecnico, opts: { tecnicoId?: string; todas?: boolean; q?: string; cliente?: string; antigas?: boolean } = {}) {
   const alvo = ehGerencia(u) ? opts.tecnicoId : u.id;
   const filtros: Prisma.OrdemServicoWhereInput[] = [];
   if (alvo) filtros.push(await whereDoTecnico(alvo));
@@ -42,9 +45,19 @@ export async function osDoTecnico(u: UsuarioTecnico, opts: { tecnicoId?: string;
     const num = Number(q.replace(/\D/g, ""));
     filtros.push({ OR: [...(num ? [{ numero: num }] : []), { cliente: { nome: { contains: q, mode: "insensitive" } } }, { equipamentos: { some: { equipamento: { contains: q, mode: "insensitive" } } } }] });
   }
+  const cli = opts.cliente?.trim();
+  if (cli) {
+    const doc = cli.replace(/\D/g, "");
+    filtros.push({ cliente: { OR: [
+      { nome: { contains: cli, mode: "insensitive" } },
+      { fantasia: { contains: cli, mode: "insensitive" } },
+      ...(doc.length >= 3 ? [{ documento: { contains: doc } }] : []),
+    ] } });
+  }
+  const sentido = opts.antigas ? "asc" : "desc";
   return prisma.ordemServico.findMany({
     where: { AND: filtros },
-    orderBy: [{ prioridade: { sort: "desc", nulls: "last" } }, { entrada: "asc" }],
+    orderBy: [{ entrada: sentido }, { numero: sentido }],
     take: 200,
     select: {
       id: true, numero: true, entrada: true, previsao: true, prioridade: true, situacao: true,

@@ -74,6 +74,16 @@ describe("tela do técnico", () => {
     // gerência vê todas (ou filtra por técnico)
     expect((await ids({ ...escritorio, papel: "GERENTE" })).length).toBe(2);
     expect(await ids({ ...escritorio, papel: "GERENTE" }).then(() => tec.osDoTecnico({ ...escritorio, papel: "GERENTE" }, { tecnicoId: beto.id })).then((l) => l.map((o) => o.id))).toEqual([daEquipe.id]);
+    // busca por cliente (nome) e ordem pela data de entrada (recentes primeiro; "antigas" inverte)
+    const outroCli = (await prisma.pessoa.create({ data: { nome: "Padaria Sol", cliente: true, documento: "12345678000199" } })).id;
+    const daPadaria = await ord.salvarOrdem(dados({ clienteId: outroCli, entrada: "2026-11-22T10:00" }), escritorio);
+    const ger = { ...escritorio, papel: "GERENTE" as const };
+    expect((await tec.osDoTecnico(ger, { cliente: "padaria" })).map((o) => o.id)).toEqual([daPadaria.id]);
+    expect((await tec.osDoTecnico(ger, { cliente: "12.345.678" })).map((o) => o.id)).toEqual([daPadaria.id]);
+    expect((await tec.osDoTecnico(ger, { cliente: "azul" })).map((o) => o.id).sort()).toEqual([daAna.id, daEquipe.id].sort());
+    expect((await tec.osDoTecnico(ger))[0].id).toBe(daPadaria.id);
+    expect((await tec.osDoTecnico(ger, { antigas: true })).at(-1)!.id).toBe(daPadaria.id);
+    await prisma.ordemServico.delete({ where: { id: daPadaria.id } });
 
     await expect(tec.lancarItemTecnico(beto, daAna.id, { tipo: "produto", id: prod, quantidade: 1 })).rejects.toThrow(/não é técnico/);
     // qualquer membro da equipe lança na OS da equipe
