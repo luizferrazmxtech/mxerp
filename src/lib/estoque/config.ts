@@ -5,6 +5,8 @@ export type ConfigEstoque = {
   custoCompra: "MEDIA" | "ULTIMA" | "NAO";
   controleLote: boolean; saidaLotePdv: "VENCER" | "ENTRAR" | "MANUAL"; loteVendas: "VENCER" | "ENTRAR" | "MANUAL";
   localizacao: boolean;
+  /** estoque (depósito) padrão onde as compras entram; "" = o primeiro da loja que não é carro */
+  depositoEntrada: string;
   avisoCotacao: "AMBOS" | "SISTEMA" | "EMAIL" | "NAO";
   textoCompras: string; textoCotacoes: string;
   documentos: Record<string, boolean>;
@@ -12,7 +14,7 @@ export type ConfigEstoque = {
 };
 
 export const PADRAO_ESTOQUE: ConfigEstoque = {
-  custoCompra: "MEDIA", controleLote: false, saidaLotePdv: "VENCER", loteVendas: "VENCER", localizacao: true, avisoCotacao: "SISTEMA",
+  custoCompra: "MEDIA", controleLote: false, saidaLotePdv: "VENCER", loteVendas: "VENCER", localizacao: true, depositoEntrada: "", avisoCotacao: "SISTEMA",
   textoCompras: "", textoCotacoes: "",
   documentos: { numeroItem: true, codigoProduto: true, unidade: true, imagemProduto: false, ncm: false, valorUnitario: true, subtotal: true },
   xml: { frete: true, desconto: true, impostos: true, outras: true, vincularPor: "AMBOS" },

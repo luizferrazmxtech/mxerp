@@ -151,3 +151,39 @@ describe("cotações", () => {
     await expect(cot.responderCotacao(alfa.token, { valores: { [item]: "1" }, frete: "", prazoEntrega: "", condicao: "", observacao: "" })).rejects.toThrow(/encerrada/);
   });
 });
+
+describe("estoque de entrada da compra", () => {
+  const saldoEm = async (localId: string) => Number((await prisma.saldo.findFirst({ where: { produtoId: prod, localId } }))?.quantidade ?? 0);
+  let carroLoc = "";
+  beforeEach(async () => {
+    const equipe = await prisma.equipe.create({ data: { nome: `Carro ${Date.now()}`, membros: [] } });
+    const dep = await prisma.deposito.create({ data: { nome: "AAA Carro", equipeId: equipe.id } });
+    carroLoc = (await prisma.local.create({ data: { depositoId: dep.id, codigo: "0-CARRO" } })).id; // vem antes pelo código
+  });
+
+  it("sem estoque escolhido nunca entra no carro, mesmo com o carro primeiro pelo código", async () => {
+    const semLocal = await prisma.produto.create({ data: { codigo: "SSD", nome: "SSD", precoVenda: 1, custo: 1 } });
+    const linha = { produtoId: semLocal.id, nome: "SSD", codigo: "SSD", unidade: "UN", detalhes: "", quantidade: "3", valorUnit: "10,00", desconto: "", descontoPct: false };
+    await cmp.salvarCompra(dados({ situacaoId: "sc_confirmada", condicao: "AVISTA", parcelas: [], produtos: [linha] }), u);
+    const saldos = await prisma.saldo.findMany({ where: { produtoId: semLocal.id } });
+    expect(saldos.map((s) => s.localId)).not.toContain(carroLoc);
+    expect(saldos.reduce((t, s) => t + Number(s.quantidade), 0)).toBe(3);
+  });
+
+  it("respeita o estoque escolhido e o padrão das configurações; trocar o estoque na edição move a entrada", async () => {
+    await prisma.configuracao.create({ data: { chave: "estoque", valor: { depositoEntrada: depB } } });
+    const ent = await import("@/lib/estoque/entrada");
+    expect(await ent.estoquePadraoEntrada()).toBe(depB);
+    const lista = await ent.estoquesDeEntrada();
+    expect(lista.at(-1)).toMatchObject({ carro: true });
+
+    const c = await cmp.salvarCompra(dados({ situacaoId: "sc_confirmada", condicao: "AVISTA", parcelas: [], depositoId: depB }), u);
+    expect(await saldoEm(locB)).toBe(2); // o local padrão do produto (Loja) não é do estoque escolhido
+    expect(await saldoEm(loc)).toBe(2);
+
+    await cmp.salvarCompra(dados({ situacaoId: "sc_confirmada", condicao: "AVISTA", parcelas: [], depositoId: depA }), u, c.id);
+    expect(await saldoEm(locB)).toBe(0);
+    expect(await saldoEm(loc)).toBe(4);
+    expect((await cmp.dadosDaCompra(c.id)).depositoId).toBe(depA);
+  });
+});

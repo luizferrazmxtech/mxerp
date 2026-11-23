@@ -7,6 +7,7 @@ import { Bloco } from "@/components/ui/Pagina";
 import { salvarConfigEstoqueAcao, salvarSituacaoCompraAcao, type Resultado } from "@/lib/compras/acoes";
 import { CORES } from "@/lib/orcamentos/tipos";
 import type { ConfigEstoque } from "@/lib/estoque/config";
+import type { EstoqueEntrada } from "@/lib/estoque/entrada";
 import { PAPEIS, Radio, Rodape } from "@/components/orcamentos/FormsAuxOrc";
 
 export type SituacaoCompraForm = { id: string; nome: string; cor: string; padrao: boolean; exibir: boolean; lancamento: string; permiteEdicao: boolean; bloqueados: string[] };
@@ -73,7 +74,7 @@ export function FormSituacaoCompra({ s, usada }: { s?: SituacaoCompraForm; usada
 const DOCS: [string, string][] = [["numeroItem", "Número do item"], ["codigoProduto", "Código do produto"], ["unidade", "Unidade"], ["imagemProduto", "Imagem do produto"], ["ncm", "NCM"], ["valorUnitario", "Valor unitário"], ["subtotal", "Subtotal"]];
 
 /** Configurações › Estoque (Gestão Click ?modulo=estoque). */
-export function FormConfigEstoque({ c, ultimos }: { c: ConfigEstoque; ultimos: Record<"cotacao" | "compra" | "ajuste" | "transferencia", number> }) {
+export function FormConfigEstoque({ c, ultimos, estoques, estoquePadrao }: { c: ConfigEstoque; ultimos: Record<"cotacao" | "compra" | "ajuste" | "transferencia", number>; estoques: EstoqueEntrada[]; estoquePadrao: string }) {
   const [r, , pendente, formAcao] = useFormAcao<Resultado>(salvarConfigEstoqueAcao, null);
   const [nums, setNums] = useState(Object.fromEntries(Object.entries(ultimos).map(([k, v]) => [k, String(v)])) as Record<string, string>);
   const [lote, setLote] = useState(c.controleLote);
@@ -87,6 +88,12 @@ export function FormConfigEstoque({ c, ultimos }: { c: ConfigEstoque; ultimos: R
     <form {...formAcao}>
       <Bloco icone="dinheiro" titulo={<>Defina o <b>valor de custo</b> nas compras</>} subtitulo="Como o custo do produto muda quando uma compra lança o estoque.">
         <div className="max-w-md">{sel("custoCompra", c.custoCompra, [["MEDIA", "Média de todas as compras"], ["ULTIMA", "Valor da última compra"], ["NAO", "Não atualizar"]])}</div>
+      </Bloco>
+      <Bloco icone="importar" titulo={<>Escolha o <b>estoque de entrada</b> das compras</>} subtitulo="Onde as peças entram quando a compra (digitada ou importada pelo XML) lança o estoque. Cada compra pode trocar no formulário.">
+        <div className="max-w-md">
+          {estoques.length ? sel("depositoEntrada", c.depositoEntrada && estoques.some((e) => e.id === c.depositoEntrada) ? c.depositoEntrada : estoquePadrao, estoques.map((e) => [e.id, e.carro ? `Carro · ${e.nome}` : e.nome]))
+            : <p className="text-[13px] text-slate-500">Nenhum estoque cadastrado nesta empresa.</p>}
+        </div>
       </Bloco>
       <Bloco icone="locais" titulo={<>Controle o estoque por <b>lote e localização</b></>}>
         <div className="grid gap-3 lg:grid-cols-2">

@@ -10,6 +10,7 @@ import { descontoLinha, lerNumero } from "@/lib/orcamentos/tipos";
 import { fatorLinha, lancaEstoque, lancaFinanceiro, subtotalCompra, totaisCompra, type DadosCompra } from "./tipos";
 import { configEstoque } from "@/lib/estoque/config";
 import { atualizarCustoPorEntrada } from "@/lib/estoque/custo";
+import { estoquesDeEntrada, resolvedorDeLocal } from "@/lib/estoque/entrada";
 import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 /**
@@ -38,23 +39,17 @@ async function travar(tx: Tx, compraId: string) {
   return tx.compra.findUniqueOrThrow({ where: { id: compraId }, include: { situacaoCfg: true } });
 }
 
-async function localPadrao(tx: Tx) {
-  const l = await tx.local.findFirst({ orderBy: { codigo: "asc" }, select: { id: true } });
-  if (!l) throw new CompraError("Cadastre um local de estoque antes de lançar a compra");
-  return l.id;
-}
-
-/** Entrada das peças no estoque, atualizando o custo do produto (média, última compra ou não atualiza). */
+/** Entrada das peças no estoque escolhido na compra (ou o padrão), atualizando o custo do produto (média, última compra ou não atualiza). */
 async function lancarEstoque(tx: Tx, compraId: string, usuarioId?: string) {
   const c = await tx.compra.findUniqueOrThrow({ where: { id: compraId }, include: { itens: { include: { produto: { select: { controlaEstoque: true, localPadraoId: true } } } } } });
   const regra = (await configEstoque()).custoCompra;
-  let padrao: string | null = null;
+  let localDe: Awaited<ReturnType<typeof resolvedorDeLocal>> | null = null;
   for (const i of c.itens) {
     // quantidade da nota × fator = quantidade na unidade do produto (ex.: 2 CX × 305 = 610 MT); o custo vai por MT
     const fator = Number(i.fator) > 0 ? Number(i.fator) : 1;
     const q = Number(i.quantidade) * fator;
     if (!i.produto.controlaEstoque || !(q > 0)) continue;
-    const localId = i.localId ?? i.produto.localPadraoId ?? (padrao ??= await localPadrao(tx));
+    const localId = i.localId ?? (localDe ??= await resolver(tx, c.depositoId))(i.produto.localPadraoId);
     const custo = Number(i.subtotal) > 0 ? Number(i.subtotal) / q : Number(i.custoUnit) / fator;
     await atualizarCustoPorEntrada(tx, i.produtoId, q, custo, regra);
     await entrada(tx, { produtoId: i.produtoId, localId, quantidade: q, custoUnit: custo, origemTipo: "COMPRA", origemId: c.id, observacao: `Compra nº ${c.numero}`, usuarioId });
@@ -63,14 +58,18 @@ async function lancarEstoque(tx: Tx, compraId: string, usuarioId?: string) {
   await tx.compra.update({ where: { id: compraId }, data: { recebida: true } });
 }
 
-/** Tira do estoque o que a compra tinha lançado (cancelamento, troca de situação ou edição dos itens). */
+async function resolver(tx: Tx, depositoId: string | null) {
+  try { return await resolvedorDeLocal(tx, depositoId); } catch (e) { throw new CompraError((e as Error).message); }
+}
+
+/** Tira do estoque o que a compra tinha lançado (cancelamento, troca de situação ou edição dos itens), do mesmo local da entrada. */
 async function estornarEstoque(tx: Tx, compraId: string, usuarioId?: string) {
   const c = await tx.compra.findUniqueOrThrow({ where: { id: compraId }, include: { itens: { include: { produto: { select: { controlaEstoque: true, localPadraoId: true } } } } } });
-  let padrao: string | null = null;
+  let localDe: Awaited<ReturnType<typeof resolvedorDeLocal>> | null = null;
   for (const i of c.itens) {
     const q = Number(i.quantidade) * (Number(i.fator) > 0 ? Number(i.fator) : 1);
     if (!i.produto.controlaEstoque || !(q > 0)) continue;
-    const localId = i.localId ?? i.produto.localPadraoId ?? (padrao ??= await localPadrao(tx));
+    const localId = i.localId ?? (localDe ??= await resolver(tx, c.depositoId))(i.produto.localPadraoId);
     await saida(tx, { produtoId: i.produtoId, localId, quantidade: q, origemTipo: "COMPRA", origemId: c.id, observacao: `Estorno da compra nº ${c.numero}`, usuarioId });
   }
   await tx.compra.update({ where: { id: compraId }, data: { recebida: false } });
@@ -126,6 +125,13 @@ async function aprender(tx: Tx, fornecedorId: string, linhas: DadosCompra["produ
   }
 }
 
+/** Estoque onde a compra já entrou (compras antigas, sem estoque escolhido): o depósito do local do primeiro item. */
+async function depositoDosItens(tx: Tx | typeof prisma, itens: { localId: string | null }[]) {
+  const localId = itens.find((i) => i.localId)?.localId;
+  if (!localId) return null;
+  return (await tx.local.findUnique({ where: { id: localId }, select: { depositoId: true } }))?.depositoId ?? null;
+}
+
 export async function proximoNumeroCompra() {
   const s = await prisma.sequencia.findUnique({ where: { chave: "COMPRA" } });
   return (s?.valor ?? 0) + 1;
@@ -143,6 +149,8 @@ export async function salvarCompra(d: DadosCompra, u: Usuario, id?: string, opts
   const tot = totaisCompra({ ...d, produtos, servicos });
   if (tot.total < 0) throw new CompraError("O desconto é maior que o valor da compra");
   const data = parseDia(d.data);
+  const depositoId = produtos.length ? t(d.depositoId) : null;
+  if (depositoId && !(await estoquesDeEntrada()).some((e) => e.id === depositoId)) throw new CompraError("Escolha um estoque de entrada desta empresa");
 
   let parcelas: { numero: number; vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; observacao: string | null }[];
   if (d.condicao === "PARCELADO") {
@@ -163,6 +171,7 @@ export async function salvarCompra(d: DadosCompra, u: Usuario, id?: string, opts
     totalProdutos: D(tot.produtos), totalServicos: D(tot.servicos), desconto: D(tot.desconto), descontoPercentual: d.descontoPct ? new Prisma.Decimal(n(d.desconto)) : null, total: D(tot.total),
     condicao: d.condicao, formaPagamentoId: t(d.formaPagamentoId), intervaloDias: Math.trunc(n(d.intervaloDias)) || 30,
     observacoes: t(d.observacoes), observacaoInterna: t(d.observacaoInterna), camposExtras: (d.camposExtras ?? {}) as Prisma.InputJsonValue,
+    depositoId,
   };
   const assinatura = (l: { produtoId: string; quantidade: number }[]) => l.map((x) => `${x.produtoId}:${x.quantidade}`).sort().join("|");
   // a assinatura usa a quantidade que entra no estoque: mudar só a conversão também refaz a entrada
@@ -195,7 +204,9 @@ export async function salvarCompra(d: DadosCompra, u: Usuario, id?: string, opts
       if (numero !== atual.numero && (await tx.compra.findUnique({ where: { numero } }))) throw new CompraError(`Já existe a compra nº ${numero}`);
       const existentes = await tx.compraItem.findMany({ where: { compraId: id } });
       const antigas = await tx.compraParcela.findMany({ where: { compraId: id }, orderBy: { numero: "asc" } });
-      const mudouItens = assinatura(existentes.map((e) => ({ produtoId: e.produtoId, quantidade: Math.round(Number(e.quantidade) * Number(e.fator) * 10000) / 10000 }))) !== assinatura(novos);
+      // trocar o estoque de entrada também refaz a entrada: estorna de onde entrou e lança no novo estoque
+      const mudouEstoque = !!depositoId && depositoId !== (atual.depositoId ?? (await depositoDosItens(tx, existentes)));
+      const mudouItens = mudouEstoque || assinatura(existentes.map((e) => ({ produtoId: e.produtoId, quantidade: Math.round(Number(e.quantidade) * Number(e.fator) * 10000) / 10000 }))) !== assinatura(novos);
       const mudouFin = assinaturaFin(Number(atual.total), antigas) !== assinaturaFin(tot.total, parcelas);
       await tx.compra.update({ where: { id }, data: { ...dados, numero } });
       await tx.compraParcela.deleteMany({ where: { compraId: id } });
@@ -286,6 +297,7 @@ export async function dadosDaCompra(id: string, copia = false): Promise<DadosCom
     intervaloDias: String(c.intervaloDias), numParcelas: String(Math.max(1, c.parcelas.length)), primeiraParcela: c.parcelas[0] && !copia ? iso(c.parcelas[0].vencimento) : "",
     parcelas: copia ? [] : c.parcelas.map((p) => ({ vencimento: iso(p.vencimento), valor: f(p.valor), formaPagamentoId: p.formaPagamentoId ?? "", observacao: p.observacao ?? "" })),
     observacoes: c.observacoes ?? "", observacaoInterna: c.observacaoInterna ?? "", camposExtras: (c.camposExtras ?? {}) as Record<string, string>,
+    depositoId: c.depositoId ?? (await depositoDosItens(prisma, c.itens)) ?? "",
   };
 }
 

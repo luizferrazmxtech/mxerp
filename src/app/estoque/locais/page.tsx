@@ -2,14 +2,16 @@ import Link from "next/link";
 import { Bloco, Campo, Pagina } from "@/components/ui/Pagina";
 import Icone from "@/components/Icone";
 import { prisma } from "@/lib/db";
-import { criarEstoqueEquipeAcao, criarLocal, renomearDepositoAcao } from "../actions";
+import { whereLocaisDaLoja } from "@/lib/estoque/locais";
+import { criarEstoqueEquipeAcao, criarLocal, editarLocalAcao, renomearDepositoAcao } from "../actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function LocaisPage({ searchParams }: { searchParams: Promise<{ renomear?: string; erro?: string }> }) {
+export default async function LocaisPage({ searchParams }: { searchParams: Promise<{ renomear?: string; local?: string; erro?: string }> }) {
   const sp = await searchParams;
   const [locais, semCarro, usuarios, temEquipes] = await Promise.all([
     prisma.local.findMany({
+      where: await whereLocaisDaLoja(),
       include: { deposito: { include: { equipe: { select: { nome: true, membros: true } } } }, _count: { select: { saldos: { where: { quantidade: { not: 0 } } } } } },
       orderBy: { codigo: "asc" },
     }),
@@ -19,6 +21,7 @@ export default async function LocaisPage({ searchParams }: { searchParams: Promi
   ]);
   const doCarro = locais.filter((l) => l.deposito.equipeId);
   const renomear = sp.renomear ? locais.find((l) => l.depositoId === sp.renomear)?.deposito : undefined;
+  const editando = sp.local ? locais.find((l) => l.id === sp.local) : undefined;
   const lojaPadrao = locais.find((l) => !l.deposito.equipeId)?.deposito.nome ?? "Loja";
   const editarNome = (depositoId: string) => (
     <Link href={`/estoque/locais?renomear=${depositoId}`} className="ml-1 inline-flex align-middle text-slate-400 hover:text-marca" title="Editar o nome do estoque"><Icone nome="editar" size={13} /></Link>
@@ -37,6 +40,19 @@ export default async function LocaisPage({ searchParams }: { searchParams: Promi
           <Campo rotulo="Nome" obrigatorio><input name="nome" className="campo min-w-72" defaultValue={renomear.nome} required maxLength={80} autoFocus /></Campo>
           <button className="btn">Salvar</button>
           <Link href="/estoque/locais" className="btn-sec">Cancelar</Link>
+        </form>
+        {sp.erro && <p className="mt-2 text-[13px] text-red-600">{sp.erro}</p>}
+      </Bloco>
+    )}
+    {editando && (
+      <Bloco icone="editar" titulo={<>Editar o <b>local</b> {editando.codigo}</>} subtitulo="O código novo vale para o saldo, as reservas e o histórico deste local (nada se perde).">
+        <form action={editarLocalAcao} className="grid items-end gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          <input type="hidden" name="id" value={editando.id} />
+          <Campo rotulo="Código" obrigatorio><input name="codigo" className="campo" defaultValue={editando.codigo} required maxLength={60} autoFocus /></Campo>
+          <Campo rotulo="Corredor"><input name="corredor" className="campo" defaultValue={editando.corredor ?? ""} /></Campo>
+          <Campo rotulo="Prateleira"><input name="prateleira" className="campo" defaultValue={editando.prateleira ?? ""} /></Campo>
+          <Campo rotulo="Nível"><input name="nivel" className="campo" defaultValue={editando.nivel ?? ""} /></Campo>
+          <div className="flex gap-2"><button className="btn">Salvar</button><Link href="/estoque/locais" className="btn-sec">Cancelar</Link></div>
         </form>
         {sp.erro && <p className="mt-2 text-[13px] text-red-600">{sp.erro}</p>}
       </Bloco>
@@ -106,7 +122,7 @@ export default async function LocaisPage({ searchParams }: { searchParams: Promi
         <tbody>
           {locais.map((l) => (
             <tr key={l.id}>
-              <td className="font-semibold">{l.codigo}</td>
+              <td className="font-semibold">{l.codigo}<Link href={`/estoque/locais?local=${l.id}`} className="ml-1 inline-flex align-middle text-slate-400 hover:text-marca" title="Editar o código do local"><Icone nome="editar" size={13} /></Link></td>
               <td>{l.deposito.nome}{editarNome(l.depositoId)}</td>
               <td>{l.corredor ?? "—"}</td>
               <td>{l.prateleira ?? "—"}</td>

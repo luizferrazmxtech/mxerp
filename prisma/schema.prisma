@@ -622,14 +622,15 @@ model Servico {
 // ───────────────────────── Estoque ─────────────────────────
 
 model Deposito {
-  id        String  @id @default(cuid())
+  id        String   @id @default(cuid())
   empresaId String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  nome      String  @unique
-  ativo     Boolean @default(true)
+  nome      String   @unique
+  ativo     Boolean  @default(true)
   locais    Local[]
   /// estoque do carro de uma equipe: não entra no disponível da loja; a OS tira daqui o que estiver "no carro"
-  equipeId  String? @unique
-  equipe    Equipe? @relation(fields: [equipeId], references: [id])
+  equipeId  String?  @unique
+  equipe    Equipe?  @relation(fields: [equipeId], references: [id])
+  compras   Compra[]
 
   @@index([empresaId])
 }
@@ -1260,6 +1261,9 @@ model Compra {
   fornecedor   Pessoa       @relation(fields: [fornecedorId], references: [id])
   data         DateTime     @default(now()) @db.Date
   recebida     Boolean      @default(false) // estoque já lançado
+  /// estoque (depósito) onde as peças entram; nulo = o padrão das configurações de estoque (nunca o carro)
+  depositoId   String?
+  deposito     Deposito?    @relation(fields: [depositoId], references: [id])
   chaveNfe     String?
   total        Decimal      @default(0) @db.Decimal(14, 2)
   createdAt    DateTime     @default(now())
