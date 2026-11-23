@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { whereLocaisDaLoja } from "@/lib/estoque/locais";
 import { Pagina } from "@/components/ui/Pagina";
 import FormProduto, { type InicialProduto } from "./FormProduto";
 
@@ -11,7 +12,7 @@ export default async function PaginaFormProduto({ id }: { id?: string }) {
     prisma.grupoProduto.findMany({ orderBy: { nome: "asc" }, include: { pai: { select: { nome: true } } } }),
     prisma.unidade.findMany({ orderBy: { sigla: "asc" } }),
     prisma.tipoValor.findMany({ orderBy: [{ padrao: "desc" }, { nome: "asc" }] }),
-    prisma.local.findMany({ where: { ativo: true }, orderBy: { codigo: "asc" }, include: { deposito: { select: { nome: true } } } }),
+    prisma.local.findMany({ where: { ativo: true, ...(await whereLocaisDaLoja()) }, orderBy: { codigo: "asc" }, include: { deposito: { select: { nome: true } } } }),
     prisma.deposito.findMany({ where: { ativo: true }, orderBy: { nome: "asc" } }),
     prisma.empresa.findMany({ select: { id: true, nomeFantasia: true, razaoSocial: true, cnpj: true } }),
     prisma.campoExtra.findMany({ where: { entidade: "PRODUTO" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),

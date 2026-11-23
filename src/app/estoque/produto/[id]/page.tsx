@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { whereLocaisDaLoja } from "@/lib/estoque/locais";
 import { disponivelPorLocal, resumoProduto } from "@/lib/estoque/estoque";
 import { documentoDe, documentosDosMovimentos } from "@/lib/estoque/origens";
 import { brl, dataHora, qtd } from "@/lib/ui/format";
@@ -23,7 +24,7 @@ export default async function ProdutoEstoque({ params }: { params: Promise<{ id:
   const [resumo, porLocal, locais, reservas, movimentos] = await Promise.all([
     prisma.$transaction((tx) => resumoProduto(tx, id)),
     prisma.$transaction((tx) => disponivelPorLocal(tx, id, { incluirCarros: true })),
-    prisma.local.findMany({ where: { ativo: true }, orderBy: { codigo: "asc" } }),
+    prisma.local.findMany({ where: { ativo: true, ...(await whereLocaisDaLoja()) }, orderBy: { codigo: "asc" } }),
     prisma.reserva.findMany({ where: { produtoId: id, status: "ATIVA" }, include: { local: true }, orderBy: { createdAt: "asc" } }),
     prisma.movimentoEstoque.findMany({ where: { produtoId: id }, include: { local: true, usuario: { select: { nome: true } } }, orderBy: { createdAt: "desc" }, take: 30 }),
   ]);

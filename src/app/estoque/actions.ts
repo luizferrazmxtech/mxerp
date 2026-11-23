@@ -7,6 +7,7 @@ import { entrada, saida, transferir } from "@/lib/estoque/estoque";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { lerNumero } from "@/lib/itens/tipos";
 import { criarEstoqueEquipe } from "@/lib/estoque/carro";
+import { whereLocaisDaLoja } from "@/lib/estoque/locais";
 
 const num = (v: FormDataEntryValue | null) => lerNumero(String(v ?? "")) ?? NaN;
 // toda ação exige login (o middleware só olha o caminho da página, e uma ação pode ser chamada de qualquer página)
@@ -112,6 +113,24 @@ export async function criarEstoqueEquipeAcao(form: FormData) {
 }
 
 /** Renomeia o estoque (depósito): a loja, um depósito ou o carro de uma equipe. */
+/** Editar o local: código (único) e endereço. O id não muda, então saldo, reservas e histórico seguem o local. */
+export async function editarLocalAcao(form: FormData) {
+  await exigirUsuario([...ESTOQUE]);
+  const id = String(form.get("id") || "");
+  const up = (k: string) => String(form.get(k) || "").trim().toUpperCase() || null;
+  const codigo = up("codigo")?.slice(0, 60);
+  if (!id) return;
+  const volta = (erro: string) => redirect(`/estoque/locais?local=${id}&erro=${encodeURIComponent(erro)}`);
+  if (!codigo) volta("Informe o código do local");
+  // só locais da empresa atual
+  if (!(await prisma.local.findFirst({ where: { id, ...(await whereLocaisDaLoja()) }, select: { id: true } }))) volta("Local não encontrado nesta empresa");
+  const outro = await prisma.local.findFirst({ where: { codigo: { equals: codigo!, mode: "insensitive" }, id: { not: id } }, select: { id: true } });
+  if (outro) volta(`Já existe um local com o código ${codigo}`);
+  await prisma.local.update({ where: { id }, data: { codigo: codigo!, corredor: up("corredor"), prateleira: up("prateleira"), nivel: up("nivel") } });
+  revalidatePath("/estoque/locais");
+  redirect("/estoque/locais");
+}
+
 export async function renomearDepositoAcao(form: FormData) {
   await exigirUsuario([...ESTOQUE]);
   const id = String(form.get("id") || "");

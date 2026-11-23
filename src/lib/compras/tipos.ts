@@ -23,6 +23,8 @@ export type DadosCompra = {
   desconto: string; descontoPct: boolean;
   condicao: "AVISTA" | "PARCELADO"; formaPagamentoId: string; vencimento: string; intervaloDias: string; numParcelas: string; primeiraParcela: string; parcelas: Parcela[];
   observacoes: string; observacaoInterna: string; camposExtras: Record<string, string>;
+  /** estoque (depósito) onde as peças entram; "" = o padrão das configurações de estoque */
+  depositoId?: string;
   cotacaoId?: string;
 };
 

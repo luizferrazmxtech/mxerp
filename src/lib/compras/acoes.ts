@@ -212,7 +212,7 @@ export async function salvarConfigEstoqueAcao(_: Resultado, form: FormData): Pro
   const valor = {
     custoCompra: um("custoCompra", ["MEDIA", "ULTIMA", "NAO"] as const, "MEDIA"),
     controleLote: form.get("controleLote") === "1", saidaLotePdv: um("saidaLotePdv", LOTE, "VENCER"), loteVendas: um("loteVendas", LOTE, "VENCER"),
-    localizacao: form.get("localizacao") === "1", avisoCotacao: um("avisoCotacao", ["AMBOS", "SISTEMA", "EMAIL", "NAO"] as const, "SISTEMA"),
+    localizacao: form.get("localizacao") === "1", depositoEntrada: s("depositoEntrada"), avisoCotacao: um("avisoCotacao", ["AMBOS", "SISTEMA", "EMAIL", "NAO"] as const, "SISTEMA"),
     textoCompras: s("textoCompras"), textoCotacoes: s("textoCotacoes"),
     documentos: Object.fromEntries(Object.keys(PADRAO_ESTOQUE.documentos).map((k) => [k, form.get(`doc_${k}`) === "1"])),
     xml: { frete: form.get("xmlFrete") === "1", desconto: form.get("xmlDesconto") === "1", impostos: form.get("xmlImpostos") === "1", outras: form.get("xmlOutras") === "1", vincularPor: um("vincularPor", ["NOME", "CODIGO", "AMBOS"] as const, "AMBOS") },

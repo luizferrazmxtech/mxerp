@@ -14,10 +14,11 @@ import { ResumoConversao, SeletorUnidade } from "@/components/itens/CelulaConver
 import { fatorPeloNome, mesmaUnidade } from "@/lib/itens/unidades";
 import { salvarCompraForm, type Resultado } from "@/lib/compras/acoes";
 import { subtotalCompra, totaisCompra, type DadosCompra, type LinhaCompra } from "@/lib/compras/tipos";
+import type { EstoqueEntrada } from "@/lib/estoque/entrada";
 import { gerarParcelas, lerNumero, type LinhaServico } from "@/lib/orcamentos/tipos";
 
 export type InicialCompra = DadosCompra & { id?: string; proximoNumero: number; anexos: { id: string; nome: string }[] };
-type Opcoes = { situacoes: { id: string; nome: string }[]; formas: { id: string; nome: string }[]; campos: { id: string; nome: string }[]; centros: string[] };
+type Opcoes = { situacoes: { id: string; nome: string }[]; formas: { id: string; nome: string }[]; campos: { id: string; nome: string }[]; centros: string[]; estoques?: EstoqueEntrada[] };
 type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; custo: number; fisico: number | null; disponivel?: number | null; situacao?: SituacaoEstoque; minimo?: number; unidadeCompra: string | null; fatorConversao: number };
 type ServicoBusca = { id: string; codigo: string; nome: string; preco: number };
 
@@ -150,6 +151,14 @@ export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op
           <Campo rotulo="Situação" obrigatorio><select className="campo" value={d.situacaoId} onChange={(e) => set("situacaoId", e.target.value)}>{op.situacoes.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select></Campo>
           <Campo rotulo="Número da NF-e"><input className="campo" value={d.numeroNfe} onChange={(e) => set("numeroNfe", e.target.value)} /></Campo>
           <Campo rotulo="Chave da NF-e" className="lg:col-span-2"><input className="campo font-mono text-[12px]" maxLength={60} value={d.chaveNfe} onChange={(e) => set("chaveNfe", e.target.value)} /></Campo>
+          {(!servico || d.produtos.length > 0) && (op.estoques?.length ?? 0) > 0 && (
+            <Campo rotulo="Estoque de entrada" obrigatorio>
+              <select className="campo" value={d.depositoId ?? ""} onChange={(e) => set("depositoId", e.target.value)}>
+                {op.estoques!.map((e) => <option key={e.id} value={e.id}>{e.carro ? `Carro · ${e.nome}` : e.nome}</option>)}
+              </select>
+              {op.estoques!.find((e) => e.id === d.depositoId)?.carro && <span className="text-[11px] text-amber-700">As peças vão para o carro, fora do estoque da loja.</span>}
+            </Campo>
+          )}
           <Campo rotulo="Centro de custo"><input className="campo" list="centros" value={d.centroCusto} onChange={(e) => set("centroCusto", e.target.value)} /><datalist id="centros">{op.centros.map((c) => <option key={c} value={c} />)}</datalist></Campo>
           {op.campos.map((c) => <Campo key={c.id} rotulo={c.nome}><input className="campo" value={d.camposExtras[c.id] ?? ""} onChange={(e) => set("camposExtras", { ...d.camposExtras, [c.id]: e.target.value })} /></Campo>)}
         </div>
