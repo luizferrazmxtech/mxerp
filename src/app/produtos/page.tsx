@@ -70,6 +70,7 @@ export default async function Produtos({ searchParams }: { searchParams: Promise
                 {tem("cadastrado") && <td>{dataSP(p.createdAt)}</td>}
                 <td>
                   <div className="flex justify-end gap-1">
+                    {e.reservado > 0 && <Link href={`/produtos/${p.id}?aba=estoque#reservas`} className="btn-icone text-amber-700" title="Onde está reservado"><Icone nome="hoje" size={13} /></Link>}
                     <Link href={`/produtos/${p.id}`} className="btn-icone" title="Visualizar"><Icone nome="ver" size={13} /></Link>
                     <Link href={`/produtos/${p.id}/editar`} className="btn-icone" title="Editar"><Icone nome="editar" size={13} /></Link>
                     <Suspenso direita classe="btn-icone" botao={<Icone nome="opcoes" size={13} />}>

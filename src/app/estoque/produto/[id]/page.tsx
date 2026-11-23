@@ -8,6 +8,8 @@ import { brl, dataHora, qtd } from "@/lib/ui/format";
 import { Bloco, Campo, Pagina } from "@/components/ui/Pagina";
 import Resumo from "@/components/ui/Resumo";
 import Icone from "@/components/Icone";
+import TabelaReservas from "@/components/estoque/TabelaReservas";
+import { reservasDoProduto } from "@/lib/estoque/reservas";
 import { darEntrada, darSaida, definirLocalPadrao, fazerTransferencia, salvarFiscalProduto } from "../../actions";
 
 export const dynamic = "force-dynamic";
@@ -25,11 +27,11 @@ export default async function ProdutoEstoque({ params }: { params: Promise<{ id:
     prisma.$transaction((tx) => resumoProduto(tx, id)),
     prisma.$transaction((tx) => disponivelPorLocal(tx, id, { incluirCarros: true })),
     prisma.local.findMany({ where: { ativo: true, ...(await whereLocaisDaLoja()) }, orderBy: { codigo: "asc" } }),
-    prisma.reserva.findMany({ where: { produtoId: id, status: "ATIVA" }, include: { local: true }, orderBy: { createdAt: "asc" } }),
+    reservasDoProduto(id),
     prisma.movimentoEstoque.findMany({ where: { produtoId: id }, include: { local: true, usuario: { select: { nome: true } } }, orderBy: { createdAt: "desc" }, take: 30 }),
   ]);
   const nomeLocal = new Map(locais.map((l) => [l.id, l.codigo]));
-  const docs = await documentosDosMovimentos([...movimentos, ...reservas.map((r) => ({ origemTipo: r.origemTipo, origemId: r.origemId }))]);
+  const docs = await documentosDosMovimentos(movimentos);
   const total = resumo.fisico || 1;
   const comSaldo = porLocal.filter((l) => l.fisico !== 0 || l.reservado !== 0);
 
@@ -74,26 +76,8 @@ export default async function ProdutoEstoque({ params }: { params: Promise<{ id:
           </table>
         </Bloco>
 
-        <Bloco icone="hoje" titulo={<>Reservado <b>para</b></>} corpo="p-0">
-          <table className="tabela">
-            <thead><tr><th>Documento</th><th>Local</th><th className="text-right">Qtd</th></tr></thead>
-            <tbody>
-              {reservas.map((r) => {
-                const d = documentoDe(docs, r);
-                return (
-                  <tr key={r.id}>
-                    <td>
-                      {d ? <Link className="font-medium text-marca hover:underline" href={d.href}>{d.rotulo}</Link> : TIPO_ORIGEM[r.origemTipo] ?? r.origemTipo}
-                      {d?.pessoa && <div className="text-[12px] text-slate-500">{d.pessoa}</div>}
-                    </td>
-                    <td>{r.local?.codigo ?? <span className="pilula text-red-700">em falta</span>}</td>
-                    <td className="text-right">{qtd(r.quantidade)}</td>
-                  </tr>
-                );
-              })}
-              {!reservas.length && <tr><td colSpan={3} className="py-6 text-center text-slate-500">Nenhuma reserva.</td></tr>}
-            </tbody>
-          </table>
+        <Bloco icone="hoje" titulo={<>Reservado <b>para</b></>} corpo="overflow-x-auto p-0">
+          <TabelaReservas docs={reservas} unidade={produto.unidade} />
         </Bloco>
       </div>
 

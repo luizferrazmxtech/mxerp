@@ -11,6 +11,8 @@ import { LinkSuspenso } from "@/components/ui/BarraLista";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import Icone from "@/components/Icone";
 import AlterarConversao from "@/components/itens/AlterarConversao";
+import TabelaReservas from "@/components/estoque/TabelaReservas";
+import { reservasDoProduto } from "@/lib/estoque/reservas";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar produto" };
@@ -47,6 +49,7 @@ export default async function VerProduto({ params, searchParams }: { params: Pro
     prisma.deposito.findMany({ where: { ativo: true }, orderBy: { nome: "asc" } }),
     prisma.reserva.aggregate({ where: { produtoId: id, status: "ATIVA", local: { deposito: { equipeId: { not: null } } } }, _sum: { quantidade: true } }),
   ]);
+  const reservasDocs = aba === "estoque" ? await reservasDoProduto(id) : [];
   const custoFinal = Number(p.custo) + Number(p.despesasAcessorias) + Number(p.outrasDespesas);
   const base = `/produtos/${id}`;
   const ce = (p.camposExtras ?? {}) as Record<string, string>;
@@ -146,10 +149,14 @@ export default async function VerProduto({ params, searchParams }: { params: Pro
                 <h3 className="mb-2 font-semibold">Onde está (prateleiras)</h3>
                 {saldos.filter((s) => Number(s.quantidade) !== 0).map((s) => <div key={s.localId}>{s.local.deposito.nome} · {s.local.codigo}: <b>{qtd(s.quantidade)}</b></div>)}
                 <div className="mt-2 text-slate-600">
-                  {fisicoCarros !== 0 && <>Físico total {qtd(fisico)} · </>}Físico{fisicoCarros !== 0 ? " - Loja" : ""} {qtd(fisico - fisicoCarros)} · Reservado {qtd(resLoja)} · Disponível{fisicoCarros !== 0 ? " na loja" : ""} {qtd(fisico - fisicoCarros - resLoja)}
+                  {fisicoCarros !== 0 && <>Físico total {qtd(fisico)} · </>}Físico{fisicoCarros !== 0 ? " - Loja" : ""} {qtd(fisico - fisicoCarros)} · {resLoja ? <a href="#reservas" className="text-amber-700 hover:underline">Reservado {qtd(resLoja)}</a> : <>Reservado 0</>} · Disponível{fisicoCarros !== 0 ? " na loja" : ""} {qtd(fisico - fisicoCarros - resLoja)}
                   {fisicoCarros !== 0 && <> · Nos carros {qtd(fisicoCarros)} ({qtd(fisicoCarros - resCarros)} livre)</>}
                 </div>
                 <Link href={`/estoque/produto/${id}`} className="mt-2 inline-block text-marca hover:underline">Ajustar ou transferir estoque</Link>
+              </div>
+              <div id="reservas" className="cartao overflow-x-auto">
+                <h3 className="px-4 pb-1 pt-3 text-[13px] font-semibold">Reservado para ({reservasDocs.length} {reservasDocs.length === 1 ? "documento" : "documentos"})</h3>
+                <TabelaReservas docs={reservasDocs} unidade={p.unidade} />
               </div>
               {sp.ok && <div className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800">Conversão gravada. {sp.ok}</div>}
               {sp.acao === "conversao" ? (
