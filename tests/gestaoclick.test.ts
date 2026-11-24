@@ -518,6 +518,13 @@ describe("forma de pagamento e documento das contas do Gestão Click", () => {
     await prisma.lancamento.updateMany({ where: { id: { in: [lo.id, lc.id] } }, data: { formaPagamentoId: null, origemTipo: "IMPLANTACAO", origemId: null } });
     // só completar: a conta excluída no MXERP não volta
     await prisma.lancamento.delete({ where: { id: lv.id } });
+    // a lista do financeiro já acha o documento pelo número da descrição, antes de completar
+    const { origemPelaDescricao } = await import("@/lib/financeiro/origem");
+    const soltas = await prisma.lancamento.findMany({ where: { id: { in: [lo.id, lc.id] } } });
+    const achadas = await origemPelaDescricao(soltas);
+    expect(achadas.get(lo.id)).toEqual({ origemTipo: "OS", origemId: os.id });
+    expect(achadas.get(lc.id)).toEqual({ origemTipo: "COMPRA", origemId: compra.id });
+    expect((await origemPelaDescricao([{ id: "x", descricao: "Venda de nº 99999", origemTipo: "IMPLANTACAO", origemId: null }])).size).toBe(0);
     const sim = await gc.importarBackupGestaoClick(t, { simular: true, etapas: { completarContas: true } });
     expect(sim.find((r) => r.tipo === "receber")!.avisos.join(" ")).toMatch(/1 contas trazidas antes vão ganhar a forma/);
     expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: lo.id } })).origemId).toBeNull();

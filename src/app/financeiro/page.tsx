@@ -7,6 +7,7 @@ import { avisosPendentes } from "@/lib/financeiro/avisosBoleto";
 import { ROTULO_BOLETO } from "@/lib/financeiro/boletos";
 import { diaSP, periodoDia } from "@/lib/datas";
 import { brl, num2 } from "@/lib/ui/format";
+import { origemPelaDescricao } from "@/lib/financeiro/origem";
 import { boletoAbrivel, contaAvulsa, iconeForma, ordemContas, origemConta, situacaoConta, whereContas, whereSituacao, type ParamsContas } from "@/lib/financeiro/lista";
 import { baixarVariasAcao, estornarContaAcao, excluirContaAcao, excluirVariasAcao } from "./actions";
 import { Pagina } from "@/components/ui/Pagina";
@@ -68,9 +69,12 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
     sp.cli ? prisma.pessoa.findUnique({ where: { id: sp.cli }, select: { id: true, nome: true } }) : null,
   ]);
 
+  // conta do Gestão Click ainda sem o documento ligado: acha a venda/OS/compra pelo número da descrição
+  const achadas = await origemPelaDescricao(lista);
+  const doc = (l: (typeof lista)[number]) => achadas.get(l.id) ?? l;
   // NF-e e NFS-e do documento que gerou a conta
-  const origens = lista.filter((l) => l.origemId && (l.origemTipo === "VENDA" || l.origemTipo === "OS")).map((l) => l.origemId!);
-  const compras = lista.filter((l) => l.origemId && l.origemTipo === "COMPRA").map((l) => l.origemId!);
+  const origens = lista.map(doc).filter((l) => l.origemId && (l.origemTipo === "VENDA" || l.origemTipo === "OS")).map((l) => l.origemId!);
+  const compras = lista.map(doc).filter((l) => l.origemId && l.origemTipo === "COMPRA").map((l) => l.origemId!);
   const [notas, nfCompras] = await Promise.all([
     origens.length ? prisma.notaFiscal.findMany({ where: { origemId: { in: origens }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true, modelo: true } }) : [],
     compras.length ? prisma.compra.findMany({ where: { id: { in: compras } }, select: { id: true, numeroNfe: true } }) : [],
@@ -110,9 +114,10 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
           {lista.map((l) => {
             const s = situacaoConta(l, hoje);
             const ic = iconeForma(l.formaPagamento);
-            const orig = origemConta(l);
-            const nf = nfe(l.origemId), ns = nfse(l.origemId);
-            const nfc = l.origemId ? nfCompra.get(l.origemId) : null;
+            const d = doc(l);
+            const orig = origemConta({ id: l.id, ...d });
+            const nf = nfe(d.origemId), ns = nfse(d.origemId);
+            const nfc = d.origemId ? nfCompra.get(d.origemId) : null;
             const bol = l.boletos[0];
             const pdf = boletoAbrivel(bol);
             return (
