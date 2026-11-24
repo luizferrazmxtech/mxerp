@@ -141,7 +141,12 @@ export function assinarDps(xml: string, cert: Certificado) {
   return assinarXml(xml, cert, { tag: "infDPS", pai: "DPS", sha256: process.env.NFSE_ASSINATURA_SHA256 === "1" });
 }
 
-export const gzipB64 = (xml: string) => gzipSync(Buffer.from(xml, "utf8")).toString("base64");
+/**
+ * A Sefin Nacional recusa o XML sem a declaração de codificação (E1229 "Xml não está utilizando codificação UTF-8"):
+ * o documento vai sempre com <?xml version="1.0" encoding="UTF-8"?> na frente, em UTF-8 sem BOM.
+ */
+export const comDeclaracao = (xml: string) => `<?xml version="1.0" encoding="UTF-8"?>${xml.replace(/^\uFEFF/, "").replace(/^\s*<\?xml[^>]*\?>\s*/, "")}`;
+export const gzipB64 = (xml: string) => gzipSync(Buffer.from(comDeclaracao(xml), "utf8")).toString("base64");
 export const gunzipB64 = (b64: string) => gunzipSync(Buffer.from(b64, "base64")).toString("utf8");
 
 /** Pedido de cancelamento (evento 101101). cMotivo: 1 erro na emissão, 2 serviço não prestado, 9 outros. */
