@@ -20,7 +20,7 @@ export default async function VerOsPortal({ params }: { params: Promise<{ id: st
         acoes={<a href={`/cobranca/os/${o.token}`} target="_blank" rel="noreferrer" className="btn-sec"><Icone nome="imprimir" size={15} /> Imprimir / PDF</a>} />
 
       <Secao titulo="Dados da OS" icone="detalhes">
-        <Dados itens={[["Entrada", dataSP(o.entrada)], ["Previsão", o.previsao ? dataSP(o.previsao) : "—"], ["Saída", o.saida ? dataSP(o.saida) : "—"], ["Técnico", o.tecnico]]} />
+        <Dados itens={[["Entrada", dataSP(o.entrada)], ["Previsão", o.previsao ? dataSP(o.previsao) : "—"], ["Saída", o.saida ? dataSP(o.saida) : "—"], ["Técnico", o.tecnico], ["Tempo de execução", o.tempoExecucao]]} />
         {o.observacoes && <p className="mt-3 whitespace-pre-line border-t border-slate-100 pt-3 text-[14px]">{o.observacoes}</p>}
       </Secao>
 

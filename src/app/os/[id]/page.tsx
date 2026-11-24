@@ -56,6 +56,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   const eu = await usuarioAtual();
   const verFinanceiro = !!eu && podeAcessar(eu.papel, "/financeiro");
   const corrigeTempo = !!eu && (await pode(eu.papel, "os.editarTempo"));
+  const imprimeAdmin = !!eu && (await pode(eu.papel, "os.imprimirAdministrativa"));
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const o = await prisma.ordemServico.findUnique({
     where: { id },
@@ -163,9 +164,12 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             {zapAtivo && <LinkSuspenso href={`${base}?whatsapp=1`} icone="whatsapp">WhatsApp (MXChat)</LinkSuspenso>}
             <CopiarLink url={link} menu />
             <div className="mt-1 border-t px-3 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase text-slate-400">Imprimir</div>
-            <a href={`${base}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS</a>
-            <a href={`${base}/imprimir?modo=completa`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS completa</a>
-            <a href={`${base}/imprimir?modo=historico`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS completa com histórico</a>
+            <a href={`${base}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS do cliente (fotos e tempo)</a>
+            {imprimeAdmin && <>
+              <div className="mt-1 border-t px-3 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase text-slate-400">Administrativa (uso interno)</div>
+              <a href={`${base}/imprimir?modo=completa`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS administrativa</a>
+              <a href={`${base}/imprimir?modo=historico`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS administrativa com histórico</a>
+            </>}
           </Suspenso>
         </div>
       </div>

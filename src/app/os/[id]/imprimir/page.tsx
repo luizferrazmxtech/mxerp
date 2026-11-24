@@ -1,15 +1,20 @@
 import Link from "next/link";
 import DocumentoOs, { type ModoImpressao } from "@/components/os/DocumentoOs";
 import BotaoImprimir from "@/components/orcamentos/BotaoImprimir";
+import { usuarioAtual } from "@/lib/auth/atual";
+import { pode } from "@/lib/auth/permissoesAcao";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Imprimir OS" };
 
-/** OS para imprimir ou salvar em PDF, com o cabeçalho da MXTECH. */
+/** OS para imprimir ou salvar em PDF, com o cabeçalho da MXTECH. A versão do cliente é a única que pode ser enviada. */
 export default async function ImprimirOs({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ modo?: string }> }) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const modo: ModoImpressao = sp.modo === "completa" || sp.modo === "historico" ? sp.modo : "simples";
-  const opcoes: [ModoImpressao, string, string][] = [["simples", "OS", ""], ["completa", "OS completa", "?modo=completa"], ["historico", "OS completa com histórico", "?modo=historico"]];
+  const eu = await usuarioAtual();
+  // a impressão administrativa (histórico, trechos de mão de obra, observação interna) é só para quem tem a permissão
+  const admin = !!eu && (await pode(eu.papel, "os.imprimirAdministrativa"));
+  const modo: ModoImpressao = admin && (sp.modo === "completa" || sp.modo === "historico") ? sp.modo : "simples";
+  const opcoes: [ModoImpressao, string, string][] = [["simples", "OS do cliente", ""], ...(admin ? [["completa", "Administrativa", "?modo=completa"], ["historico", "Administrativa com histórico", "?modo=historico"]] as [ModoImpressao, string, string][] : [])];
   return (
     <div className="bg-white">
       <div className="no-print mx-auto mb-4 flex max-w-[820px] gap-2 p-6 pb-0"><Link href={`/os/${id}`} className="btn-sec">Voltar</Link>
