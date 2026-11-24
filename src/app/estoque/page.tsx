@@ -9,13 +9,15 @@ import Paginacao, { lerPagina } from "@/components/ui/Paginacao";
 import Resumo from "@/components/ui/Resumo";
 import Suspenso from "@/components/ui/Suspenso";
 import Icone from "@/components/Icone";
+import FiltroAtivos from "@/components/ui/FiltroAtivos";
+import { situacaoAtivo } from "@/lib/itens/ativos";
 import TabelaReservas from "@/components/estoque/TabelaReservas";
 import { reservasDoProduto } from "@/lib/estoque/reservas";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Estoque" };
 
-type Params = { q?: string; f?: string; p?: string; pp?: string; reservas?: string };
+type Params = { q?: string; f?: string; p?: string; pp?: string; reservas?: string; ativo?: string };
 
 /** Filtros dos cartões do topo. */
 const FILTROS: Record<string, (l: LinhaEstoque) => boolean> = {
@@ -29,7 +31,7 @@ const FILTROS: Record<string, (l: LinhaEstoque) => boolean> = {
 export default async function EstoquePage({ searchParams }: { searchParams: Promise<Params> }) {
   const sp = await searchParams;
   const base = "/estoque";
-  const todas = await buscarEstoque(sp.q ?? "", 100000);
+  const todas = await buscarEstoque(sp.q ?? "", 100000, situacaoAtivo(sp.ativo));
   const controladas = todas.filter((l) => l.situacao !== "SEM_CONTROLE");
   const filtro = sp.f && FILTROS[sp.f];
   const linhas = filtro ? todas.filter(filtro) : todas;
@@ -47,6 +49,7 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
   return (
     <Pagina titulo="Estoque" icone="estoque" trilha={[{ rotulo: "Estoque", href: base }, { rotulo: "Consultar" }]}>
       <BarraCadastro base={base} params={sp} avancada={false} placeholder="Código, nome ou código de barras"
+        filtros={<FiltroAtivos base={base} params={sp} />}
         maisAcoes={<>
           <LinkSuspenso href="/estoque/ajustes" icone="ajustes">Ajustes de estoque</LinkSuspenso>
           <LinkSuspenso href="/estoque/transferencias" icone="transferir">Transferências</LinkSuspenso>
@@ -83,10 +86,10 @@ export default async function EstoquePage({ searchParams }: { searchParams: Prom
             {pagina_.map((l) => {
               const s = ROTULO_ESTOQUE[l.situacao];
               return (
-                <tr key={l.id}>
+                <tr key={l.id} className={l.ativo ? "" : "text-slate-400"}>
                   <td>{l.codigo}</td>
                   <td>
-                    <Link href={`/produtos/${l.id}`} className="hover:underline">{l.nome}</Link>
+                    <Link href={`/produtos/${l.id}`} className="hover:underline">{l.nome}</Link>{!l.ativo && <span className="ml-2 text-[11px]">(inativo)</span>}
                     {l.falta > 0 && <span className="etiqueta ml-2 text-red-700">faltam {qtd(l.falta)} p/ pedidos</span>}
                   </td>
                   <td className="text-[12px] text-slate-600">{l.locais ?? "—"}</td>

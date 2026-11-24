@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/auth/atual";
 import { whereProdutos, ordemProdutos, type ParamsLista } from "@/lib/itens/filtros";
+import { situacaoAtivo } from "@/lib/itens/ativos";
 import { estoquesDe } from "@/lib/itens/produtos";
 import { ajustarProdutosAcao, ajustarValoresAcao, clonarProdutoAcao, excluirProdutoAcao, excluirProdutosAcao } from "@/lib/itens/acoes";
 import { colunasVisiveis } from "@/lib/ui/colunas";
@@ -17,6 +18,7 @@ import FormSelecao, { FormAcao } from "@/components/ui/FormSelecao";
 import Icone from "@/components/Icone";
 import BuscaFornecedor from "@/components/itens/BuscaFornecedor";
 import CelulaEstoque from "@/components/estoque/CelulaEstoque";
+import FiltroAtivos from "@/components/ui/FiltroAtivos";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Produtos" };
@@ -94,6 +96,7 @@ export default async function Produtos({ searchParams }: { searchParams: Promise
   return (
     <Pagina titulo="Produtos" icone="produtos" trilha={[{ rotulo: "Produtos", href: "/produtos" }, { rotulo: "Listar" }]}>
       <BarraCadastro base="/produtos" params={sp} adicionar={{ href: "/produtos/adicionar" }} placeholder="Buscar por nome ou código"
+        filtros={<FiltroAtivos base="/produtos" params={sp} />}
         colunas={<GerenciarColunas lista="/produtos" colunas={COLUNAS} visiveis={vis} />}
         maisAcoes={<>
           <LinkSuspenso href="/produtos/importar" icone="importar">Importar</LinkSuspenso>
@@ -116,7 +119,7 @@ export default async function Produtos({ searchParams }: { searchParams: Promise
             <label><span className="rotulo">Nome</span><input name="nome" defaultValue={sp.nome} className="campo" /></label>
             <label><span className="rotulo">Código</span><input name="codigo" defaultValue={sp.codigo} className="campo" /></label>
             <label><span className="rotulo">Ativo</span>
-              <select name="ativo" defaultValue={sp.ativo ?? ""} className="campo"><option value="">Todos</option><option value="sim">Sim</option><option value="nao">Não</option></select></label>
+              <select name="ativo" defaultValue={situacaoAtivo(sp.ativo)} className="campo"><option value="sim">Somente ativos</option><option value="nao">Somente inativos</option><option value="todos">Todos</option></select></label>
             <label className="lg:col-span-2"><span className="rotulo">Situação</span>
               <select name="sit" defaultValue={sp.sit ?? ""} className="campo">
                 <option value="">Independe</option>

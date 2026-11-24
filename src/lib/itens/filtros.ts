@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { palavras, wherePalavras } from "@/lib/busca/palavras";
 import { CODIGO_AVULSO } from "./avulso";
+import { situacaoAtivo } from "./ativos";
 
 export type ParamsLista = Record<string, string | undefined>;
 
@@ -27,8 +28,8 @@ export async function whereProdutos(sp: ParamsLista): Promise<Prisma.ProdutoWher
     const filhos = await prisma.grupoProduto.findMany({ where: { paiId: sp.grupo }, select: { id: true } });
     and.push({ grupoId: { in: [sp.grupo, ...filhos.map((f) => f.id)] } });
   }
-  if (sp.ativo === "sim") and.push({ ativo: true });
-  if (sp.ativo === "nao") and.push({ ativo: false });
+  const ativo = situacaoAtivo(sp.ativo); // padrão: só ativos; inativos só se o usuário escolher
+  if (ativo !== "todos") and.push({ ativo: ativo === "sim" });
   if (sp.forn) and.push({ fornecedores: { some: { fornecedorId: sp.forn } } });
   if (sp.sit) {
     const cond = {

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { lojaAtualId } from "@/lib/empresa/loja";
+import { lojaAtualId, sqlDoGrupo } from "@/lib/empresa/loja";
+import type { SituacaoAtivo } from "@/lib/itens/ativos";
 import { wherePalavras } from "@/lib/busca/palavras";
 import { situacaoEstoque, type SituacaoEstoque } from "@/lib/itens/estoqueSituacao";
 
@@ -20,10 +21,11 @@ export type LinhaEstoque = {
   minimo: number;
   maximo: number | null;
   situacao: SituacaoEstoque;
+  ativo: boolean;
 };
 
 /** Lista de produtos com físico / reservado / disponível e onde estão. */
-export async function buscarEstoque(termo = "", limite = 100): Promise<LinhaEstoque[]> {
+export async function buscarEstoque(termo = "", limite = 100, ativo: SituacaoAtivo = "sim"): Promise<LinhaEstoque[]> {
   const loja = await lojaAtualId(); // saldo só dos depósitos da loja atual (e dos sem loja)
   const rows = await prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
     WITH s AS (
@@ -45,14 +47,14 @@ export async function buscarEstoque(termo = "", limite = 100): Promise<LinhaEsto
        WHERE d."equipeId" IS NOT NULL AND (${loja}::text IS NULL OR d."empresaId" IS NULL OR d."empresaId" = ${loja})
        GROUP BY sa."produtoId"
     )
-    SELECT p.id, p.codigo, p.nome, p.unidade, p."precoVenda", p."controlaEstoque", p."estoqueMinimo", p."estoqueMaximo",
+    SELECT p.id, p.codigo, p.nome, p.ativo, p.unidade, p."precoVenda", p."controlaEstoque", p."estoqueMinimo", p."estoqueMaximo",
            COALESCE(s.fisico,0) fisico, COALESCE(r.reservado,0) reservado,
            COALESCE(r.falta,0) falta, COALESCE(t.livre,0) carros, s.locais
       FROM "Produto" p
       LEFT JOIN s ON s."produtoId" = p.id
       LEFT JOIN r ON r."produtoId" = p.id
       LEFT JOIN t ON t."produtoId" = p.id
-     WHERE p.ativo AND (p.gtin = ${termo.trim()} OR ${wherePalavras(termo, [Prisma.sql`p.nome`, Prisma.sql`p.codigo`, Prisma.sql`p.gtin`])})
+     WHERE ${ativo === "todos" ? Prisma.sql`TRUE` : ativo === "sim" ? Prisma.sql`p.ativo` : Prisma.sql`NOT p.ativo`} AND (p.gtin = ${termo.trim()} OR ${wherePalavras(termo, [Prisma.sql`p.nome`, Prisma.sql`p.codigo`, Prisma.sql`p.gtin`])})${await sqlDoGrupo("p.lojas")}
      ORDER BY (lower(p.codigo) = ${termo.trim().toLowerCase()} OR p.gtin = ${termo.trim()}) DESC, p.nome
      LIMIT ${limite}`);
   return rows.map((r) => {
@@ -68,6 +70,7 @@ export async function buscarEstoque(termo = "", limite = 100): Promise<LinhaEsto
       nome: r.nome as string,
       unidade: r.unidade as string,
       precoVenda: Number(r.precoVenda),
+      ativo: r.ativo !== false,
       fisico,
       reservado,
       falta: Number(r.falta),
