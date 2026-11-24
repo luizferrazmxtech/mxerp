@@ -152,8 +152,14 @@ export async function excluirOrcamento(id: string) {
 /** Valor unitário efetivo da linha (o desconto da linha entra no preço do pedido). */
 const unitLiquido = (l: { quantidade: Prisma.Decimal; subtotal: Prisma.Decimal }) => Math.round((Number(l.subtotal) / Number(l.quantidade)) * 100) / 100;
 
+/** Situação para onde vai o orçamento ao gerar venda/OS: a escolhida (se for de concretizar) ou a primeira que gera venda. */
+async function situacaoConcretizado(situacaoId?: string) {
+  const escolhida = situacaoId ? await prisma.situacaoOrcamento.findFirst({ where: { id: situacaoId, geraVenda: true } }) : null;
+  return escolhida ?? prisma.situacaoOrcamento.findFirst({ where: { geraVenda: true }, orderBy: { ordem: "asc" } });
+}
+
 /** "Gerar venda": copia o orçamento inteiro para um pedido em aberto (reservando o estoque) e leva o orçamento para a situação que gera venda. */
-export async function gerarVendaDoOrcamento(id: string, u: Usuario) {
+export async function gerarVendaDoOrcamento(id: string, u: Usuario, situacaoId?: string) {
   const o = await prisma.orcamento.findUniqueOrThrow({
     where: { id },
     include: { produtos: { include: { produto: true }, orderBy: { ordem: "asc" } }, servicos: { include: { servico: true }, orderBy: { ordem: "asc" } }, parcelas: { orderBy: { numero: "asc" } } },
@@ -177,7 +183,7 @@ export async function gerarVendaDoOrcamento(id: string, u: Usuario) {
     observacoes: o.observacoes ?? "", observacaoInterna: o.observacaoInterna ?? "", camposExtras: {},
   }, u, undefined, { orcamentoNumero: o.numero });
   const vendaId = venda.id;
-  const conc = await prisma.situacaoOrcamento.findFirst({ where: { geraVenda: true }, orderBy: { ordem: "asc" } });
+  const conc = await situacaoConcretizado(situacaoId);
   await prisma.$transaction([
     prisma.orcamento.update({ where: { id }, data: { vendaId, ...(conc ? { situacaoId: conc.id } : {}) } }),
     prisma.orcamentoHistorico.create({ data: { orcamentoId: id, descricao: `Gerada a venda nº ${venda.numero}`, situacao: conc?.nome, usuarioNome: u.nome } }),
@@ -185,10 +191,11 @@ export async function gerarVendaDoOrcamento(id: string, u: Usuario) {
   return { vendaId, numero: venda.numero };
 }
 
-/** "Gerar OS": abre uma ordem de serviço com os produtos (reservados) e serviços do orçamento. */
-export async function gerarOsDoOrcamento(id: string, u: Usuario) {
-  const o = await prisma.orcamento.findUniqueOrThrow({ where: { id }, include: { produtos: { orderBy: { ordem: "asc" } }, servicos: true } });
+/** "Gerar OS": abre uma ordem de serviço com os produtos (reservados) e serviços do orçamento e leva o orçamento para a situação de concretizado. */
+export async function gerarOsDoOrcamento(id: string, u: Usuario, situacaoId?: string) {
+  const o = await prisma.orcamento.findUniqueOrThrow({ where: { id }, include: { produtos: { orderBy: { ordem: "asc" } }, servicos: { orderBy: { ordem: "asc" } } } });
   if (o.osId) throw new OrcamentoError("Este orçamento já gerou uma OS");
+  if (!o.produtos.length && !o.servicos.length) throw new OrcamentoError("O orçamento não tem itens");
   const { osId } = await salvarOs({
     cabecalho: {
       clienteId: o.clienteId, vendedorId: o.vendedorId, previsao: o.prazoEntrega, canal: o.canal,
@@ -207,9 +214,10 @@ export async function gerarOsDoOrcamento(id: string, u: Usuario) {
     for (const [i, it] of naOs.entries()) if (avulsos[i]) await prisma.osItemProduto.update({ where: { id: it.id }, data: { detalhes: [avulsos[i].descricao, avulsos[i].detalhes].filter(Boolean).join(" · ") } });
   }
   const os = await prisma.ordemServico.findUniqueOrThrow({ where: { id: osId }, select: { numero: true } });
+  const conc = await situacaoConcretizado(situacaoId);
   await prisma.$transaction([
-    prisma.orcamento.update({ where: { id }, data: { osId } }),
-    prisma.orcamentoHistorico.create({ data: { orcamentoId: id, descricao: `Gerada a OS nº ${os.numero}`, usuarioNome: u.nome } }),
+    prisma.orcamento.update({ where: { id }, data: { osId, ...(conc ? { situacaoId: conc.id } : {}) } }),
+    prisma.orcamentoHistorico.create({ data: { orcamentoId: id, descricao: `Gerada a OS nº ${os.numero}`, situacao: conc?.nome, usuarioNome: u.nome } }),
   ]);
   return { osId, numero: os.numero };
 }
