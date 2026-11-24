@@ -33,6 +33,7 @@ export async function bloqueiosJuncaoOs(tx: Tx | typeof prisma, ids: string[], u
   if (!ordens.length) return { ordens, bloqueios: b };
   if (new Set(ordens.map((o) => o.clienteId)).size > 1) b.push(`As OS são de clientes diferentes (${[...new Set(ordens.map((o) => o.cliente.nome))].join(", ")})`);
   if (new Set(ordens.map((o) => o.empresaId ?? "")).size > 1) b.push("As OS são de empresas (CNPJ) diferentes");
+  if (new Set(ordens.map((o) => o.empresaServicosId ?? "")).size > 1) b.push("Os serviços das OS são faturados por empresas diferentes: deixe a mesma empresa em todas");
   if (new Set(ordens.map((o) => o.situacaoId ?? o.situacao)).size > 1) b.push(`As OS estão em situações diferentes (${[...new Set(ordens.map((o) => o.situacaoCfg?.nome ?? o.situacao))].join(", ")}): deixe todas na mesma situação`);
   const s = ordens[0].situacaoCfg;
   if (ordens.some((o) => ["CANCELADA", "DEVOLVIDA_SEM_REPARO"].includes(o.situacao) || o.situacaoCfg?.estoque === "NAO")) b.push("OS cancelada ou devolvida não pode ser juntada");
@@ -104,7 +105,7 @@ export async function juntarOrdens(idsEntrada: string[], u: Usuario, opts: { per
     do numero = await proximoNumero(tx, "OS"); while (await tx.ordemServico.findUnique({ where: { numero } }));
     const nova = await tx.ordemServico.create({
       data: {
-        numero, clienteId: ordens[0].clienteId, empresaId: ordens[0].empresaId, vendedorId: primeiro((o) => o.vendedorId), tecnicoId: tecnicoIds[0] ?? null, tecnicoIds,
+        numero, clienteId: ordens[0].clienteId, empresaId: ordens[0].empresaId, empresaServicosId: ordens[0].empresaServicosId, vendedorId: primeiro((o) => o.vendedorId), tecnicoId: tecnicoIds[0] ?? null, tecnicoIds,
         equipeId: primeiro((o) => o.equipeId), entrada: new Date(Math.min(...ordens.map((o) => o.entrada.getTime()))),
         saida: saidas.every((s) => s) ? new Date(Math.max(...saidas.map((s) => s!.getTime()))) : null,
         previsao: saidas.every((s) => s) ? new Date(Math.max(...saidas.map((s) => s!.getTime()))) : null,

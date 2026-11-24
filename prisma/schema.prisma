@@ -780,6 +780,9 @@ model OrdemServico {
   id                String        @id @default(cuid())
   empresaId         String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   numero            Int           @unique
+  /// empresa (CNPJ) que fatura os serviços (mão de obra): NFS-e e conta a receber dela. Nulo = a própria empresa da OS.
+  /// Ex.: OS da MXTECH com os serviços pela VFX (alíquota menor); as peças seguem com NF-e e cobrança da MXTECH.
+  empresaServicosId String?
   clienteId         String
   cliente           Pessoa        @relation(fields: [clienteId], references: [id])
   tecnicoId         String?
@@ -853,6 +856,7 @@ model OrdemServico {
   @@index([situacao])
   @@index([clienteId])
   @@index([empresaId])
+  @@index([empresaServicosId])
   @@index([equipeId])
   @@index([agendaInicio])
 }

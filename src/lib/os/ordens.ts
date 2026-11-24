@@ -9,6 +9,8 @@ import { taxaDaParcela } from "@/lib/financeiro/taxas";
 import { cartao } from "@/lib/financeiro/taxasCartao";
 import { liberarOrcamentos } from "@/lib/orcamentos/vinculos";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
+import { LOJA_ATUAL, lojaAtualId, naLoja } from "@/lib/empresa/loja";
+import { divisaoOs, empresaDosServicos, servicosPorParcela, valorServicos } from "@/lib/os/faturamento";
 import { proximoNumero } from "@/lib/sequencia";
 import { parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, lerNumero, subtotalProduto, subtotalServico } from "@/lib/orcamentos/tipos";
@@ -69,25 +71,73 @@ async function estadoEfetivo(tx: Tx, osId: string, estado: EstadoEstoque, usuari
   return "LIVRE";
 }
 
-/** Lança as parcelas da OS em contas a receber (pendentes). */
+type ParcelaFin = { numero: number; vencimento: Date; valor: Prisma.Decimal | number; formaPagamentoId: string | null; bandeira: string | null; vezes: number | null };
+
+/** Lança as parcelas da OS em contas a receber (pendentes). Com os serviços por outra empresa, cada parcela vira duas contas. */
 async function lancarFinanceiro(tx: Tx, osId: string) {
   const o = await tx.ordemServico.findUniqueOrThrow({ where: { id: osId }, include: { parcelas: { orderBy: { numero: "asc" } } } });
   if (!(Number(o.total) > 0)) return;
-  await garantirPadroes(tx);
-  const centro = await centroPorNome(tx, o.centroCusto);
-  const rec = await receitaDocumento(tx, Number(o.totalProdutos), Number(o.totalServicos));
-  const parcelas = o.parcelas.length ? o.parcelas : [{ numero: 1, vencimento: o.saida ?? o.entrada, valor: o.total, formaPagamentoId: o.formaPagamentoId, bandeira: null, vezes: null }];
-  for (const p of parcelas) {
-    const l = await tx.lancamento.create({
-      data: {
-        tipo: "RECEBER", descricao: parcelas.length > 1 ? `OS de nº ${o.numero} (${p.numero}/${parcelas.length})` : `OS de nº ${o.numero}`,
-        pessoaId: o.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? o.formaPagamentoId, valor: p.valor,
-        vencimento: p.vencimento, competencia: o.saida ?? o.entrada, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "OS", origemId: o.id, centroCustoId: centro, empresaId: o.empresaId,
-        rateio: { create: rec.rateio },
-      },
-    });
-    await taxaDaParcela(tx, l, p);
+  const parcelas: ParcelaFin[] = o.parcelas.length ? o.parcelas : [{ numero: 1, vencimento: o.saida ?? o.entrada, valor: o.total, formaPagamentoId: o.formaPagamentoId, bandeira: null, vezes: null }];
+  const fora = empresaDosServicos(o);
+  const div = divisaoOs(o);
+  if (!fora || !(div.servicos > 0)) {
+    await garantirPadroes(tx);
+    const centro = await centroPorNome(tx, o.centroCusto);
+    const rec = await receitaDocumento(tx, Number(o.totalProdutos), Number(o.totalServicos));
+    for (const p of parcelas) {
+      const l = await tx.lancamento.create({
+        data: {
+          tipo: "RECEBER", descricao: parcelas.length > 1 ? `OS de nº ${o.numero} (${p.numero}/${parcelas.length})` : `OS de nº ${o.numero}`,
+          pessoaId: o.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? o.formaPagamentoId, valor: p.valor,
+          vencimento: p.vencimento, competencia: o.saida ?? o.entrada, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "OS", origemId: o.id, centroCustoId: centro, empresaId: o.empresaId,
+          rateio: { create: rec.rateio },
+        },
+      });
+      await taxaDaParcela(tx, l, p);
+    }
+    return;
   }
+  const partes = servicosPorParcela(parcelas, div.servicos, div.total);
+  const sufixo = (p: ParcelaFin) => (parcelas.length > 1 ? ` (${p.numero}/${parcelas.length})` : "");
+  // peças (com frete e outros) na empresa da OS
+  if (div.pecas > 0) {
+    await garantirPadroes(tx);
+    const centro = await centroPorNome(tx, o.centroCusto);
+    const rec = await receitaDocumento(tx, Number(o.totalProdutos) > 0 ? div.pecas : 0, Number(o.totalProdutos) > 0 ? 0 : div.pecas);
+    for (const [i, p] of parcelas.entries()) {
+      const valor = Math.round((Number(p.valor) - partes[i]) * 100) / 100;
+      if (!(valor > 0)) continue;
+      const l = await tx.lancamento.create({
+        data: {
+          tipo: "RECEBER", descricao: `OS de nº ${o.numero} – peças${sufixo(p)}`, pessoaId: o.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? o.formaPagamentoId,
+          valor: D(valor), vencimento: p.vencimento, competencia: o.saida ?? o.entrada, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "OS", origemId: o.id, centroCustoId: centro, empresaId: o.empresaId,
+        },
+      });
+      await taxaDaParcela(tx, l, p);
+    }
+  }
+  // serviços na empresa escolhida: plano de contas, forma, centro de custo e Inter dela (a estrutura é separada por empresa)
+  const formas = new Map((await tx.formaPagamento.findMany({ where: { id: { in: parcelas.map((p) => p.formaPagamentoId ?? o.formaPagamentoId).filter((x): x is string => !!x) } }, select: { id: true, nome: true } })).map((f) => [f.id, f.nome]));
+  const empresaOs = o.empresaId ? await tx.empresa.findUnique({ where: { id: o.empresaId }, select: { nomeFantasia: true, razaoSocial: true } }) : null;
+  await naLoja(fora, async () => {
+    await garantirPadroes(tx);
+    const centro = await centroPorNome(tx, o.centroCusto);
+    const cat = await categoria(tx, "Prestação de serviços", "RECEBER");
+    const formaNaEmpresa = new Map<string, string | null>();
+    for (const [id, nome] of formas) formaNaEmpresa.set(id, (await tx.formaPagamento.findUnique({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome } }, select: { id: true } }))?.id ?? null);
+    for (const [i, p] of parcelas.entries()) {
+      if (!(partes[i] > 0)) continue;
+      const formaOs = p.formaPagamentoId ?? o.formaPagamentoId;
+      const l = await tx.lancamento.create({
+        data: {
+          tipo: "RECEBER", descricao: `Serviços da OS nº ${o.numero}${sufixo(p)}`, pessoaId: o.clienteId, categoriaId: cat.id, formaPagamentoId: formaOs ? formaNaEmpresa.get(formaOs) ?? null : null,
+          valor: D(partes[i]), vencimento: p.vencimento, competencia: o.saida ?? o.entrada, parcela: p.numero, totalParcelas: parcelas.length, origemTipo: "OS", origemId: o.id, centroCustoId: centro, empresaId: fora,
+          observacao: `Serviços da OS nº ${o.numero}${empresaOs ? ` da ${empresaOs.nomeFantasia || empresaOs.razaoSocial}` : ""} (as peças são cobradas por ela)`,
+        },
+      });
+      await taxaDaParcela(tx, l, p);
+    }
+  });
 }
 
 /** Passagem de uma situação para outra: estoque, financeiro e data de saída. */
@@ -138,6 +188,20 @@ export async function proximoNumeroOs() {
   return Math.max(s?.valor ?? 0, m._max.numero ?? 0) + 1;
 }
 
+/**
+ * Confere a empresa escolhida para faturar os serviços: precisa estar cadastrada e ativa. Devolve null quando é a
+ * própria empresa da OS (OS antiga sem empresa = a principal), para não dividir à toa.
+ */
+async function empresaServicosValida(tx: Tx, empresaOs: string | null, escolhida: string | null) {
+  if (!escolhida) return null;
+  const e = await tx.empresa.findUnique({ where: { id: escolhida }, select: { id: true, ativa: true, razaoSocial: true } });
+  if (!e) throw new OsError("A empresa escolhida para faturar os serviços não existe mais");
+  const principal = (await tx.empresa.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } }))?.id ?? null;
+  if (e.id === (empresaOs ?? principal)) return null;
+  if (!e.ativa) throw new OsError(`A empresa ${e.razaoSocial} está inativa: escolha outra para faturar os serviços`);
+  return e.id;
+}
+
 /** Cadastra ou altera a OS inteira (todos os blocos do formulário), numa transação. */
 export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { permitirNegativo?: boolean; forcar?: boolean } = {}) {
   if (!t(d.clienteId)) throw new OsError("Informe o cliente");
@@ -171,6 +235,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
   const agendaInicio = dataLocalSP(d.agendaInicio ?? "");
   if (t(d.agendaInicio) && !agendaInicio) throw new OsError("Data do agendamento inválida");
   const tecnicoIds = [...new Set(d.tecnicoIds.filter(Boolean))];
+  const empresaServicosEscolhida = servicos.length ? t(d.empresaServicosId) : null;
 
   const dados = {
     clienteId: d.clienteId, vendedorId: t(d.vendedorId), tecnicoId: tecnicoIds[0] ?? null, tecnicoIds, equipeId: t(d.equipeId),
@@ -181,12 +246,13 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
     totalProdutos: D(tot.produtos), totalServicos: D(tot.servicos), desconto: D(tot.desconto), descontoPercentual: d.descontoPct ? new Prisma.Decimal(n(d.desconto)) : null,
     total: D(tot.total), exibirTotal: d.exibirTotal, condicao: d.condicao, formaPagamentoId: t(d.formaPagamentoId), intervaloDias: Math.trunc(n(d.intervaloDias)) || 30,
     observacoes: t(d.observacoes), observacaoInterna: t(d.observacaoInterna), camposExtras: (d.camposExtras ?? {}) as Prisma.InputJsonValue,
+    empresaServicosId: null as string | null,
   };
   // o local de origem (item no carro da equipe) também muda a reserva
   const assinaturaItens = (l: { produtoId: string; quantidade: number; localOrigemId: string | null }[]) => l.map((x) => `${x.produtoId}:${x.quantidade}:${x.localOrigemId ?? ""}`).sort().join("|");
   const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, quantidade: n(l.quantidade), localOrigemId: t(l.localOrigemId) }));
-  const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; bandeira?: string | null; vezes?: number | null }[]) =>
-    `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}:${p.bandeira ?? ""}:${p.vezes ?? ""}`).join("|")}`;
+  const assinaturaFin = (empServ: string | null, servicosLiq: number, total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; bandeira?: string | null; vezes?: number | null }[]) =>
+    `${empServ ? `${empServ}:${servicosLiq.toFixed(2)}` : ""}#${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}:${p.bandeira ?? ""}:${p.vezes ?? ""}`).join("|")}`;
 
   const salva = await prisma.$transaction(async (tx) => {
     const custos = new Map((await tx.produto.findMany({ where: { id: { in: produtos.map((p) => p.produtoId) } }, select: { id: true, custo: true } })).map((p) => [p.id, p.custo]));
@@ -224,7 +290,12 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
       const existentes = await tx.osItemProduto.findMany({ where: { osId: id } });
       const antigas = await tx.osParcela.findMany({ where: { osId: id }, orderBy: { numero: "asc" } });
       const mudouItens = assinaturaItens(existentes.map((e) => ({ produtoId: e.produtoId, quantidade: Number(e.quantidade), localOrigemId: e.localOrigemId }))) !== assinaturaItens(novosItens);
-      const mudouFin = assinaturaFin(Number(atual.total), antigas) !== assinaturaFin(tot.total, parcelas);
+      dados.empresaServicosId = await empresaServicosValida(tx, atual.empresaId, empresaServicosEscolhida);
+      if ((dados.empresaServicosId ?? null) !== (atual.empresaServicosId ?? null)
+        && (await tx.notaFiscal.count({ where: { origemTipo: "OS", origemId: id, modelo: "NFSE", status: { in: ["AUTORIZADA", "ENVIADA"] } } })))
+        throw new OsError("A NFS-e dos serviços desta OS já foi emitida: cancele a NFS-e antes de trocar a empresa que fatura os serviços");
+      const mudouFin = assinaturaFin(atual.empresaServicosId, valorServicos(atual), Number(atual.total), antigas)
+        !== assinaturaFin(dados.empresaServicosId, valorServicos({ totalProdutos: tot.produtos, totalServicos: tot.servicos, desconto: tot.desconto }), tot.total, parcelas);
       const servicosAntes = await tx.osItemServico.findMany({ where: { osId: id } });
       const equipAntes = await tx.osEquipamento.findMany({ where: { osId: id }, orderBy: { ordem: "asc" } });
       const nomesItens = new Map([
@@ -276,6 +347,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
     } else {
       do numero = await proximoNumero(tx, "OS"); while (await tx.ordemServico.findUnique({ where: { numero } }));
     }
+    dados.empresaServicosId = await empresaServicosValida(tx, await lojaAtualId(), empresaServicosEscolhida);
     const o = await tx.ordemServico.create({ data: { ...dados, numero, situacao: "CANCELADA", situacaoId: para.id, criadoPorId: u.id, parcelas: { create: parcelas } } });
     await criarItens(o.id);
     await criarServicos(o.id);
@@ -336,7 +408,7 @@ export async function clonarOrdem(id: string, u: Usuario) {
     desconto: f(o.desconto), descontoPct: false, exibirTotal: o.exibirTotal, gerarCondicoes: true, condicao: "AVISTA", formaPagamentoId: o.formaPagamentoId ?? "", vencimento: "",
     intervaloDias: String(o.intervaloDias), numParcelas: "1", primeiraParcela: "", parcelas: [], observacoes: o.observacoes ?? "", observacaoInterna: o.observacaoInterna ?? "",
     camposExtras: (o.camposExtras ?? {}) as Record<string, string>,
-    entrada: agora, saida: "", prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds, equipeId: o.equipeId ?? "", outros: f(o.outros),
+    entrada: agora, saida: "", prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds, equipeId: o.equipeId ?? "", outros: f(o.outros), empresaServicosId: o.empresaServicosId ?? "",
     equipamentos: o.equipamentos.map((e) => ({ equipamento: e.equipamento, marca: e.marca ?? "", modelo: e.modelo ?? "", serie: e.serie ?? "", condicoes: e.condicoes ?? "", defeitos: e.defeitos ?? "", acessorios: e.acessorios ?? "", solucao: "", laudo: "", garantia: e.garantia ?? "" })),
   }, u);
 }

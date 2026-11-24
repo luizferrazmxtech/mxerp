@@ -32,6 +32,8 @@ type Opcoes = {
   carros?: { equipeId: string; localId: string; nome: string }[];
   /** frete pelo Melhor Envio ligado: mostra "Cotar frete" no transporte */
   freteMelhorEnvio?: boolean;
+  /** só OS, com mais de uma empresa: quem fatura os serviços (a primeira é a empresa da OS) */
+  empresas?: { id: string; nome: string }[];
 };
 
 /** forma de pagamento com o que precisa para calcular a taxa do cartão */
@@ -348,6 +350,24 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
 
       <Bloco icone="dinheiro" titulo={<>Defina o <b>pagamento</b> {doc}</>}>
         {!venda && <label className="mb-3 flex items-center gap-2 text-[13px]"><input type="checkbox" checked={d.gerarCondicoes} onChange={(e) => set("gerarCondicoes", e.target.checked)} /> <b>Gerar condições de pagamento</b> <span className="text-slate-500">Desmarque para salvar sem parcelas.</span></label>}
+        {os && (op.empresas?.length ?? 0) > 1 && d.servicos.some((l) => l.servicoId) && (() => {
+          const empOs = op.empresas![0];
+          const escolhida = op.empresas!.find((e) => e.id === d.empresaServicosId && e.id !== empOs.id);
+          const servLiq = Math.max(0, tot.servicos - (tot.produtos + tot.servicos > 0 ? (tot.desconto * Math.max(0, tot.servicos)) / (Math.max(0, tot.produtos) + Math.max(0, tot.servicos)) : 0));
+          return (
+            <div className="mb-3 grid items-end gap-3 rounded border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[minmax(0,18rem)_1fr]">
+              <Campo rotulo="Faturar os serviços por">
+                <select className="campo" value={escolhida?.id ?? ""} onChange={(e) => set("empresaServicosId", e.target.value)}>
+                  <option value="">{empOs.nome} (a mesma da OS)</option>
+                  {op.empresas!.slice(1).map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
+                </select>
+              </Campo>
+              <p className="text-[12px] text-slate-600">{escolhida
+                ? <>Os serviços (<b>{brl(servLiq)}</b>) saem com NFS-e e conta a receber/boleto da <b>{escolhida.nome}</b>; as peças, frete e outros (<b>{brl(Math.max(0, tot.total - servLiq))}</b>) seguem com NF-e e cobrança da <b>{empOs.nome}</b>. Cada parcela abaixo é dividida entre as duas na mesma proporção.</>
+                : <>Peças e serviços são faturados e cobrados pela {empOs.nome}.</>}</p>
+            </div>
+          );
+        })()}
         {(venda || d.gerarCondicoes) && (
           <>
             <div className="mb-3 grid gap-3 sm:grid-cols-2">

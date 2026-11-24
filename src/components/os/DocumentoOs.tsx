@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { empresaDosServicos } from "@/lib/os/faturamento";
 import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { brl, dataSP, horaSP, qtd } from "@/lib/ui/format";
 import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
@@ -55,9 +56,13 @@ export default async function DocumentoOs({ id, token, cobranca, modo = "simples
   const statusItem = (i: { instalado: boolean; instaladoEm: Date | null; instaladoPorId: string | null }, servico?: boolean) =>
     i.instalado ? `${servico ? "Feito" : "Instalado"}${i.instaladoEm ? ` ${quando(i.instaladoEm)}` : ""}${i.instaladoPorId && nomeUsu.get(i.instaladoPorId) ? ` · ${nomeUsu.get(i.instaladoPorId)}` : ""}` : "Pendente";
   const c = os.cliente;
+  // serviços faturados por outra empresa (ex.: VFX): cada parcela diz quem cobra (peças e serviços em boletos separados)
+  const fora = empresaDosServicos(os);
+  const empresasCobranca = fora ? new Map((await prisma.empresa.findMany({ where: { id: { in: [...new Set(lanc.map((l) => l.empresaId).filter((x): x is string => !!x))] } }, select: { id: true, nomeFantasia: true, razaoSocial: true } })).map((e) => [e.id, e.nomeFantasia || e.razaoSocial])) : new Map<string, string>();
   const parcelas = lanc.length
-    ? lanc.map((l) => ({ id: l.id, n: l.parcela, venc: l.vencimento, valor: l.valor, forma: l.formaPagamento?.nome, pago: !!l.pagoEm }))
-    : os.parcelas.map((p) => ({ id: p.id, n: p.numero, venc: p.vencimento, valor: p.valor, forma: p.formaPagamento?.nome ?? os.formaPagamento?.nome, pago: false }));
+    ? lanc.map((l) => ({ id: l.id, n: l.parcela, de: l.totalParcelas, venc: l.vencimento, valor: l.valor, forma: l.formaPagamento?.nome, pago: !!l.pagoEm,
+      quem: fora ? `${l.empresaId === fora ? "Serviços" : "Peças"} · ${empresasCobranca.get(l.empresaId ?? "") ?? emp?.nomeFantasia ?? emp?.razaoSocial ?? ""}` : "" }))
+    : os.parcelas.map((p) => ({ id: p.id, n: p.numero, de: os.parcelas.length, venc: p.vencimento, valor: p.valor, forma: p.formaPagamento?.nome ?? os.formaPagamento?.nome, pago: false, quem: "" }));
   return (
     <div className="mx-auto max-w-[820px] bg-white p-6 text-[12px] text-black print:p-0">
       <header className="flex items-center gap-4 border-b-2 border-marca pb-3">
@@ -158,7 +163,7 @@ export default async function DocumentoOs({ id, token, cobranca, modo = "simples
       {parcelas.length > 0 && (
         <table className="mt-3 w-full border-collapse">
           <thead><tr className="border-b border-slate-400 text-left"><th className="py-1">Pagamento</th><th className="w-28">Vencimento</th><th className="w-40">Forma</th><th className="w-24 text-right">Valor</th></tr></thead>
-          <tbody>{parcelas.map((p) => <tr key={p.id} className="border-b border-slate-200"><td className="py-1">Parcela {p.n}/{parcelas.length}{p.pago ? " · paga" : ""}</td><td>{p.venc.toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td><td>{p.forma ?? "A combinar"}</td><td className="text-right">{brl(p.valor)}</td></tr>)}</tbody>
+          <tbody>{parcelas.map((p) => <tr key={p.id} className="border-b border-slate-200"><td className="py-1">Parcela {p.n}/{p.de}{p.quem ? ` · ${p.quem}` : ""}{p.pago ? " · paga" : ""}</td><td>{p.venc.toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td><td>{p.forma ?? "A combinar"}</td><td className="text-right">{brl(p.valor)}</td></tr>)}</tbody>
         </table>
       )}
 
