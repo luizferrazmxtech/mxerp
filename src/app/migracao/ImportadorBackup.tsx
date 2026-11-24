@@ -22,6 +22,7 @@ const ETAPAS = [
   { nome: "pagar", rotulo: "Contas a pagar que vencem a partir de hoje", padrao: true },
   { nome: "pagarVencidas", rotulo: "Incluir também as contas a pagar já vencidas (em aberto, para baixar pela conciliação)", padrao: false },
   { nome: "pagas", rotulo: "Contas já pagas e recebidas no Gestão Click (histórico, entram baixadas)", padrao: false },
+  { nome: "completarContas", rotulo: "Só completar as contas já trazidas: forma de pagamento e link para a venda, OS ou compra (não cria nem baixa nenhuma conta)", padrao: false },
 ];
 
 export default function ImportadorBackup({ empresas }: { empresas: { id: string; nome: string; cnpj: string }[] }) {

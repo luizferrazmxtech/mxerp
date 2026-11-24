@@ -119,7 +119,8 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
               <tr key={l.id}>
                 {selecao && <td><input type="checkbox" name="ids" value={l.id} disabled={modo === "baixar" ? !!l.pagoEm : !!l.pagoEm || !contaAvulsa(l)} /></td>}
                 <td>
-                  <Link href={`/financeiro/lancamentos/${l.id}`} className="hover:underline">{l.descricao}</Link>
+                  {/* conta de venda/OS/compra: a descrição abre o documento que gerou o título (a lupa abre a conta) */}
+                  <Link href={orig?.href ?? `/financeiro/lancamentos/${l.id}`} title={orig?.rotulo} className="hover:underline">{l.descricao}</Link>
                   {orig && <Link href={orig.href} title={orig.rotulo} className="ml-1.5 inline-block align-[-2px] text-slate-500 hover:text-slate-900"><Icone nome={orig.icone} size={13} /></Link>}
                   <div className="text-[11px] text-slate-500">{rotuloCat(l.categoria)}</div>
                 </td>
