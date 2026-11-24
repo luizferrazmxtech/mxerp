@@ -34,7 +34,9 @@ export async function lerBackupGestaoClick(zip: Buffer): Promise<Tabelas> {
   return t;
 }
 
-export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; vendas?: boolean; compras?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean; historico?: boolean; pagas?: boolean; notas?: boolean; contratos?: boolean };
+export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; vendas?: boolean; compras?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean; historico?: boolean; pagas?: boolean; notas?: boolean; contratos?: boolean;
+  /** só completa as contas já trazidas (forma de pagamento e documento de origem), sem criar nem baixar nenhuma */
+  completarContas?: boolean };
 /** Segunda empresa (outro Gestão Click): tudo entra nesta loja, sem misturar números nem estoque com a primeira. */
 export type Destino = { empresaId: string };
 
@@ -169,7 +171,7 @@ async function importarOs(t: Tabelas, simular: boolean, historico = true): Promi
   const situacoes = await prisma.situacaoOsConfig.findMany({ orderBy: { ordem: "asc" } });
   const sitPorNome = new Map(situacoes.map((s) => [chaveNome(s.nome), s]));
   const padrao = situacoes.find((s) => s.padrao) ?? situacoes[0];
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   const ultimaData = (hs: Linha[]) => hs.reduce<Date | null>((m, h) => { const d = dataHoraBr(h.data); return d && (!m || d >= m) ? d : m; }, null);
   const situacaoDe = (hs: Linha[]) => {
     // a última pela data; empate fica com a ordem do arquivo
@@ -319,13 +321,17 @@ async function importarOs(t: Tabelas, simular: boolean, historico = true): Promi
 
 // ---------- apoio comum a orçamentos e vendas (o histórico comercial)
 
-async function contextoComercial(t: Tabelas) {
+async function contextoComercial(t: Tabelas, simular: boolean) {
   const codProduto = new Map<string, string>();
   for (const p of t.produtos ?? []) if (!codProduto.has(chaveNome(p.produto))) codProduto.set(chaveNome(p.produto), p.codigo);
   const codServico = new Map<string, string>();
   for (const s of t.servicos ?? []) codServico.set(chaveNome(s.servico), s["codigo interno"] || s.servico.slice(0, 20).toUpperCase());
   const codCliente = new Map<string, string>();
   for (const c of t.clientes ?? []) for (const n of [c.nome, c["razao social"]]) if (n && !codCliente.has(chaveNome(n))) codCliente.set(chaveNome(n), c.codigo);
+  if (!simular) {
+    const pagamentos = ["orcamentos_pagamentos", "vendas_pagamentos", "ordens_servicos_pagamentos", "compras_pagamentos", "contratos"];
+    await garantirFormas(pagamentos.flatMap((k) => (t[k] ?? []).map((l) => l["forma de pagamento"])));
+  }
   const formas = await prisma.formaPagamento.findMany({ select: { id: true, nome: true } });
   const formaPorNome = (n: string | undefined) => {
     if (!n) return null;
@@ -380,7 +386,7 @@ async function importarVendas(t: Tabelas, simular: boolean, historico = true): P
   const situacoes = await prisma.situacaoVendaConfig.findMany({ orderBy: { ordem: "asc" } });
   const sitPorNome = new Map(situacoes.map((s) => [chaveNome(s.nome), s]));
   const padrao = situacoes.find((s) => s.padrao) ?? situacoes[0];
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   const ENUM = { RESERVAR: "ABERTA", LANCAR: "CONCLUIDA", NAO: "CANCELADA" } as const;
 
   const semProduto = new Set<string>(), semCliente = new Set<string>(), semSituacao = new Set<string>();
@@ -478,7 +484,7 @@ async function importarOrcamentos(t: Tabelas, simular: boolean): Promise<Resulta
 
   const situacoes = await prisma.situacaoOrcamento.findMany({ orderBy: { ordem: "asc" } });
   const sitPorNome = new Map(situacoes.map((s) => [chaveNome(s.nome), s.id]));
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   const { codProduto, codCliente, formaPorNome, usuarioPorNome } = ctx;
 
   const semProduto = new Set<string>(), semCliente = new Set<string>(), semSituacao = new Set<string>(), totalDiferente: number[] = [];
@@ -558,13 +564,50 @@ function categoriaPara(plano: string, tipo: "RECEBER" | "PAGAR") {
   if (tipo === "RECEBER") return /servic/.test(p) ? "Prestação de serviços" : /venda/.test(p) ? "Venda de produtos" : "Outras receitas";
   return /compra/.test(p) ? "Compra de mercadorias (estoque)" : "Outras despesas";
 }
-function formaPara(f: string) {
+/**
+ * Forma de pagamento do MXERP para a do Gestão Click. As que não têm equivalente nas formas padrão (Mercado Livre,
+ * Transferência, Cheque, A Combinar, carteiras…) entram com o nome de lá, para o título não ficar sem forma.
+ */
+export function formaPara(f: string) {
   const p = chaveNome(f);
+  if (!p) return null;
   return /pix/.test(p) ? "PIX" : /boleto/.test(p) ? "Boleto" : /debito/.test(p) ? "Cartão de débito" : /credito/.test(p) ? "Cartão de crédito"
-    : /dinheiro/.test(p) ? "Dinheiro" : null;
+    : /dinheiro parcelado|crediario/.test(p) ? "Crediário / a prazo" : /dinheiro/.test(p) ? "Dinheiro"
+    : /mercado ?livre|mercado ?pago/.test(p) ? "Mercado Livre" : /transferencia/.test(p) ? "Transferência bancária" : /cheque/.test(p) ? "Cheque"
+    : f.trim().slice(0, 60);
+}
+/** Código do meio de pagamento na NF-e para as formas criadas pela migração. */
+const tPagDe = (nome: string) => (nome === "Transferência bancária" ? "18" : nome === "Cheque" ? "02" : "99");
+
+/** Cadastra na empresa atual as formas do backup que ainda não existem (idempotente). */
+async function garantirFormas(nomesGc: Iterable<string | undefined>) {
+  const nomes = new Set<string>();
+  for (const n of nomesGc) { const f = formaPara(n ?? ""); if (f) nomes.add(f); }
+  for (const nome of nomes)
+    await prisma.formaPagamento.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome } }, create: { nome, tPag: tPagDe(nome), diasPrazo: 0 }, update: {} });
 }
 
-async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PAGAR", simular: boolean, soAVencer = false, incluirPagas = false): Promise<Resultado> {
+/**
+ * Documento que gerou a conta, pela descrição do Gestão Click ("Venda de nº 8558", "Ordem de serviço de nº 6946",
+ * "Compra de nº 934"). Só liga a documentos trazidos do backup (pelo idLegado), nunca a um do MXERP com o mesmo número.
+ */
+export function documentoDaConta(descricao: string | undefined): { tipo: "VENDA" | "OS" | "COMPRA"; numero: number } | null {
+  const d = chaveNome(descricao ?? "");
+  const m = /^(venda|ordem de servico|compra) de n\S{0,2}\s*(\d+)/.exec(d);
+  if (!m) return null;
+  return { tipo: m[1] === "venda" ? "VENDA" : m[1] === "compra" ? "COMPRA" : "OS", numero: Number(m[2]) };
+}
+async function origemDaConta(descricao: string | undefined): Promise<{ origemTipo: "VENDA" | "OS" | "COMPRA"; origemId: string } | null> {
+  const doc = documentoDaConta(descricao);
+  if (!doc) return null;
+  const where = { idLegado: leg(`${doc.tipo === "VENDA" ? "venda" : doc.tipo === "OS" ? "os" : "compra"}:${doc.numero}`) };
+  const achado = doc.tipo === "VENDA" ? await prisma.venda.findFirst({ where, select: { id: true } })
+    : doc.tipo === "OS" ? await prisma.ordemServico.findFirst({ where, select: { id: true } })
+    : await prisma.compra.findFirst({ where, select: { id: true } });
+  return achado ? { origemTipo: doc.tipo, origemId: achado.id } : null;
+}
+
+async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PAGAR", simular: boolean, soAVencer = false, incluirPagas = false, soCompletar = false): Promise<Resultado> {
   const todas = linhas ?? [];
   const hoje = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
   let abertas = todas.filter((l) => !/confirmad/i.test(l.situacao));
@@ -581,6 +624,43 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     // contas bancárias do Gestão Click (Inter, PagSeguro, Mercado Pago…) para a conciliação do extrato
     for (const nome of new Set(todas.map((l) => (l["conta bancaria"] ?? "").trim()).filter(Boolean)))
       await prisma.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: nome } }, create: { nome }, update: {} });
+    await garantirFormas(todas.map((l) => l["forma de pagamento"]));
+  }
+  // conta trazida antes sem forma de pagamento ou sem o documento de origem: completa (não mexe no que já foi preenchido)
+  let completadas = 0;
+  const completar = async (id: string, l: Linha) => {
+    const atual = await prisma.lancamento.findUnique({ where: { id }, select: { formaPagamentoId: true, origemTipo: true, origemId: true } });
+    if (!atual) return;
+    const formaNome = formaPara(l["forma de pagamento"] ?? "");
+    const forma = !atual.formaPagamentoId && formaNome ? await prisma.formaPagamento.findUnique({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: formaNome } }, select: { id: true } }) : null;
+    const origem = !atual.origemId && (!atual.origemTipo || atual.origemTipo === "IMPLANTACAO") ? await origemDaConta(l["descricao do recebimento"]) : null;
+    if (!forma && !origem && !(simular && !atual.formaPagamentoId && formaNome)) return;
+    completadas++;
+    if (simular) return;
+    await prisma.lancamento.update({ where: { id }, data: { ...(forma ? { formaPagamentoId: forma.id } : {}), ...(origem ?? {}) } });
+  };
+  const avisoCompletadas = () => {
+    if (!completadas) return;
+    r.atualizados += completadas;
+    r.avisos.push(`${completadas} contas trazidas antes ${simular ? "vão ganhar" : "ganharam"} a forma de pagamento e/ou o link para a venda, OS ou compra que as gerou.`);
+  };
+  // só completar: não cria, não baixa e não traz de volta conta excluída no MXERP
+  if (soCompletar) {
+    r.avisos = [];
+    for (const grupo of [todas.filter((l) => !/confirmad/i.test(l.situacao)), todas.filter((l) => /confirmad/i.test(l.situacao))]) {
+      const vistos = new Map<string, number>();
+      for (const l of grupo) {
+        const base = [tipo, l["descricao do recebimento"], l["entidade nome"], l["data do vencimento"], l.valor, l["cadastrado em"]].join("|");
+        const n = (vistos.get(base) ?? 0) + 1;
+        vistos.set(base, n);
+        const idLegado = leg(`${tipo.toLowerCase()}:${createHash("sha1").update(`${base}|${n}`).digest("hex").slice(0, 20)}`);
+        const ja = await prisma.lancamento.findUnique({ where: { idLegado }, select: { id: true } });
+        if (ja) await completar(ja.id, l);
+      }
+    }
+    avisoCompletadas();
+    if (!completadas) r.avisos.push("Nenhuma conta trazida antes precisava de forma de pagamento ou do link para o documento.");
+    return r;
   }
   const ocorr = new Map<string, number>();
   for (const [i, l] of abertas.entries()) {
@@ -592,7 +672,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     ocorr.set(base, n);
     const idLegado = leg(`${tipo.toLowerCase()}:${createHash("sha1").update(`${base}|${n}`).digest("hex").slice(0, 20)}`);
     const existe = await prisma.lancamento.findUnique({ where: { idLegado } });
-    if (existe) { r.ignorados.push({ linha: i + 2, motivo: "já importada" }); continue; }
+    if (existe) { await completar(existe.id, l); r.ignorados.push({ linha: i + 2, motivo: "já importada" }); continue; }
     if (simular) { r.criados++; continue; }
     const nomeEnt = l["entidade nome"];
     const pessoa = nomeEnt
@@ -606,7 +686,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
         tipo, descricao: [l["descricao do recebimento"], !pessoa && nomeEnt ? `(${nomeEnt})` : ""].filter(Boolean).join(" ").slice(0, 300),
         pessoaId: pessoa?.id, categoriaId: cat.id, formaPagamentoId: forma?.id,
         valor: valor.toFixed(2), vencimento: venc, competencia: dataBr(l["data de competencia"]) ?? venc,
-        origemTipo: "IMPLANTACAO", idLegado, empresaId: lojaDe(l.loja),
+        origemTipo: "IMPLANTACAO", ...(await origemDaConta(l["descricao do recebimento"])), idLegado, empresaId: lojaDe(l.loja),
       },
     });
     r.criados++;
@@ -644,7 +724,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
         pessoaId: pessoa?.id, categoriaId: cat.id, formaPagamentoId: forma?.id, contaBancariaId: conta.id,
         valor: valor.toFixed(2), vencimento: venc, competencia: dataBr(l["data de competencia"]) ?? venc,
         pagoEm, valorPago: valorPago.toFixed(2), juros: juros.toFixed(2), desconto: desconto.toFixed(2),
-        origemTipo: "IMPLANTACAO", idLegado, empresaId: lojaDe(l.loja), observacao: "Baixada no Gestão Click (histórico importado)",
+        origemTipo: "IMPLANTACAO", ...(await origemDaConta(l["descricao do recebimento"])), idLegado, empresaId: lojaDe(l.loja), observacao: "Baixada no Gestão Click (histórico importado)",
       },
     });
   };
@@ -659,6 +739,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
       if (incluirPagas) await historicoPaga(l, idLegado, juros, desconto);
       continue;
     }
+    await completar(ja.id, l);
     if (ja.pagoEm || ja.transacaoId) continue;
     const aberta = ja;
     const valorPago = numeroBr(l["valor total"] ?? "") || Number(aberta.valor) + juros - desconto;
@@ -676,6 +757,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     r.criados += historicas;
     r.avisos.push(`${historicas} contas já ${tipo === "RECEBER" ? "recebidas" : "pagas"} no Gestão Click (${totalHistorico.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}) ${simular ? "vão entrar" : "entraram"} baixadas, como histórico.`);
   }
+  avisoCompletadas();
   if (jaNoExtrato) r.avisos.push(`${jaNoExtrato} contas já ${tipo === "RECEBER" ? "recebidas" : "pagas"} no Gestão Click ficaram de fora porque o mesmo valor, na mesma data, já foi lançado pela conciliação do extrato.`);
   if (baixadas) {
     r.atualizados += baixadas;
@@ -701,7 +783,7 @@ async function importarCompras(t: Tabelas, simular: boolean): Promise<Resultado>
   const situacoes = await prisma.situacaoCompraConfig.findMany({ orderBy: { ordem: "asc" } });
   const sitPorNome = new Map(situacoes.map((s) => [chaveNome(s.nome), s]));
   const padrao = situacoes.find((s) => s.padrao) ?? situacoes[0];
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   const transportadoras = new Map<string, string | null>();
   const situacaoDe = (hs: Linha[]) => {
     let ult: Linha | undefined, q = -Infinity;
@@ -786,7 +868,7 @@ async function importarAjustes(t: Tabelas, simular: boolean): Promise<Resultado>
   const todos = t.ajustes_estoques ?? [];
   const r: Resultado = { tipo: "ajustes", simulado: simular, lidas: todos.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
   const prods = agruparPor("codigo")(t.ajustes_estoques_produtos);
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   let maior = 0;
   for (const a of todos) {
     const numero = Number(a.codigo);
@@ -984,7 +1066,7 @@ async function importarContratos(t: Tabelas, simular: boolean): Promise<Resultad
   const r: Resultado = { tipo: "contratos", simulado: simular, lidas: todos.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
   if (!todos.length) return r;
   const servs = agruparPor("codigo")(t.servicos_recorrentes_servicos);
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   let total = 0, ativos = 0, primeira: Date | null = null;
   const conferir: string[] = [];
   const renumerados: string[] = [];
@@ -1126,7 +1208,7 @@ async function importarNaEmpresa(t: Tabelas, opts: { simular?: boolean; etapas?:
   if (e.compras && t.ajustes_estoques) res.push(await importarAjustes(t, simular));
   if (e.notas) res.push(await importarNotas(t, simular));
   if (e.contratos) res.push(await importarContratos(t, simular));
-  if (e.receber) res.push(await importarContas(t.contas_receber, "RECEBER", simular, false, !!e.pagas));
-  if (e.pagar) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas, !!e.pagas));
+  if (e.receber || e.completarContas) res.push(await importarContas(t.contas_receber, "RECEBER", simular, false, !!e.pagas, !e.receber));
+  if (e.pagar || e.completarContas) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas, !!e.pagas, !e.pagar));
   return res;
 }

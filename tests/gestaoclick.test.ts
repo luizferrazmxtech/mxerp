@@ -489,3 +489,58 @@ describe("serviços recorrentes do Gestão Click", () => {
     expect(await prisma.contrato.count()).toBe(4);
   });
 });
+
+describe("forma de pagamento e documento das contas do Gestão Click", () => {
+  it("traz formas sem equivalente (Mercado Livre, transferência) e liga a conta à OS/compra; reimportar completa as já trazidas", async () => {
+    const t = await gc.lerBackupGestaoClick(await backup());
+    const cab = Object.keys(t.contas_receber[0]);
+    const linha = (o: Record<string, string>) => Object.fromEntries(cab.map((k) => [k, o[k] ?? t.contas_receber[0][k]]));
+    t.contas_receber.push(linha({ "descricao do recebimento": "Ordem de serviço de nº 7001", situacao: "Não Pago", valor: "250", "valor total": "250", "data do vencimento": "30/12/2026", "forma de pagamento": "MERCADO LIVRE - MXTECH" }));
+    t.contas_receber.push(linha({ "descricao do recebimento": "Venda de nº 99999", situacao: "Não Pago", valor: "10", "valor total": "10", "data do vencimento": "30/12/2026", "forma de pagamento": "A Combinar" }));
+    t.contas_pagar = [linha({ "descricao do recebimento": "Compra de nº 990", situacao: "Não Pago", "plano de contas": "Compras de mercadorias", "entidade nome": "FOLK COMERCIO E DISTRIBUICAO LTDA", valor: "85", "valor total": "85", "data do vencimento": "30/12/2026", "forma de pagamento": "Transferência Bancária" })];
+    await gc.importarBackupGestaoClick(t, { simular: false });
+
+    const os = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 } });
+    const lo = await prisma.lancamento.findFirstOrThrow({ where: { descricao: "Ordem de serviço de nº 7001" }, include: { formaPagamento: true } });
+    expect(lo).toMatchObject({ origemTipo: "OS", origemId: os.id });
+    expect(lo.formaPagamento?.nome).toBe("Mercado Livre");
+    const compra = await prisma.compra.findUniqueOrThrow({ where: { numero: 990 } });
+    const lc = await prisma.lancamento.findFirstOrThrow({ where: { descricao: { startsWith: "Compra de nº 990" } }, include: { formaPagamento: true } });
+    expect(lc).toMatchObject({ tipo: "PAGAR", origemTipo: "COMPRA", origemId: compra.id });
+    expect(lc.formaPagamento).toMatchObject({ nome: "Transferência bancária", tPag: "18" });
+    // venda que não veio do backup: fica sem documento, mas com a forma de lá
+    const lv = await prisma.lancamento.findFirstOrThrow({ where: { descricao: "Venda de nº 99999" }, include: { formaPagamento: true } });
+    expect(lv).toMatchObject({ origemTipo: "IMPLANTACAO", origemId: null });
+    expect(lv.formaPagamento?.nome).toBe("A Combinar");
+    expect((await prisma.lancamento.findFirstOrThrow({ where: { descricao: "Venda de nº 8002" }, include: { formaPagamento: true } })).formaPagamento?.nome).toBe("Cartão de crédito");
+
+    // como em produção: contas trazidas antes desta correção, sem forma e sem documento
+    await prisma.lancamento.updateMany({ where: { id: { in: [lo.id, lc.id] } }, data: { formaPagamentoId: null, origemTipo: "IMPLANTACAO", origemId: null } });
+    // só completar: a conta excluída no MXERP não volta
+    await prisma.lancamento.delete({ where: { id: lv.id } });
+    const sim = await gc.importarBackupGestaoClick(t, { simular: true, etapas: { completarContas: true } });
+    expect(sim.find((r) => r.tipo === "receber")!.avisos.join(" ")).toMatch(/1 contas trazidas antes vão ganhar a forma/);
+    expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: lo.id } })).origemId).toBeNull();
+    const res = await gc.importarBackupGestaoClick(t, { simular: false, etapas: { completarContas: true } });
+    expect(res.find((r) => r.tipo === "pagar")!.avisos.join(" ")).toMatch(/1 contas trazidas antes ganharam/);
+    expect(await prisma.lancamento.findUniqueOrThrow({ where: { id: lo.id } })).toMatchObject({ origemTipo: "OS", origemId: os.id, formaPagamentoId: lo.formaPagamentoId });
+    expect(await prisma.lancamento.findUniqueOrThrow({ where: { id: lc.id } })).toMatchObject({ origemTipo: "COMPRA", origemId: compra.id, formaPagamentoId: lc.formaPagamentoId });
+    expect(await prisma.lancamento.count()).toBe(4);
+    // com a etapa de contas marcada, a reimportação também completa
+    await prisma.lancamento.update({ where: { id: lo.id }, data: { formaPagamentoId: null } });
+    await gc.importarBackupGestaoClick(t, { simular: false, etapas: { receber: true } });
+    expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: lo.id } })).formaPagamentoId).toBe(lo.formaPagamentoId);
+  });
+});
+
+describe("documento citado na descrição da conta", () => {
+  it("reconhece venda, OS e compra", () => {
+    expect(gc.documentoDaConta("Venda de nº 8558")).toEqual({ tipo: "VENDA", numero: 8558 });
+    expect(gc.documentoDaConta("Ordem de serviço de nº 6946")).toEqual({ tipo: "OS", numero: 6946 });
+    expect(gc.documentoDaConta("Compra de nº 947 (JABU ELETRICA)")).toEqual({ tipo: "COMPRA", numero: 947 });
+    expect(gc.documentoDaConta("Aluguel")).toBeNull();
+    expect(gc.formaPara("MERCADO LIVRE - MXTECH")).toBe("Mercado Livre");
+    expect(gc.formaPara("Dinheiro Parcelado")).toBe("Crediário / a prazo");
+    expect(gc.formaPara("")).toBeNull();
+  });
+});
