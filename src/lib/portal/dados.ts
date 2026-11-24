@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { diaSP } from "@/lib/datas";
 import { ATIVOS } from "@/lib/financeiro/boletos";
 import { URL_DANFSE } from "@/lib/fiscal/nfse";
+import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
 
 /**
  * Consultas da Área do Cliente. TODA consulta filtra pelo cliente logado (pessoaId): é isso que impede um
@@ -67,17 +68,21 @@ export async function verOs(pessoaId: string, id: string) {
     },
   });
   if (!o) return null;
-  const [ls, fotos, notas, contas] = await Promise.all([
+  const [ls, fotos, notas, contas, trabalho] = await Promise.all([
     lojas(),
     // fotos da instalação tiradas pelo técnico (só a entidade OS_FOTO; os anexos internos da OS não aparecem)
     prisma.anexo.findMany({ where: { entidade: "OS_FOTO", entidadeId: o.id, tipo: { in: IMAGENS } }, orderBy: [{ ordem: "asc" }, { createdAt: "asc" }], select: { id: true, nome: true, createdAt: true } }),
     notasDe(pessoaId, { origemTipo: "OS", origemId: o.id }),
     contasDe(pessoaId, { origemTipo: "OS", origemId: o.id }),
+    resumoTrabalho(o.id),
   ]);
   const total = o.exibirTotal;
+  // só o tempo total de execução vai para o cliente (os trechos, motivos e correções são internos)
+  const tempoMs = trabalho.fechadoMs + (trabalho.abertoDesde ? Date.now() - new Date(trabalho.abertoDesde).getTime() : 0);
+  const tempoExecucao = trabalho.estado === "NAO_INICIADO" ? null : `${duracao(tempoMs)}${trabalho.estado === "FINALIZADO" ? "" : " (em andamento)"}`;
   return {
     id: o.id, numero: o.numero, entrada: o.entrada, previsao: o.previsao, saida: o.saida, observacoes: o.observacoes, token: o.token,
-    situacao: situacaoOs(o), cancelada: o.situacao === "CANCELADA", tecnico: o.tecnico?.nome ?? null,
+    situacao: situacaoOs(o), cancelada: o.situacao === "CANCELADA", tecnico: o.tecnico?.nome ?? null, tempoExecucao,
     loja: o.empresaId ? ls.get(o.empresaId) ?? null : null,
     equipamentos: o.equipamentos,
     produtos: o.produtos.map((p) => ({ id: p.id, nome: p.produto.nome, detalhes: p.detalhes, quantidade: n(p.quantidade), valorUnit: total ? n(p.valorUnit) : null, subtotal: total ? n(p.subtotal) : null })),
