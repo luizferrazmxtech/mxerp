@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AvisoJuncao from "@/components/documentos/AvisoJuncao";
 import DicaSaldo from "@/components/estoque/DicaSaldo";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -111,6 +112,7 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
   return (
     <Pagina voltar={baseVendas(tl)} titulo="Visualizar venda" trilha={[{ rotulo: tituloVendas(tl), href: baseVendas(tl) }, { rotulo: "Visualizar" }]}>
       <VoltarConta contaId={sp.conta} />
+      <AvisoJuncao tipo="VENDA" id={id} />
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome={balcao ? "balcao" : "carrinho"} size={18} /> Venda #{v.numero}

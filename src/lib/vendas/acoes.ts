@@ -8,6 +8,7 @@ import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { avisoBoletos, boletosDoDocumento } from "@/lib/financeiro/boletos";
 import { emitirNfseVenda, emitirNotaVenda } from "@/lib/fiscal/emissao";
 import { configVenda } from "./config";
+import { juntarVendas } from "./juntar";
 import { alterarSituacaoPedido, cancelarVenda, cancelarVendaBalcao, clonarPedido, excluirPedido, registrarDevolucao, salvarPedido, type DadosPedido } from "./pedidos";
 
 export type Resultado = { ok: boolean; mensagem: string } | null;
@@ -299,4 +300,21 @@ export async function salvarConfigVendaAcao(_: Resultado, form: FormData): Promi
   ]);
   revalidatePath("/vendas", "layout");
   return { ok: true, mensagem: "Configurações salvas." };
+}
+
+/** Mais ações › Juntar vendas: as marcadas (mesmo cliente e situação) viram uma venda nova; abre a nova. */
+export async function juntarVendasAcao(_: Resultado, form: FormData): Promise<Resultado> {
+  const u = await exigirAcao("venda.juntar");
+  const ids = form.getAll("ids").map(String);
+  if (ids.length < 2) return { ok: false, mensagem: "Marque ao menos duas vendas do mesmo cliente, na mesma situação" };
+  let destino: string;
+  try {
+    const r = await juntarVendas(ids, u, { permitirNegativo: (await configVenda()).estoqueNegativo });
+    await boletosDoDocumento({ origemTipo: "VENDA", origemId: r.venda.id });
+    revalidatePath("/vendas", "layout");
+    revalidatePath("/orcamentos", "layout");
+    revalidatePath("/financeiro");
+    destino = `/vendas/${r.venda.id}`;
+  } catch (e) { return erro(e); }
+  redirect(destino);
 }

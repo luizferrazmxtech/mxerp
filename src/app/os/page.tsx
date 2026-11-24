@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/auth/atual";
+import { pode } from "@/lib/auth/permissoesAcao";
 import { cor } from "@/lib/orcamentos/tipos";
 import { ordemOrdens, whereOrdens, type ParamsOs } from "@/lib/os/ordens";
 import { avisoSituacaoOs, PRIORIDADES } from "@/lib/os/tipos";
-import { alterarSituacaoOsAcao, clonarOsAcao, emitirNotaOsAcao, excluirOsAcao, excluirVariasOsAcao, nfseEmMassaAcao, situacaoOsEmMassaAcao } from "@/lib/os/acoes";
+import { alterarSituacaoOsAcao, clonarOsAcao, emitirNotaOsAcao, excluirOsAcao, excluirVariasOsAcao, juntarOsAcao, nfseEmMassaAcao, situacaoOsEmMassaAcao } from "@/lib/os/acoes";
 import { colunasVisiveis } from "@/lib/ui/colunas";
 import { dataSP, horaSP, num2 } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
@@ -82,7 +83,8 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
   const tem = (c: string) => vis.includes(c);
   const loja = () => { const e = empresas[0]; return e ? e.nomeFantasia || e.razaoSocial : ""; };
   const modo = sp.acao;
-  const selecao = !kanban && (modo === "situacoes" || modo === "excluir" || modo === "imprimir" || modo === "nfse");
+  const podeJuntar = !!u && (await pode(u.papel, "os.juntar"));
+  const selecao = !kanban && (modo === "situacoes" || modo === "excluir" || modo === "imprimir" || modo === "nfse" || (modo === "juntar" && podeJuntar));
   const filtros = Object.fromEntries(Object.entries(sp).filter(([k, v]) => v && !["p", "pp", "acao", "busca", "o", "situacao"].includes(k)));
   const sem = urlCom(base, sp, { acao: undefined, situacao: undefined });
   const emSituacao = sp.situacao ? await prisma.ordemServico.findUnique({ where: { id: sp.situacao }, select: { id: true, numero: true, situacaoId: true } }) : null;
@@ -129,7 +131,7 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
           {lista.map((o) => (
             <tr key={o.id}>
               {selecao && <td><input type="checkbox" name="ids" value={o.id} /></td>}
-              {tem("numero") && <td>{o.numero}</td>}
+              {tem("numero") && <td>{o.numero}{o.juntadaEmId && <span className="block text-[10px] text-slate-500" title="OS juntada com outras numa OS nova">juntada</span>}</td>}
               {tem("nfse") && <td>{nfseDe.get(o.id) ? <Link href={`/fiscal/${nfseDe.get(o.id)!.id}`} className="sublinhado">#{nfseDe.get(o.id)!.numero}</Link> : <span className="text-slate-400">—</span>}</td>}
               {tem("cliente") && <td><Link href={`/os/${o.id}`} className="uppercase sublinhado">{o.cliente.nome}</Link>{o.cliente.fantasia && o.cliente.fantasia !== o.cliente.nome && <i className="block text-[11px] uppercase text-slate-500">({o.cliente.fantasia})</i>}</td>}
               {tem("entrada") && <td>{dataSP(o.entrada)}<div className="text-[11px] text-slate-400">{horaSP(o.entrada)}</div></td>}
@@ -195,6 +197,7 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
           <LinkSuspenso href={urlCom(base, sp, { acao: "imprimir", v: "lista" })} icone="imprimir">Imprimir</LinkSuspenso>
           <a href={urlCom("/api/os/exportar", filtros, {})} className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="exportar" size={15} /> Exportar</a>
           <LinkSuspenso href={urlCom(base, sp, { acao: "situacoes", v: "lista" })} icone="atualizar">Alterar situação</LinkSuspenso>
+          {podeJuntar && <LinkSuspenso href={urlCom(base, sp, { acao: "juntar", v: "lista" })} icone="copiar">Juntar OS</LinkSuspenso>}
           <LinkSuspenso href={urlCom(base, sp, { acao: "excluir", v: "lista" })} icone="excluir">Excluir</LinkSuspenso>
           <LinkSuspenso href="/os/painel" icone="painel">Painel de OS</LinkSuspenso>
           <LinkSuspenso href={urlCom(base, {}, { periodo: "todos", falta: "1" })} icone="alerta">OS com peça em falta</LinkSuspenso>
@@ -254,6 +257,10 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
       {kanban ? quadro : modo === "situacoes" ? (
         <FormSelecao acao={situacaoOsEmMassaAcao} titulo="Alterar situação" botao="Aplicar nos marcados" voltar={sem}
           campos={<select name="situacaoId" className="campo"><option value="">Escolha a situação</option>{opcoesSit.map((s) => <option key={s.id} value={s.id}>{s.nome} ({s.aviso})</option>)}</select>}>{tabela}</FormSelecao>
+      ) : modo === "juntar" && podeJuntar ? (
+        <FormSelecao acao={juntarOsAcao} titulo="Juntar OS" botao="Juntar marcadas" voltar={sem}
+          confirmar="Juntar as OS marcadas numa OS nova? Equipamentos e itens vão para a nova (itens iguais somados, com as marcas e fotos do técnico), que fica na mesma situação; as marcadas são canceladas apontando para a nova."
+          campos={<p className="col-span-full text-[12px] text-slate-600">Marque OS do <b>mesmo cliente</b> e na <b>mesma situação</b>. Não dá para juntar OS com nota autorizada, conta recebida ou conciliada ou boleto registrado. Use a busca pelo cliente para achar as OS dele.</p>}>{tabela}</FormSelecao>
       ) : modo === "excluir" ? (
         <FormSelecao acao={excluirVariasOsAcao} perigo titulo="Excluir OS" botao="Excluir marcadas" voltar={sem} confirmar="Excluir as OS marcadas? As peças voltam ao estoque e as contas a receber em aberto são apagadas.">{tabela}</FormSelecao>
       ) : modo === "nfse" ? (
