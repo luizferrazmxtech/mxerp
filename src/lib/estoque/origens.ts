@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 /** Documento de onde a mercadoria veio ou para onde foi, com o link para abrir. */
 export type DocumentoOrigem = { rotulo: string; href: string; pessoa?: string };
 
-type Mov = { origemTipo: OrigemDocumento; origemId: string | null; observacao?: string | null };
+type Mov = { origemTipo: OrigemDocumento; origemId: string | null; observacao?: string | null; id?: string; produtoId?: string; createdAt?: Date };
 
 export const chaveOrigem = (m: Mov) => `${m.origemTipo}:${m.origemId ?? ""}`;
 
@@ -37,7 +37,15 @@ export async function documentosDosMovimentos(movs: Mov[]): Promise<Map<string, 
     prisma.transferenciaEstoque.findMany({ where: { id: { in: ids("TRANSFERENCIA") } }, select: { id: true, numero: true } }),
   ]);
 
+  // transferências antigas: os movimentos não guardavam o documento; acha pela hora e pelo produto
+  const semDoc = movs.filter((m) => m.origemTipo === "TRANSFERENCIA" && !m.origemId && m.id && m.produtoId && m.createdAt);
+  const tAntigas = semDoc.length ? await transferenciasPorHora(semDoc.map((m) => m.createdAt!)) : [];
+
   const mapa = new Map<string, DocumentoOrigem>();
+  for (const m of semDoc) {
+    const t = transferenciaDoMovimento(tAntigas, m);
+    if (t) mapa.set(`TRANSFERENCIA:#mov:${m.id}`, { rotulo: `Transferência #${t.numero}`, href: `/estoque/transferencias/${t.id}` });
+  }
   for (const v of vendas) mapa.set(`VENDA:${v.id}`, { rotulo: `Venda #${v.numero}`, href: `/vendas/${v.id}`, pessoa: nome(v.cliente) });
   for (const o of oss) mapa.set(`OS:${o.id}`, { rotulo: `OS #${o.numero}`, href: `/os/${o.id}`, pessoa: nome(o.cliente) });
   for (const c of compras) mapa.set(`COMPRA:${c.id}`, { rotulo: `Compra #${c.numero}`, href: `/compras/${c.id}`, pessoa: nome(c.fornecedor) });
@@ -59,6 +67,26 @@ export async function documentosDosMovimentos(movs: Mov[]): Promise<Map<string, 
 /** Documento de um movimento já resolvido por documentosDosMovimentos. */
 export function documentoDe(mapa: Map<string, DocumentoOrigem>, m: Mov): DocumentoOrigem | undefined {
   if (m.origemId) return mapa.get(chaveOrigem(m));
+  if (m.origemTipo === "TRANSFERENCIA") return m.id ? mapa.get(`TRANSFERENCIA:#mov:${m.id}`) : undefined;
   const n = osNaObservacao(m.observacao);
   return n ? mapa.get(`${chaveOrigem(m)}#${n}`) : undefined;
+}
+
+type TransfHora = { id: string; numero: number; createdAt: Date; produtos: Set<string> };
+
+/** Transferências gravadas logo depois dos movimentos (até 2 minutos), para ligar os movimentos antigos sem documento. */
+async function transferenciasPorHora(horas: Date[]): Promise<TransfHora[]> {
+  const min = Math.min(...horas.map((h) => h.getTime())), max = Math.max(...horas.map((h) => h.getTime()));
+  const ts = await prisma.transferenciaEstoque.findMany({
+    where: { createdAt: { gte: new Date(min), lte: new Date(max + 120_000) } },
+    select: { id: true, numero: true, createdAt: true, itens: { select: { produtoId: true } } }, orderBy: { createdAt: "asc" },
+  });
+  return ts.map((t) => ({ id: t.id, numero: t.numero, createdAt: t.createdAt, produtos: new Set(t.itens.map((i) => i.produtoId)) }));
+}
+
+/** A primeira transferência com o produto gravada até 2 minutos depois do movimento (o documento era criado no fim). */
+export function transferenciaDoMovimento(ts: TransfHora[], m: { produtoId?: string; createdAt?: Date }) {
+  if (!m.produtoId || !m.createdAt) return undefined;
+  const h = m.createdAt.getTime();
+  return ts.find((t) => t.produtos.has(m.produtoId!) && t.createdAt.getTime() >= h && t.createdAt.getTime() - h <= 120_000);
 }

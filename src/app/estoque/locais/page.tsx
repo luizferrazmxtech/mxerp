@@ -105,7 +105,7 @@ export default async function LocaisPage({ searchParams }: { searchParams: Promi
               <td className="text-right">{l._count.saldos}</td>
               <td className="text-right">
                 <div className="flex justify-end gap-1 whitespace-nowrap">
-                  <Link href={`/tecnico/estoque?equipe=${l.deposito.equipeId}`} className="btn-sec py-1"><Icone nome="ver" size={13} /> Ver</Link>
+                  <Link href={`/estoque/carros/${l.depositoId}`} className="btn-sec py-1" title="O que está no carro, de onde veio e o histórico"><Icone nome="ver" size={13} /> Ver e histórico</Link>
                   <Link href={`/estoque/transferencias/adicionar?destino=${l.depositoId}`} className="btn-sec py-1">Abastecer</Link>
                   <Link href={`/estoque/transferencias/adicionar?origem=${l.depositoId}`} className="btn-sec py-1">Devolver à loja</Link>
                 </div>
