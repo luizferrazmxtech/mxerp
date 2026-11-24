@@ -22,7 +22,7 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
   const [usuarios, situacoes, formas, tiposValor, campos, centros, proximo, cfg, canais, padrao, equipes] = await Promise.all([
     prisma.usuario.findMany({ where: { ativo: true }, select: { id: true, nome: true, papel: true, tecnico: true }, orderBy: { nome: "asc" } }),
     prisma.situacaoOsConfig.findMany({ orderBy: { ordem: "asc" } }),
-    prisma.formaPagamento.findMany({ where: { ativa: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
+    prisma.formaPagamento.findMany({ where: { ativa: true }, select: { id: true, nome: true, tPag: true, taxa: true, taxas: true }, orderBy: { nome: "asc" } }).then((fs) => fs.map((f) => ({ ...f, taxa: Number(f.taxa) }))),
     prisma.tipoValor.findMany({ orderBy: [{ padrao: "desc" }, { nome: "asc" }], select: { id: true, nome: true, padrao: true } }),
     prisma.campoExtra.findMany({ where: { entidade: "OS" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }], select: { id: true, nome: true } }),
     prisma.ordemServico.findMany({ where: { centroCusto: { not: null } }, distinct: ["centroCusto"], select: { centroCusto: true } }),
@@ -73,7 +73,8 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
       gerarCondicoes: true, condicao: o.condicao === "PARCELADO" ? "PARCELADO" : "AVISTA", formaPagamentoId: o.formaPagamentoId ?? "",
       vencimento: iso(o.parcelas[0]?.vencimento), intervaloDias: String(o.intervaloDias), numParcelas: String(Math.max(2, o.parcelas.length)),
       primeiraParcela: iso(o.parcelas[0]?.vencimento) || hoje(),
-      parcelas: o.parcelas.map((p) => ({ vencimento: iso(p.vencimento), valor: n2(p.valor), formaPagamentoId: p.formaPagamentoId ?? "", observacao: p.observacao ?? "" })),
+      parcelas: o.parcelas.map((p) => ({ vencimento: iso(p.vencimento), valor: n2(p.valor), formaPagamentoId: p.formaPagamentoId ?? "", observacao: p.observacao ?? "", bandeira: p.bandeira ?? "", vezes: p.vezes ? String(p.vezes) : "" })),
+      bandeira: o.parcelas[0]?.bandeira ?? "", vezes: o.parcelas[0]?.vezes ? String(o.parcelas[0].vezes) : "",
       observacoes: o.observacoes ?? "", observacaoInterna: o.observacaoInterna ?? "", camposExtras: (o.camposExtras ?? {}) as Record<string, string>,
       proximoNumero: proximo, anexos,
       entrada: isoLocalSP(o.entrada), saida: isoLocalSP(o.saida), agendaInicio: isoLocalSP(o.agendaInicio), agendaDuracao: o.agendaDuracaoMin ? String(o.agendaDuracaoMin) : "", prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds.length ? o.tecnicoIds : [o.tecnicoId ?? ""], equipeId: o.equipeId ?? "", outros: n2(o.outros),

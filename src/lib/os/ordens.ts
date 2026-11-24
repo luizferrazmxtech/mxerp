@@ -5,6 +5,8 @@ import { entrada } from "@/lib/estoque/estoque";
 import { localDaLoja } from "@/lib/estoque/entrada";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { cancelarRecebimentos, temContas } from "@/lib/financeiro/lancamentos";
+import { taxaDaParcela } from "@/lib/financeiro/taxas";
+import { cartao } from "@/lib/financeiro/taxasCartao";
 import { liberarOrcamentos } from "@/lib/orcamentos/vinculos";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
@@ -74,9 +76,9 @@ async function lancarFinanceiro(tx: Tx, osId: string) {
   await garantirPadroes(tx);
   const centro = await centroPorNome(tx, o.centroCusto);
   const rec = await receitaDocumento(tx, Number(o.totalProdutos), Number(o.totalServicos));
-  const parcelas = o.parcelas.length ? o.parcelas : [{ numero: 1, vencimento: o.saida ?? o.entrada, valor: o.total, formaPagamentoId: o.formaPagamentoId }];
-  for (const p of parcelas)
-    await tx.lancamento.create({
+  const parcelas = o.parcelas.length ? o.parcelas : [{ numero: 1, vencimento: o.saida ?? o.entrada, valor: o.total, formaPagamentoId: o.formaPagamentoId, bandeira: null, vezes: null }];
+  for (const p of parcelas) {
+    const l = await tx.lancamento.create({
       data: {
         tipo: "RECEBER", descricao: parcelas.length > 1 ? `OS de nº ${o.numero} (${p.numero}/${parcelas.length})` : `OS de nº ${o.numero}`,
         pessoaId: o.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? o.formaPagamentoId, valor: p.valor,
@@ -84,6 +86,8 @@ async function lancarFinanceiro(tx: Tx, osId: string) {
         rateio: { create: rec.rateio },
       },
     });
+    await taxaDaParcela(tx, l, p);
+  }
 }
 
 /** Passagem de uma situação para outra: estoque, financeiro e data de saída. */
@@ -150,18 +154,18 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
   const tot = totaisOs({ ...d, produtos, servicos });
   if (tot.total < 0) throw new OsError("O desconto é maior que o valor da OS");
 
-  let parcelas: { numero: number; vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; observacao: string | null }[];
+  let parcelas: { numero: number; vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; observacao: string | null; bandeira: string | null; vezes: number | null }[];
   if (d.condicao === "PARCELADO") {
     if (!d.parcelas.length) throw new OsError("Clique em Gerar parcelas");
     const soma = d.parcelas.reduce((s, p) => s + n(p.valor), 0);
     if (Math.abs(soma - tot.total) > 0.009) throw new OsError(`A soma das parcelas (${soma.toFixed(2)}) não fecha com o total (${tot.total.toFixed(2)}). Gere as parcelas de novo.`);
     parcelas = d.parcelas.map((p, i) => {
       if (!t(p.vencimento)) throw new OsError(`Informe o vencimento da parcela ${i + 1}`);
-      return { numero: i + 1, vencimento: parseDia(p.vencimento), valor: D(n(p.valor)), formaPagamentoId: t(p.formaPagamentoId) ?? t(d.formaPagamentoId), observacao: t(p.observacao) };
+      return { numero: i + 1, vencimento: parseDia(p.vencimento), valor: D(n(p.valor)), formaPagamentoId: t(p.formaPagamentoId) ?? t(d.formaPagamentoId), observacao: t(p.observacao), ...cartao(p.bandeira, p.vezes) };
     });
   } else {
     const venc = dia(d.vencimento) ?? (saidaEm ? parseDia(saidaEm.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" })) : parseDia(d.entrada.slice(0, 10)));
-    parcelas = [{ numero: 1, vencimento: venc, valor: D(tot.total), formaPagamentoId: t(d.formaPagamentoId), observacao: null }];
+    parcelas = [{ numero: 1, vencimento: venc, valor: D(tot.total), formaPagamentoId: t(d.formaPagamentoId), observacao: null, ...cartao(d.bandeira, d.vezes) }];
   }
   const prioridades = ["BAIXA", "MEDIA", "ALTA", "URGENTE", "MUITO_URGENTE"];
   const agendaInicio = dataLocalSP(d.agendaInicio ?? "");
@@ -181,8 +185,8 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
   // o local de origem (item no carro da equipe) também muda a reserva
   const assinaturaItens = (l: { produtoId: string; quantidade: number; localOrigemId: string | null }[]) => l.map((x) => `${x.produtoId}:${x.quantidade}:${x.localOrigemId ?? ""}`).sort().join("|");
   const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, quantidade: n(l.quantidade), localOrigemId: t(l.localOrigemId) }));
-  const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null }[]) =>
-    `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}`).join("|")}`;
+  const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; bandeira?: string | null; vezes?: number | null }[]) =>
+    `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}:${p.bandeira ?? ""}:${p.vezes ?? ""}`).join("|")}`;
 
   const salva = await prisma.$transaction(async (tx) => {
     const custos = new Map((await tx.produto.findMany({ where: { id: { in: produtos.map((p) => p.produtoId) } }, select: { id: true, custo: true } })).map((p) => [p.id, p.custo]));

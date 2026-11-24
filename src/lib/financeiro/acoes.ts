@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { GrupoDre, TipoLancamento } from "@prisma/client";
+import type { GrupoDre, Prisma, TipoLancamento } from "@prisma/client";
+import { lerTabela, tipoCartao, type TabelaTaxas } from "./taxasCartao";
 import { prisma } from "@/lib/db";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { parseDia } from "@/lib/datas";
@@ -109,5 +110,33 @@ export async function resolverAvisoBoletoAcao(_: Resultado, form: FormData): Pro
       : como === "baixar" ? baixarContaDoAviso(id, str(form.get("lancamentoId")), u.nome)
       : encerrarAviso(id, str(form.get("explicacao")), u.nome),
     "Aviso resolvido", "/financeiro/avisos-boletos", "/financeiro/avisos-boletos",
+  );
+}
+
+/** Financeiro › Opções auxiliares › Formas de pagamento: cadastro com conta de destino, prazo e taxas. */
+export async function salvarFormaPagamentoAcao(_: Resultado, form: FormData): Promise<Resultado> {
+  await exigirUsuario([...GER]);
+  const id = str(form.get("id"));
+  const nome = str(form.get("nome"));
+  if (!nome) return { ok: false, mensagem: "Informe o nome da forma de pagamento" };
+  const tPag = str(form.get("tPag")) || "99";
+  let taxas: TabelaTaxas = { grupos: [] };
+  try { taxas = lerTabela(JSON.parse(str(form.get("taxas")) || "{}")); } catch { return { ok: false, mensagem: "Tabela de taxas inválida" }; }
+  if (!tipoCartao(tPag)) taxas = { grupos: [] };
+  const taxa = lerNumero(str(form.get("taxa"))) ?? 0;
+  if (taxa < 0 || taxa >= 100) return { ok: false, mensagem: "Taxa fixa inválida" };
+  const data = {
+    nome, tPag, taxa, diasPrazo: Math.max(0, Math.trunc(lerNumero(str(form.get("diasPrazo"))) ?? 0)), ativa: form.get("ativa") !== "0",
+    contaBancariaId: str(form.get("contaBancariaId")) || null, categoriaTaxaId: str(form.get("categoriaTaxaId")) || null,
+    boletoInter: form.get("boletoInter") === "1", taxas: taxas as unknown as Prisma.InputJsonValue,
+  };
+  return tentar(
+    async () => {
+      const dup = await prisma.formaPagamento.findFirst({ where: { nome: { equals: nome, mode: "insensitive" }, NOT: id ? { id } : undefined } });
+      if (dup) throw new Error(`Já existe a forma "${dup.nome}"`);
+      if (id) await prisma.formaPagamento.update({ where: { id }, data });
+      else await prisma.formaPagamento.create({ data });
+    },
+    id ? "Forma de pagamento salva" : "Forma de pagamento cadastrada", "/financeiro/formas-pagamento", "/financeiro/formas-pagamento",
   );
 }

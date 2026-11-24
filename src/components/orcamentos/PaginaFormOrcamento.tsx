@@ -21,7 +21,7 @@ export default async function PaginaFormOrcamento({ tipo, id }: { tipo?: "PRODUT
   const [vendedores, situacoes, formas, tiposValor, campos, centros, proximo, cfg, canais] = await Promise.all([
     prisma.usuario.findMany({ where: { ativo: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
     prisma.situacaoOrcamento.findMany({ orderBy: { ordem: "asc" }, select: { id: true, nome: true } }),
-    prisma.formaPagamento.findMany({ where: { ativa: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
+    prisma.formaPagamento.findMany({ where: { ativa: true }, select: { id: true, nome: true, tPag: true, taxa: true, taxas: true }, orderBy: { nome: "asc" } }).then((fs) => fs.map((f) => ({ ...f, taxa: Number(f.taxa) }))),
     prisma.tipoValor.findMany({ orderBy: [{ padrao: "desc" }, { nome: "asc" }], select: { id: true, nome: true, padrao: true } }),
     prisma.campoExtra.findMany({ where: { entidade: "ORCAMENTO" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }], select: { id: true, nome: true } }),
     prisma.orcamento.findMany({ where: { centroCusto: { not: null } }, distinct: ["centroCusto"], select: { centroCusto: true } }),

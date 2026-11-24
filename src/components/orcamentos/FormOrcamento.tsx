@@ -18,11 +18,12 @@ import { salvarOrcamentoForm, type Resultado } from "@/lib/orcamentos/acoes";
 import { salvarPedidoForm } from "@/lib/vendas/acoes";
 import { salvarOsForm } from "@/lib/os/acoes";
 import { CAMPOS_OS, DURACOES_AGENDA, PRIORIDADES, equipamentoVazio, totaisOs, type DadosOs, type EquipamentoForm } from "@/lib/os/tipos";
+import { BANDEIRAS, calcularTaxa, maxVezes, pct, temTabela, tipoCartao } from "@/lib/financeiro/taxasCartao";
 import { CAMPOS_DADOS, CAMPOS_VENDA, COLUNAS_ITENS, gerarParcelas, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento, type LinhaProduto, type LinhaServico } from "@/lib/orcamentos/tipos";
 
 export type InicialOrcamento = DadosOrcamento & Partial<Omit<DadosOs, keyof DadosOrcamento>> & { id?: string; proximoNumero: number; anexos: { id: string; nome: string }[] };
 type Opcoes = {
-  vendedores: { id: string; nome: string }[]; situacoes: { id: string; nome: string }[]; formas: { id: string; nome: string }[];
+  vendedores: { id: string; nome: string }[]; situacoes: { id: string; nome: string }[]; formas: FormaOp[];
   tiposValor: { id: string; nome: string; padrao: boolean }[]; campos: { id: string; nome: string }[]; centros: string[]; canais: string[];
   tecnicos?: { id: string; nome: string }[];
   /** equipes de técnicos (só OS) */
@@ -32,6 +33,42 @@ type Opcoes = {
   /** frete pelo Melhor Envio ligado: mostra "Cotar frete" no transporte */
   freteMelhorEnvio?: boolean;
 };
+
+/** forma de pagamento com o que precisa para calcular a taxa do cartão */
+type FormaOp = { id: string; nome: string; tPag?: string; taxa?: number; taxas?: unknown };
+
+const ehCartao = (f?: FormaOp) => (f && tipoCartao(f.tPag) && temTabela(f.taxas) ? tipoCartao(f.tPag) : null);
+
+/** Cartão (venda/OS): bandeira e vezes; mostra a taxa, o líquido e quando cai. */
+function CartaoTaxa({ forma, valor, bandeira, vezes, onChange, compacto }: {
+  forma?: FormaOp; valor: number; bandeira: string; vezes: string; onChange: (m: { bandeira?: string; vezes?: string }) => void; compacto?: boolean;
+}) {
+  const tipo = ehCartao(forma);
+  if (!forma || (!tipo && !((forma.taxa ?? 0) > 0))) return null;
+  const calc = calcularTaxa({ tPag: forma.tPag ?? "", taxa: forma.taxa ?? 0, taxas: forma.taxas }, valor, bandeira, Number(vezes) || 1);
+  const max = maxVezes(forma.taxas, bandeira);
+  const resumo = calc.taxa > 0 && (
+    <span className="text-[11px] text-slate-500">Taxa {pct(calc.percentual)} = {brl(calc.taxa)} · líquido <b>{brl(calc.liquido)}</b>{calc.prazoDias !== null && ` · cai ${calc.prazoDias === 0 ? "na hora" : `${calc.prazoDias} dias depois`}`}</span>
+  );
+  const selBandeira = tipo && (
+    <select className="campo" value={bandeira} onChange={(e) => onChange({ bandeira: e.target.value, vezes: String(Math.min(Number(vezes) || 1, maxVezes(forma.taxas, e.target.value))) })} title="Bandeira do cartão">
+      <option value="">{compacto ? "Bandeira" : "Selecione"}</option>{BANDEIRAS.map((b) => <option key={b} value={b}>{b}</option>)}
+    </select>
+  );
+  const selVezes = tipo === "CREDITO" && (
+    <select className="campo" value={String(Math.min(Number(vezes) || 1, max))} onChange={(e) => onChange({ vezes: e.target.value })} title="Vezes no cartão">
+      {Array.from({ length: max }, (_, k) => <option key={k} value={k + 1}>{k + 1}x</option>)}
+    </select>
+  );
+  if (compacto) return <div className="space-y-1"><div className="flex gap-1">{selBandeira}{selVezes}</div>{resumo}</div>;
+  return (
+    <>
+      {selBandeira && <Campo rotulo="Bandeira">{selBandeira}</Campo>}
+      {selVezes && <Campo rotulo="Vezes no cartão">{selVezes}</Campo>}
+      {resumo && <div className="self-center sm:col-span-2 lg:col-span-2">{resumo}</div>}
+    </>
+  );
+}
 
 type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; preco: number; disponivel: number | null; fisicoCarros?: number | null; situacao?: SituacaoEstoque; minimo?: number; valores: { tipoValorId: string; valor: number }[] };
 type ServicoBusca = { id: string; codigo: string; nome: string; preco: number };
@@ -324,7 +361,11 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
             <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <Campo rotulo="Forma de pagamento"><select className="campo" value={d.formaPagamentoId} onChange={(e) => set("formaPagamentoId", e.target.value)}><option value="">Selecione</option>{op.formas.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></Campo>
               {d.condicao === "AVISTA" ? (
-                <Campo rotulo="Vencimento"><input type="date" className="campo" value={d.vencimento} onChange={(e) => set("vencimento", e.target.value)} /></Campo>
+                <>
+                  <Campo rotulo="Vencimento"><input type="date" className="campo" value={d.vencimento} onChange={(e) => set("vencimento", e.target.value)} /></Campo>
+                  {venda && <CartaoTaxa forma={op.formas.find((f) => f.id === d.formaPagamentoId)} valor={tot.total} bandeira={d.bandeira ?? ""} vezes={d.vezes ?? "1"}
+                    onChange={(m) => { if (m.bandeira !== undefined) set("bandeira", m.bandeira); if (m.vezes !== undefined) set("vezes", m.vezes); }} />}
+                </>
               ) : (
                 <>
                   <Campo rotulo="Intervalo (dias)"><input className="campo text-right" value={d.intervaloDias} onChange={(e) => set("intervaloDias", e.target.value)} /></Campo>
@@ -336,7 +377,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
             </div>
             {d.condicao === "PARCELADO" && d.parcelas.length > 0 && (
               <table className="tabela mt-3">
-                <thead><tr><th className="w-12">Nº</th><th className="w-44">Vencimento</th><th className="w-36 text-right">Valor</th><th className="w-56">Forma de pagamento</th><th>Observação</th></tr></thead>
+                <thead><tr><th className="w-12">Nº</th><th className="w-44">Vencimento</th><th className="w-36 text-right">Valor</th><th className="w-56">Forma de pagamento</th>{venda && op.formas.some((f) => ehCartao(f) || (f.taxa ?? 0) > 0) && <th className="w-64">Cartão / taxa</th>}<th>Observação</th></tr></thead>
                 <tbody>{d.parcelas.map((p, i) => {
                   const up = (m: Partial<typeof p>) => set("parcelas", d.parcelas.map((x, j) => (j === i ? { ...x, ...m } : x)));
                   return (
@@ -344,10 +385,11 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                       <td><input type="date" className="campo" value={p.vencimento} onChange={(e) => up({ vencimento: e.target.value })} /></td>
                       <td><input className="campo text-right" value={p.valor} onChange={(e) => up({ valor: e.target.value })} /></td>
                       <td><select className="campo" value={p.formaPagamentoId} onChange={(e) => up({ formaPagamentoId: e.target.value })}><option value="">—</option>{op.formas.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></td>
+                      {venda && op.formas.some((f) => ehCartao(f) || (f.taxa ?? 0) > 0) && <td><CartaoTaxa compacto forma={op.formas.find((f) => f.id === (p.formaPagamentoId || d.formaPagamentoId))} valor={lerNumero(p.valor) ?? 0} bandeira={p.bandeira ?? ""} vezes={p.vezes ?? "1"} onChange={(m) => up(m)} /></td>}
                       <td><input className="campo" value={p.observacao} onChange={(e) => up({ observacao: e.target.value })} /></td></tr>
                   );
                 })}</tbody>
-                <tfoot><tr><td colSpan={2} className="text-right text-[12px]">Soma das parcelas</td><td className={`text-right font-semibold ${Math.abs(d.parcelas.reduce((s, p) => s + (lerNumero(p.valor) ?? 0), 0) - tot.total) > 0.009 ? "text-red-600" : ""}`}>{n2(d.parcelas.reduce((s, p) => s + (lerNumero(p.valor) ?? 0), 0))}</td><td colSpan={2}></td></tr></tfoot>
+                <tfoot><tr><td colSpan={2} className="text-right text-[12px]">Soma das parcelas</td><td className={`text-right font-semibold ${Math.abs(d.parcelas.reduce((s, p) => s + (lerNumero(p.valor) ?? 0), 0) - tot.total) > 0.009 ? "text-red-600" : ""}`}>{n2(d.parcelas.reduce((s, p) => s + (lerNumero(p.valor) ?? 0), 0))}</td><td colSpan={venda && op.formas.some((f) => ehCartao(f) || (f.taxa ?? 0) > 0) ? 3 : 2}></td></tr></tfoot>
               </table>
             )}
           </>

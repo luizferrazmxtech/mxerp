@@ -950,6 +950,8 @@ model OsParcela {
   formaPagamentoId String?
   formaPagamento   FormaPagamento? @relation(fields: [formaPagamentoId], references: [id])
   observacao       String?
+  bandeira         String? // cartão: bandeira escolhida (calcula a taxa)
+  vezes            Int? // cartão de crédito: nº de vezes no cartão
 
   @@index([osId])
 }
@@ -1174,6 +1176,8 @@ model VendaParcela {
   formaPagamentoId String?
   formaPagamento   FormaPagamento? @relation(fields: [formaPagamentoId], references: [id])
   observacao       String?
+  bandeira         String? // cartão: bandeira escolhida (calcula a taxa)
+  vezes            Int? // cartão de crédito: nº de vezes no cartão
 }
 
 model VendaHistorico {
@@ -1272,6 +1276,7 @@ model VendaPagamento {
   formaPagamento   FormaPagamento @relation(fields: [formaPagamentoId], references: [id])
   valor            Decimal        @db.Decimal(14, 2)
   parcelas         Int            @default(1)
+  bandeira         String?
 }
 
 // ───────────────────────── Compras ─────────────────────────
@@ -1694,6 +1699,9 @@ model FormaPagamento {
   boletoInter     Boolean            @default(false) // parcelas desta forma viram boleto registrado no Banco Inter
   pagseguro       Boolean            @default(false) // recebida pelo PagSeguro (maquininha/PIX): conciliada pelo EDI com a taxa real
   contaBancariaId String? // conta onde cai o recebimento à vista (vazio = Caixa)
+  /// cartão: taxas por grupo de bandeiras e nº de vezes (src/lib/financeiro/taxasCartao.ts); {} = sem tabela, usa `taxa`
+  taxas           Json               @default("{}")
+  categoriaTaxaId String? // plano de contas da despesa com a taxa (vazio = "<conta de destino> taxas")
   pagamentos      VendaPagamento[]
   lancamentos     Lancamento[]
   orcamentos      Orcamento[]
@@ -1788,8 +1796,13 @@ model Lancamento {
   // pagamento a funcionário feito pela conciliação (folha e painel de mão de obra)
   funcionarioId    String?
   funcionario      Usuario?            @relation("LancamentoFuncionario", fields: [funcionarioId], references: [id], onDelete: SetNull)
+  /// taxa da forma de pagamento (cartão): a despesa aponta para a conta a receber e acompanha a baixa dela
+  taxaDeId         String?
+  taxaDe           Lancamento?         @relation("TaxaDoRecebimento", fields: [taxaDeId], references: [id], onDelete: Cascade)
+  taxas            Lancamento[]        @relation("TaxaDoRecebimento")
 
   @@index([tipo, vencimento])
+  @@index([taxaDeId])
   @@index([competencia])
   @@index([origemTipo, origemId])
   @@index([transferenciaId])

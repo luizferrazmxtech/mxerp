@@ -5,6 +5,8 @@ import { entrada } from "@/lib/estoque/estoque";
 import { localDaLoja, localEhCarro } from "@/lib/estoque/entrada";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { cancelarRecebimentos, temContas } from "@/lib/financeiro/lancamentos";
+import { taxaDaParcela } from "@/lib/financeiro/taxas";
+import { cartao } from "@/lib/financeiro/taxasCartao";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
 import { diaSP, parseDia, periodoDia } from "@/lib/datas";
@@ -66,9 +68,9 @@ async function lancarFinanceiro(tx: Tx, vendaId: string) {
   await garantirPadroes(tx);
   const centro = await centroPorNome(tx, v.centroCusto);
   const rec = await receitaDocumento(tx, Number(v.totalProdutos), Number(v.totalServicos));
-  const parcelas = v.parcelas.length ? v.parcelas : [{ numero: 1, vencimento: v.data, valor: v.total, formaPagamentoId: v.formaPagamentoId }];
+  const parcelas = v.parcelas.length ? v.parcelas : [{ numero: 1, vencimento: v.data, valor: v.total, formaPagamentoId: v.formaPagamentoId, bandeira: null, vezes: null }];
   for (const p of parcelas) {
-    await tx.lancamento.create({
+    const l = await tx.lancamento.create({
       data: {
         tipo: "RECEBER", descricao: parcelas.length > 1 ? `Venda de nº ${v.numero} (${p.numero}/${parcelas.length})` : `Venda de nº ${v.numero}`,
         pessoaId: v.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? v.formaPagamentoId, valor: p.valor,
@@ -76,6 +78,7 @@ async function lancarFinanceiro(tx: Tx, vendaId: string) {
         rateio: { create: rec.rateio },
       },
     });
+    await taxaDaParcela(tx, l, p);
   }
 }
 
@@ -157,17 +160,17 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
   const tot = totais({ ...d, produtos, servicos });
   if (tot.total < 0) throw new PedidoError("O desconto é maior que o valor da venda");
 
-  let parcelas: { numero: number; vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; observacao: string | null }[];
+  let parcelas: { numero: number; vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; observacao: string | null; bandeira: string | null; vezes: number | null }[];
   if (d.condicao === "PARCELADO") {
     if (!d.parcelas.length) throw new PedidoError("Clique em Gerar parcelas");
     const soma = d.parcelas.reduce((s, p) => s + n(p.valor), 0);
     if (Math.abs(soma - tot.total) > 0.009) throw new PedidoError(`A soma das parcelas (${soma.toFixed(2)}) não fecha com o total (${tot.total.toFixed(2)}). Gere as parcelas de novo.`);
     parcelas = d.parcelas.map((p, i) => {
       if (!t(p.vencimento)) throw new PedidoError(`Informe o vencimento da parcela ${i + 1}`);
-      return { numero: i + 1, vencimento: parseDia(p.vencimento), valor: D(n(p.valor)), formaPagamentoId: t(p.formaPagamentoId) ?? t(d.formaPagamentoId), observacao: t(p.observacao) };
+      return { numero: i + 1, vencimento: parseDia(p.vencimento), valor: D(n(p.valor)), formaPagamentoId: t(p.formaPagamentoId) ?? t(d.formaPagamentoId), observacao: t(p.observacao), ...cartao(p.bandeira, p.vezes) };
     });
   } else {
-    parcelas = [{ numero: 1, vencimento: dia(d.vencimento) ?? parseDia(d.data), valor: D(tot.total), formaPagamentoId: t(d.formaPagamentoId), observacao: null }];
+    parcelas = [{ numero: 1, vencimento: dia(d.vencimento) ?? parseDia(d.data), valor: D(tot.total), formaPagamentoId: t(d.formaPagamentoId), observacao: null, ...cartao(d.bandeira, d.vezes) }];
   }
 
   const dados = {
@@ -182,8 +185,8 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
   const chave = (produtoId: string, descricao: string | null) => `${produtoId}~${descricao ?? ""}`;
   const assinaturaItens = (l: { produtoId: string; descricao: string | null; quantidade: number }[]) => l.map((x) => `${chave(x.produtoId, x.descricao)}:${x.quantidade}`).sort().join("|");
   const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, descricao: descr(l), quantidade: n(l.quantidade) }));
-  const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null }[]) =>
-    `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}`).join("|")}`;
+  const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; bandeira?: string | null; vezes?: number | null }[]) =>
+    `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}:${p.bandeira ?? ""}:${p.vezes ?? ""}`).join("|")}`;
 
   return prisma.$transaction(async (tx) => {
     const custos = new Map((await tx.produto.findMany({ where: { id: { in: produtos.map((p) => p.produtoId) } }, select: { id: true, custo: true } })).map((p) => [p.id, p.custo]));

@@ -23,7 +23,7 @@ export default async function PaginaFormVenda({ tipo, id, clienteId }: { tipo?: 
   const [vendedores, situacoes, formas, tiposValor, campos, centros, proximo, cfg, canais, padrao] = await Promise.all([
     prisma.usuario.findMany({ where: { ativo: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
     prisma.situacaoVendaConfig.findMany({ orderBy: { ordem: "asc" } }),
-    prisma.formaPagamento.findMany({ where: { ativa: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
+    prisma.formaPagamento.findMany({ where: { ativa: true }, select: { id: true, nome: true, tPag: true, taxa: true, taxas: true }, orderBy: { nome: "asc" } }).then((fs) => fs.map((f) => ({ ...f, taxa: Number(f.taxa) }))),
     prisma.tipoValor.findMany({ orderBy: [{ padrao: "desc" }, { nome: "asc" }], select: { id: true, nome: true, padrao: true } }),
     prisma.campoExtra.findMany({ where: { entidade: "VENDA" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }], select: { id: true, nome: true } }),
     prisma.venda.findMany({ where: { centroCusto: { not: null } }, distinct: ["centroCusto"], select: { centroCusto: true } }),
@@ -69,7 +69,8 @@ export default async function PaginaFormVenda({ tipo, id, clienteId }: { tipo?: 
       gerarCondicoes: true, condicao: v.condicao === "PARCELADO" ? "PARCELADO" : "AVISTA", formaPagamentoId: v.formaPagamentoId ?? "",
       vencimento: iso(v.parcelas[0]?.vencimento) || isoSP(v.data), intervaloDias: String(v.intervaloDias), numParcelas: String(Math.max(2, v.parcelas.length)),
       primeiraParcela: iso(v.parcelas[0]?.vencimento) || isoSP(v.data),
-      parcelas: v.parcelas.map((p) => ({ vencimento: iso(p.vencimento), valor: n2(p.valor), formaPagamentoId: p.formaPagamentoId ?? "", observacao: p.observacao ?? "" })),
+      parcelas: v.parcelas.map((p) => ({ vencimento: iso(p.vencimento), valor: n2(p.valor), formaPagamentoId: p.formaPagamentoId ?? "", observacao: p.observacao ?? "", bandeira: p.bandeira ?? "", vezes: p.vezes ? String(p.vezes) : "" })),
+      bandeira: v.parcelas[0]?.bandeira ?? "", vezes: v.parcelas[0]?.vezes ? String(v.parcelas[0].vezes) : "",
       observacoes: v.observacoes ?? "", observacaoInterna: v.observacaoInterna ?? "", camposExtras: (v.camposExtras ?? {}) as Record<string, string>,
       proximoNumero: proximo, anexos,
     };
