@@ -1,4 +1,6 @@
 import type { Prisma, Empresa, ModeloNota, OrigemDocumento, Pessoa, RegimeTributario } from "@prisma/client";
+import { dividirDesconto } from "./desconto";
+import { empresaDosServicos } from "@/lib/os/faturamento";
 import { prisma } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
 import { assinarXml } from "./assinatura";
@@ -103,17 +105,7 @@ function itensDe(itens: ItemOrigem[], interestadual: boolean): ItemNota[] {
 
 export type Dependencias = { cert?: Certificado; transporte?: Transporte; agora?: Date };
 
-/**
- * Desconto geral de um documento com peças e serviços: cada nota leva a sua parte, na proporção dos valores.
- * (Antes a NF-e levava o desconto todo e a NFS-e nenhum: a soma das notas não batia com o cobrado por nota
- * e, com peças baratas e serviço caro, a NF-e ficava negativa.)
- */
-export function dividirDesconto(produtos: number, servicos: number, desconto: number) {
-  const base = Math.max(0, produtos) + Math.max(0, servicos);
-  if (!(desconto > 0) || !(base > 0)) return { produtos: 0, servicos: 0 };
-  const dp = Math.round(desconto * (Math.max(0, produtos) / base) * 100) / 100;
-  return { produtos: dp, servicos: Math.round((desconto - dp) * 100) / 100 };
-}
+export { dividirDesconto };
 
 /** Numeração: um contador por CNPJ, modelo, série e ambiente. */
 export const chaveSeq = (cnpj: string, modelo: 55 | 65, serie: number, amb: 1 | 2) => `NF-${cnpj}-${modelo}-${serie}-${amb === 1 ? "P" : "H"}`;
@@ -282,7 +274,9 @@ export async function emitirNotaOs(osId: string, deps: Dependencias = {}) {
   });
   if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a nota");
   if (!os.produtos.length) throw new FiscalError("OS sem peças: emita só a NFS-e dos serviços");
-  const lanc = await prisma.lancamento.findFirst({ where: { origemTipo: "OS", origemId: osId }, include: { formaPagamento: true } });
+  // serviços por outra empresa: a forma de pagamento da nota é a da conta das peças (a da empresa da OS)
+  const servicosFora = empresaDosServicos(os);
+  const lanc = await prisma.lancamento.findFirst({ where: { origemTipo: "OS", origemId: osId, ...(servicosFora ? { NOT: { empresaId: servicosFora } } : {}) }, include: { formaPagamento: true } });
   const brutoProd = os.produtos.reduce((s, i) => s + Number(i.subtotal), 0);
   const desc = dividirDesconto(brutoProd, os.servicos.reduce((s, i) => s + Number(i.subtotal), 0), Number(os.desconto)).produtos;
   const vNF = brutoProd - desc;
@@ -328,7 +322,8 @@ export async function emitirNfseOs(osId: string, deps: DependenciasNfse = {}) {
   });
   if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a NFS-e");
   return emitirNfse({
-    origemTipo: "OS", origemId: osId, empresaId: os.empresaId, rotulo: "OS", referencia: `OS ${os.numero}`, cliente: os.cliente, servicos: os.servicos,
+    // os serviços podem ser faturados por outra empresa do grupo (ex.: VFX): a NFS-e sai pelo CNPJ/certificado dela
+    origemTipo: "OS", origemId: osId, empresaId: empresaDosServicos(os) ?? os.empresaId, rotulo: "OS", referencia: `OS ${os.numero}`, cliente: os.cliente, servicos: os.servicos,
     extras: os.equipamentos.map((q) => `Equipamento: ${[q.equipamento, q.marca, q.modelo, q.serie].filter(Boolean).join(" ")}`),
     competencia: os.saida ?? undefined,
     desconto: dividirDesconto(os.produtos.reduce((s, i) => s + Number(i.subtotal), 0), os.servicos.reduce((s, i) => s + Number(i.subtotal), 0), Number(os.desconto)).servicos,

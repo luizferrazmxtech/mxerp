@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/auth/atual";
+import { lojaAtual } from "@/lib/empresa/atual";
 import { colunasVisiveis } from "@/lib/ui/colunas";
 import { proximoNumeroOs, situacaoPadraoOs } from "@/lib/os/ordens";
 import { configOs } from "@/lib/os/config";
@@ -32,8 +33,11 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
     situacaoPadraoOs(),
     prisma.equipe.findMany({ where: { ativo: true }, select: { id: true, nome: true }, orderBy: { nome: "asc" } }),
   ]);
+  // quem fatura os serviços: a empresa da OS primeiro, depois as outras ativas (ex.: VFX, só serviços)
+  const [todasEmpresas, loja] = await Promise.all([prisma.empresa.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, nomeFantasia: true, razaoSocial: true, ativa: true } }), lojaAtual()]);
   const carros = (await carrosDasEquipes()).map((c) => ({ equipeId: c.equipeId, localId: c.localId, nome: c.nome }));
   const agora = isoLocalSP(new Date());
+  let empresaDaOs: string | null = null;
   let inicial: InicialOrcamento = {
     tipo: "SERVICO", numero: "", clienteId: "", clienteNome: "", data: hoje(), validade: "", vendedorId: u?.id ?? "", prazoEntrega: "",
     aosCuidados: "", canal: canais.find((c) => c.padrao)?.nome ?? canais[0]?.nome ?? "Presencial", centroCusto: "", introducao: "", situacaoId: padrao.id, produtos: [], servicos: [],
@@ -57,6 +61,7 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
       },
     });
     if (!o) notFound();
+    empresaDaOs = o.empresaId;
     const anexos = await prisma.anexo.findMany({ where: { entidade: "OS", entidadeId: id }, select: { id: true, nome: true } });
     const pct = o.descontoPercentual != null;
     const s = (v: string | null) => v ?? "";
@@ -77,17 +82,21 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
       bandeira: o.parcelas[0]?.bandeira ?? "", vezes: o.parcelas[0]?.vezes ? String(o.parcelas[0].vezes) : "",
       observacoes: o.observacoes ?? "", observacaoInterna: o.observacaoInterna ?? "", camposExtras: (o.camposExtras ?? {}) as Record<string, string>,
       proximoNumero: proximo, anexos,
+      empresaServicosId: o.empresaServicosId ?? "",
       entrada: isoLocalSP(o.entrada), saida: isoLocalSP(o.saida), agendaInicio: isoLocalSP(o.agendaInicio), agendaDuracao: o.agendaDuracaoMin ? String(o.agendaDuracaoMin) : "", prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds.length ? o.tecnicoIds : [o.tecnicoId ?? ""], equipeId: o.equipeId ?? "", outros: n2(o.outros),
       equipamentos: o.equipamentos.map((e) => ({ equipamento: e.equipamento, marca: s(e.marca), modelo: s(e.modelo), serie: s(e.serie), condicoes: s(e.condicoes), defeitos: s(e.defeitos), acessorios: s(e.acessorios), solucao: s(e.solucao), laudo: s(e.laudo), garantia: s(e.garantia) })),
     };
   }
+  const idEmpresaOs = empresaDaOs ?? (id ? todasEmpresas[0]?.id : loja?.id ?? todasEmpresas[0]?.id);
+  const empOs = todasEmpresas.find((e) => e.id === idEmpresaOs);
+  const empresas = empOs ? [empOs, ...todasEmpresas.filter((e) => e.ativa && e.id !== empOs.id)].map((e) => ({ id: e.id, nome: e.nomeFantasia || e.razaoSocial })) : [];
   const acao = id ? "Editar" : "Adicionar";
   const tecnicos = usuarios.filter((x) => x.tecnico || x.papel === "TECNICO");
   return (
     <Pagina titulo={`${acao} OS`} trilha={[{ rotulo: "Ordens de serviços", href: "/os" }, { rotulo: acao }]}>
       <FormOrcamento inicial={inicial} modo="os"
         op={{ vendedores: usuarios, tecnicos: tecnicos.length ? tecnicos : usuarios, equipes, carros, situacoes: situacoes.map((s) => ({ id: s.id, nome: `${s.nome} (${avisoSituacaoOs(s)})` })), formas, tiposValor, campos,
-          centros: centros.map((c) => c.centroCusto!), canais: canalLista(canais.map((c) => c.nome), inicial.canal) }}
+          centros: centros.map((c) => c.centroCusto!), canais: canalLista(canais.map((c) => c.nome), inicial.canal), empresas }}
         vis={{
           dados: colunasVisiveis(u?.preferencias, "os-campos", CAMPOS_OS, CAMPOS_OS.map((c) => c.chave)),
           itens: colunasVisiveis(u?.preferencias, "os-itens", COLUNAS_ITENS, COLUNAS_ITENS.map((c) => c.chave)),

@@ -32,6 +32,7 @@ import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import BoletoParcela from "@/components/BoletoParcela";
 import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
+import { divisaoOs, empresaDosServicos } from "@/lib/os/faturamento";
 import { foneBonito, whatsappAtivo } from "@/lib/whatsapp/mxchat";
 import { mensagemOs } from "@/lib/whatsapp/os";
 import EnviarWhatsappOs from "@/components/whatsapp/EnviarWhatsappOs";
@@ -88,6 +89,10 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
     prisma.mensagemWhatsapp.findMany({ where: { entidade: "OS", entidadeId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
   ]);
   const zapOs = sp.whatsapp && zapAtivo ? await mensagemOs(id) : null;
+  // serviços faturados por outra empresa do grupo (ex.: VFX): cada conta mostra de qual empresa é
+  const servicosFora = empresaDosServicos(o);
+  const nomesEmpresas = new Map((servicosFora ? await prisma.empresa.findMany({ where: { id: { in: [servicosFora, ...(o.empresaId ? [o.empresaId] : [])] } }, select: { id: true, nomeFantasia: true, razaoSocial: true } }) : []).map((e) => [e.id, e.nomeFantasia || e.razaoSocial]));
+  const empresaServicos = servicosFora ? nomesEmpresas.get(servicosFora) ?? "outra empresa" : null;
   const errosBoleto = lancamentos.filter((l) => !l.pagoEm && l.boletos[0]?.situacao === "ERRO").length;
   const link = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}/cobranca/os/${o.token}`;
   const nomeEmpresa = empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH";
@@ -142,7 +147,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             {podeEditar && <LinkSuspenso href={`${base}/editar`} icone="editar">Editar OS</LinkSuspenso>}
             <LinkSuspenso href={`${base}?situacao=1`} icone="atualizar">Alterar situação</LinkSuspenso>
             <BotaoAcao acao={clonarOsAcao.bind(null, id)} icone="copiar">Gerar cópia</BotaoAcao>
-            {concluida && o.servicos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da OS nº ${o.numero}?`}>Emitir NFS-e</BotaoAcao>}
+            {concluida && o.servicos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da OS nº ${o.numero}${empresaServicos ? ` pela ${empresaServicos}` : ""}?`}>Emitir NFS-e{empresaServicos ? ` (${empresaServicos})` : ""}</BotaoAcao>}
             {concluida && o.produtos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFE")} icone="notas" confirmar={`Emitir a NF-e das peças da OS nº ${o.numero}?`}>Emitir NF-e</BotaoAcao>}
             <LinkSuspenso href={`${base}/separacao`} icone="locais">Lista de separação</LinkSuspenso>
             {o.produtos.length > 0 && <LinkSuspenso href={`${base}?carro=1`} icone="frete">Itens no carro</LinkSuspenso>}
@@ -299,6 +304,12 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
               <div className="cartao grid gap-3 p-4 text-[13px] sm:grid-cols-6">
                 {([["Mão de obra", o.totalServicos], ["Produtos", o.totalProdutos], ["Frete", o.frete], ["Outros", o.outros], ["Desconto", o.desconto], ["Total", o.total]] as [string, unknown][]).map(([k, x]) => <div key={k}><div className="text-slate-500">{k}</div><div className={`font-semibold ${k === "Total" ? "text-[18px] text-marca" : "text-[15px]"}`}>{brl(Number(x))}</div></div>)}
               </div>
+              {empresaServicos && (
+                <div className="flex items-start gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-[13px] text-sky-900">
+                  <Icone nome="lojas" size={15} className="mt-0.5 shrink-0" />
+                  <span>Os serviços (<b>{brl(divisaoOs(o).servicos)}</b>) são faturados pela <b>{empresaServicos}</b>: NFS-e e conta a receber/boleto dela. As peças, frete e outros (<b>{brl(divisaoOs(o).pecas)}</b>) seguem pela {nomeEmpresa}.</span>
+                </div>
+              )}
               <div className="px-1 text-[13px]"><b>Condição:</b> {o.condicao === "PARCELADO" ? `Parcelado em ${o.parcelas.length}x` : "À vista"}{o.formaPagamento ? ` · ${o.formaPagamento.nome}` : ""}</div>
               {lancamentos.length ? (
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -307,6 +318,8 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                     const atrasada = !recebida && l.vencimento < diaSP();
                     return (
                       <div key={l.id} className="cartao p-3 text-[13px]">
+                        {servicosFora && <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase text-slate-500"><span>{nomesEmpresas.get(l.empresaId ?? "") ?? nomeEmpresa} · {l.empresaId === servicosFora ? "serviços" : "peças"}</span>
+                          {verFinanceiro && <Link href={`/financeiro/lancamentos/${l.id}`} className="ml-auto font-normal normal-case text-marca hover:underline">Abrir conta</Link>}</div>}
                         <div className="flex items-center gap-2"><b>{l.formaPagamento?.nome ?? "A combinar"}</b>
                           <span className={`pilula ml-auto ${recebida ? "border-emerald-300 bg-emerald-50 text-emerald-700" : atrasada ? "border-red-300 bg-red-50 text-red-700" : "border-orange-300 bg-orange-50 text-orange-700"}`}>{recebida ? "Recebida" : atrasada ? "Atrasada" : "A receber"}</span></div>
                         <div className="mt-1 flex text-slate-600"><span>{l.totalParcelas > 1 ? `Parcela ${l.parcela}/${l.totalParcelas}` : "Parcela única"} · vence {dia(l.vencimento)} · {l.categoria.nome}</span><b className="ml-auto text-slate-800">{brl(l.valor)}</b></div>

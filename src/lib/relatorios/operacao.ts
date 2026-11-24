@@ -1,5 +1,7 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { sqlDaLoja } from "@/lib/empresa/loja";
+import { lojaAtualId, sqlDaLoja } from "@/lib/empresa/loja";
+import { sqlServicosFora } from "@/lib/os/faturamento";
 import { diaSP, rotuloMesCurto, somarDias } from "@/lib/datas";
 import { itensVendidos, type FiltroVendas, type ItemVendido, type Periodo } from "./relatorios";
 
@@ -93,13 +95,19 @@ export async function estoqueParado(dias = 90, hoje = diaSP()) {
 /** Quando cada cliente comprou (vendas concretizadas e OS concluídas/faturadas, pela data), em todo o histórico da loja. */
 async function comprasPorCliente() {
   const lv = await sqlDaLoja(`v."empresaId"`), lo = await sqlDaLoja(`o."empresaId"`);
+  const loja = await lojaAtualId();
+  const ls = loja ? Prisma.sql` AND o."empresaServicosId" = ${loja}` : Prisma.empty;
   return prisma.$queryRaw<{ clienteId: string; nome: string; dia: Date; total: number }[]>`
     SELECT x."clienteId", c.nome, x.dia::timestamp AT TIME ZONE 'UTC' dia, x.total::float total FROM (
       SELECT v."clienteId", (v.data AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date dia, v.total
         FROM "Venda" v WHERE v.situacao = 'CONCLUIDA' AND v."clienteId" IS NOT NULL ${lv}
       UNION ALL
-      SELECT o."clienteId", (COALESCE(o.saida, o.entrada) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date, o.total
+      SELECT o."clienteId", (COALESCE(o.saida, o.entrada) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date, o.total - ${sqlServicosFora()}
         FROM "OrdemServico" o WHERE o.situacao IN ('CONCLUIDA','FATURADA') AND o."clienteId" IS NOT NULL ${lo}
+      UNION ALL
+      -- serviços faturados por outra empresa (ex.: VFX): contam para ela
+      SELECT o."clienteId", (COALESCE(o.saida, o.entrada) AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date, ${sqlServicosFora()}
+        FROM "OrdemServico" o WHERE o.situacao IN ('CONCLUIDA','FATURADA') AND o."clienteId" IS NOT NULL AND ${sqlServicosFora()} > 0 ${ls}
     ) x JOIN "Pessoa" c ON c.id = x."clienteId"
     ORDER BY x.dia`;
 }
