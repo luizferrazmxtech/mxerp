@@ -46,7 +46,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   const balcao = tipo === "BALCAO";
   const u = await usuarioAtual();
   const verFinanceiro = !!u && podeAcessar(u.papel, "/financeiro");
-  const podeCancelar = balcao && !!u && (await pode(u.papel, "pdv.cancelar"));
+  const podeCancelar = !!u && (await pode(u.papel, balcao ? "pdv.cancelar" : "venda.situacao"));
   const meuCaixa = balcao && u ? await caixaAberto(u.id) : null;
   const podeSangria = balcao && !!u && (await pode(u.papel, "pdv.sangria"));
   const where = await whereVendas(tipo, sp);
@@ -80,7 +80,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   const filtros = Object.fromEntries(Object.entries(sp).filter(([k, v]) => v && !["p", "pp", "acao", "busca", "o", "situacao"].includes(k)));
   const sem = urlCom(base, sp, { acao: undefined, situacao: undefined });
   const emSituacao = sp.situacao ? await prisma.venda.findUnique({ where: { id: sp.situacao }, select: { id: true, numero: true, situacaoId: true } }) : null;
-  const opcoesSit = situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacao(s) }));
+  const opcoesSit = situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacao(s), cancela: s.estoque === "NAO" }));
 
   const tabela = (
     <div className="cartao overflow-x-auto">
@@ -127,7 +127,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
                       {v.situacao === "CONCLUIDA" && Number(v.totalServicos) > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, v.id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da venda nº ${v.numero}?`}>Emitir NFS-e</BotaoAcao>}
                       {!balcao && <BotaoAcao acao={clonarVendaAcao.bind(null, v.id)} icone="copiar">Gerar cópia</BotaoAcao>}
                       {verFinanceiro && <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&doc=${v.id}`} icone="financeiro">Ver no financeiro</LinkSuspenso>}
-                      {podeCancelar && v.situacao === "CONCLUIDA" && <LinkSuspenso href={`/vendas/${v.id}?cancelar=1`} icone="fechar">Cancelar venda</LinkSuspenso>}
+                      {podeCancelar && (balcao ? v.situacao === "CONCLUIDA" : v.situacao !== "CANCELADA") && <LinkSuspenso href={`/vendas/${v.id}?cancelar=1`} icone="fechar">Cancelar venda</LinkSuspenso>}
                       <BotaoExcluir acao={excluirVendaAcao.bind(null, v.id)} pergunta={`Excluir a venda nº ${v.numero}? O estoque volta e as contas a receber em aberto são apagadas.`} rotulo="Excluir" />
                     </Suspenso>
                   </div>
@@ -205,7 +205,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
         { rotulo: "Ticket médio", valor: brl(feitas.n ? feitas.v / feitas.n : 0), legenda: "das concretizadas", icone: "valor", cor: "cinza" },
       ]} />
 
-      {emSituacao && <FormSituacao id={emSituacao.id} numero={emSituacao.numero} atual={emSituacao.situacaoId ?? ""} situacoes={opcoesSit} voltar={sem} acao={alterarSituacaoVendaAcao} rotulo="da venda" />}
+      {emSituacao && <FormSituacao id={emSituacao.id} numero={emSituacao.numero} atual={emSituacao.situacaoId ?? ""} situacoes={opcoesSit} voltar={sem} acao={alterarSituacaoVendaAcao} rotulo="da venda" cancelarHref={`/vendas/${emSituacao.id}?cancelar=1`} />}
 
       {modo === "situacoes" ? (
         <FormSelecao acao={situacaoVendasEmMassaAcao} titulo="Alterar situação" botao="Aplicar nos marcados" voltar={sem}
