@@ -9,7 +9,9 @@ export type LinhaProduto = { id?: string; produtoId: string; nome: string; codig
   /** item avulso: digitado na hora, sem cadastro e sem estoque (o nome é a descrição digitada) */
   avulso?: boolean };
 export type LinhaServico = { id?: string; servicoId: string; nome: string; codigo: string; detalhes: string; quantidade: string; valorUnit: string; desconto: string; descontoPct: boolean };
-export type Parcela = { vencimento: string; valor: string; formaPagamentoId: string; observacao: string };
+export type Parcela = { vencimento: string; valor: string; formaPagamentoId: string; observacao: string;
+  /** cartão (venda/OS): bandeira e nº de vezes, para calcular a taxa da forma */
+  bandeira?: string; vezes?: string };
 
 export type DadosOrcamento = {
   tipo: "PRODUTO" | "SERVICO";
@@ -22,6 +24,8 @@ export type DadosOrcamento = {
   desconto: string; descontoPct: boolean; exibirTotal: boolean;
   gerarCondicoes: boolean; condicao: "AVISTA" | "PARCELADO"; formaPagamentoId: string; vencimento: string; intervaloDias: string; numParcelas: string; primeiraParcela: string;
   parcelas: Parcela[];
+  /** à vista no cartão (venda/OS): bandeira e nº de vezes */
+  bandeira?: string; vezes?: string;
   observacoes: string; observacaoInterna: string; camposExtras: Record<string, string>;
 };
 

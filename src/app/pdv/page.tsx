@@ -43,7 +43,7 @@ export default async function PdvPage({ searchParams }: { searchParams: Promise<
   );
   return (
     <>
-      <Pdv formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo, pix: pixAtivo && f.pagseguro && f.tPag === "17" }))} podeDesconto={await pode(u.papel, "pdv.desconto")} podeSangria={await pode(u.papel, "pdv.sangria")} podeCancelar={await pode(u.papel, "pdv.cancelar")}
+      <Pdv formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo, pix: pixAtivo && f.pagseguro && f.tPag === "17", tPag: f.tPag, taxa: Number(f.taxa), taxas: f.taxas }))} podeDesconto={await pode(u.papel, "pdv.desconto")} podeSangria={await pode(u.papel, "pdv.sangria")} podeCancelar={await pode(u.papel, "pdv.cancelar")}
         caixa={{ numero: caixa.numero, operador: (await prisma.usuario.findUnique({ where: { id: caixa.usuarioId }, select: { nome: true } }))?.nome ?? "", abertoEm: `${dataSP(caixa.abertoEm)} ${horaSP(caixa.abertoEm)}`, vendas: resumo.vendas, total: resumo.total }} />
       {acao === "fechar" && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 pt-10 sm:p-4 sm:pt-20">

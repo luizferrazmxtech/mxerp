@@ -6,6 +6,7 @@ import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
 import { diaSP, somarDias } from "@/lib/datas";
 import { LOJA_ATUAL } from "@/lib/empresa/loja";
+import { TAXAS_PAGSEGURO } from "@/lib/financeiro/taxasCartao";
 
 /**
  * PagSeguro (PagBank):
@@ -60,8 +61,8 @@ export async function pixPagSeguroAtivo() {
 /** Formas criadas ao ligar: recebidas pelo PagSeguro, com o à vista caindo na conta PagSeguro. */
 export const FORMAS_PAGSEGURO = [
   { nome: "PIX (PagSeguro)", tPag: "17", diasPrazo: 0 },
-  { nome: "Cartão de débito (PagSeguro)", tPag: "04", diasPrazo: 1 },
-  { nome: "Cartão de crédito (PagSeguro)", tPag: "03", diasPrazo: 30 },
+  { nome: "Cartão de débito (PagSeguro)", tPag: "04", diasPrazo: 1, taxas: TAXAS_PAGSEGURO },
+  { nome: "Cartão de crédito (PagSeguro)", tPag: "03", diasPrazo: 30, taxas: TAXAS_PAGSEGURO },
 ];
 
 export async function salvarConfigPagSeguro(d: Omit<ConfigPagSeguro, "tokenCifrado" | "ediTokenCifrado"> & { token?: string; apagarToken?: boolean; ediToken?: string; apagarEdiToken?: boolean }) {
@@ -282,6 +283,12 @@ export async function conciliarTransacoes(opts: OpcoesPS = {}) {
         recebidas++;
       }
       let taxaId = t.taxaLancamentoId;
+      // a venda já lançou a taxa estimada pela tabela da forma: troca pelo valor real do extrato
+      const estimada = !taxaId && pagoEm ? await tx.lancamento.findFirst({ where: { taxaDeId: l.id } }) : null;
+      if (estimada) {
+        await tx.lancamento.update({ where: { id: estimada.id }, data: { descricao: `Taxa PagSeguro – ${l.descricao}`, valor: t.taxa, valorPago: t.taxa, pagoEm, contaBancariaId: conta.id, observacao: `${estimada.observacao ? `${estimada.observacao} · ` : ""}real pelo extrato: transação ${t.codigo}` } });
+        taxaId = estimada.id; taxas++;
+      }
       if (pagoEm && !taxaId && Number(t.taxa) > 0) {
         await garantirPadroes(tx);
         const cat = await categoria(tx, "Tarifas bancárias e taxas de cartão", "PAGAR");

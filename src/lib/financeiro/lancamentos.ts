@@ -3,8 +3,10 @@ import type { Tx } from "@/lib/db";
 import { garantirPadroes } from "./padroes";
 import { diaSP, somarDias } from "@/lib/datas";
 import { LOJA_ATUAL, sqlDaEstrutura } from "@/lib/empresa/loja";
+import { baixarTaxas, calculoDaForma, estornarTaxas, lancarTaxa, usaTabela } from "./taxas";
 
-export type Pagamento = { formaPagamentoId: string; valor: number; parcelas?: number };
+/** `parcelas`: nº de vezes; `bandeira`: só cartão (calcula a taxa pela tabela da forma). */
+export type Pagamento = { formaPagamentoId: string; valor: number; parcelas?: number; bandeira?: string | null };
 
 const D = (v: number) => new Prisma.Decimal(v.toFixed(2));
 
@@ -38,13 +40,37 @@ export async function gerarRecebimentos(
   for (const p of args.pagamentos) {
     const forma = await tx.formaPagamento.findUniqueOrThrow({ where: { id: p.formaPagamentoId } });
     const n = Math.max(1, p.parcelas ?? 1);
+    if (usaTabela(forma)) {
+      // cartão com tabela de taxas: a maquininha antecipa as parcelas, então tudo vence no prazo do grupo da
+      // bandeira (Visa/Master na hora) e cai na conta da forma; a taxa vira despesa ligada à conta a receber
+      const calc = calculoDaForma(forma, p.valor, p.bandeira, n);
+      const vencimento = somarDias(data, calc.prazoDias ?? forma.diasPrazo);
+      // com a conciliação do PagSeguro (EDI) ligada, fica uma conta por parcela (o extrato vem por parcela) e é o
+      // extrato que dá a baixa com a data e a taxa reais
+      const edi = forma.pagseguro && (await ediPagSeguroLigado(tx));
+      const partes = edi ? dividirParcelas(p.valor, calc.vezes) : [p.valor];
+      const recebido = calc.prazoDias === 0 && !!forma.contaBancariaId && !edi;
+      for (let i = 0; i < partes.length; i++) {
+        const k = partes.length;
+        const l = await tx.lancamento.create({
+          data: {
+            tipo: "RECEBER", descricao: k > 1 ? `${args.descricao} (${i + 1}/${k})` : args.descricao, pessoaId: args.pessoaId ?? null, categoriaId: args.categoriaId,
+            formaPagamentoId: forma.id, contaBancariaId: recebido ? forma.contaBancariaId : null, valor: D(partes[i]), vencimento, competencia: data,
+            pagoEm: recebido ? data : null, valorPago: recebido ? D(partes[i]) : null, parcela: i + 1, totalParcelas: k,
+            origemTipo: args.origemTipo, origemId: args.origemId, observacao: calc.rotulo || null,
+          },
+        });
+        await lancarTaxa(tx, l, forma, calculoDaForma(forma, partes[i], p.bandeira, n));
+      }
+      continue;
+    }
     const valores = dividirParcelas(p.valor, n);
     for (let i = 0; i < n; i++) {
       const vencimento = somarDias(data, forma.diasPrazo * (i + 1));
       const aVista = forma.diasPrazo === 0;
       // à vista cai na conta da forma (ex.: PIX do PagSeguro cai na conta PagSeguro); sem conta, no Caixa
       const conta = aVista && forma.contaBancariaId ? forma.contaBancariaId : caixa.id;
-      await tx.lancamento.create({
+      const l = await tx.lancamento.create({
         data: {
           tipo: "RECEBER",
           descricao: n > 1 ? `${args.descricao} (${i + 1}/${n})` : args.descricao,
@@ -63,8 +89,16 @@ export async function gerarRecebimentos(
           origemId: args.origemId,
         },
       });
+      // taxa fixa da forma (ex.: PIX com taxa): sem taxa (0), nada é lançado
+      if (Number(forma.taxa) > 0) await lancarTaxa(tx, l, forma, calculoDaForma(forma, valores[i]));
     }
   }
+}
+
+/** Conciliação do PagSeguro pelo extrato (EDI) ligada nesta empresa? */
+async function ediPagSeguroLigado(tx: Tx) {
+  const c = (await tx.configuracao.findUnique({ where: { chave: "pagseguro" } }))?.valor as { ativo?: boolean; edi?: boolean } | undefined;
+  return !!(c?.ativo && c?.edi);
 }
 
 /** O documento tem contas no financeiro (próprias ou agrupadas num título de agrupamento). */
@@ -150,16 +184,20 @@ export async function baixarLancamento(
   const juros = args.juros ?? 0;
   const desconto = args.desconto ?? 0;
   const valorPago = args.valorPago ?? Number(l.valor) + juros - desconto;
-  return tx.lancamento.update({
+  const r = await tx.lancamento.update({
     where: { id },
     data: { pagoEm: args.data, contaBancariaId: args.contaBancariaId, juros: D(juros), desconto: D(desconto), valorPago: D(valorPago) },
   });
+  if (r.tipo === "RECEBER") await baixarTaxas(tx, r);
+  return r;
 }
 
 export async function estornarLancamento(tx: Tx, id: string) {
   const l = await tx.lancamento.findUniqueOrThrow({ where: { id }, select: { transferenciaId: true } });
   if (l.transferenciaId) throw new Error("Isto é uma transferência entre contas: exclua a transferência em vez de estornar");
-  return tx.lancamento.update({ where: { id }, data: { pagoEm: null, valorPago: null, juros: D(0), desconto: D(0) } });
+  const r = await tx.lancamento.update({ where: { id }, data: { pagoEm: null, valorPago: null, juros: D(0), desconto: D(0) } });
+  await estornarTaxas(tx, id);
+  return r;
 }
 
 /** Saldo atual de cada conta: saldo inicial + recebido - pago. */

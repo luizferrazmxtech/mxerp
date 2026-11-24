@@ -148,6 +148,7 @@ export const MENU: ItemMenu[] = [
       {
         rotulo: "Opções auxiliares", href: "/financeiro/contas", icone: "auxiliares", filhos: [
           { rotulo: "Contas bancárias", href: "/financeiro/contas", icone: "financeiro" },
+          { rotulo: "Formas de pagamento", href: "/financeiro/formas-pagamento", icone: "dinheiro" },
           { rotulo: "Transferências", href: "/financeiro/transferencias", icone: "conciliacao" },
           { rotulo: "Plano de contas", href: "/financeiro/plano-contas", icone: "lista" },
           { rotulo: "Centros de custo", href: "/financeiro/centros-custo", icone: "lojas" },
