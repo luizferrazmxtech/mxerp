@@ -11,6 +11,7 @@ import SeletorPeriodo from "@/components/ui/SeletorPeriodo";
 import Resumo from "@/components/ui/Resumo";
 import Icone from "@/components/Icone";
 import BotaoImprimir from "@/components/orcamentos/BotaoImprimir";
+import AvisoCaixa from "@/components/vendas/AvisoCaixa";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Caixas" };
@@ -73,6 +74,8 @@ export default async function Caixas({ searchParams }: { searchParams: Promise<P
           </form>
         </div>
       </div>
+
+      <AvisoCaixa />
 
       <h2 className="mb-2 hidden text-[16px] font-semibold print:block">Relatório de caixas · {rotulo}</h2>
 
@@ -151,7 +154,7 @@ export default async function Caixas({ searchParams }: { searchParams: Promise<P
         <div className="no-print"><Paginacao base={BASE} params={sp} total={linhas.length} pagina={pagina} porPagina={porPagina} /></div>
       </div>
       <div className="no-print mt-2 md:hidden">{linhas.length > take && <Paginacao base={BASE} params={sp} total={linhas.length} pagina={pagina} porPagina={porPagina} />}</div>
-      {!todos && <p className="no-print mt-2 text-[12px] text-slate-500">Você vê só os seus caixas. Para ver os de todos os operadores, peça a permissão &quot;Ver os caixas de todos os operadores&quot;.</p>}
+      {!todos && <p className="no-print mt-2 text-[12px] text-slate-500">Você vê o caixa aberto e os caixas em que trabalhou. Para ver todos, peça a permissão &quot;Ver todos os caixas&quot;.</p>}
     </Pagina>
   );
 }

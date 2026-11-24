@@ -65,11 +65,9 @@ export async function fecharCaixaAcao(_: ResultadoSimples, form: FormData): Prom
   // conferência por forma: campos "contado:<forma>"
   const contado: Record<string, number> = {};
   for (const [k, val] of form.entries()) if (k.startsWith("contado:")) contado[k.slice(8)] = num(val || "0");
-  const qualquerOperador = form.get("outro") === "1";
-  if (qualquerOperador && !(await pode(u.papel, "pdv.caixas"))) return { ok: false, mensagem: "Sem permissão para fechar o caixa de outro operador" };
   try {
     await fecharCaixa(caixaId, u.id, Object.keys(contado).length ? contado : num(form.get("valor") || "0"), String(form.get("observacao") || ""),
-      { qualquerOperador, lancarDiferenca: form.get("lancar") === "on" });
+      { lancarDiferenca: form.get("lancar") === "on" });
   } catch (e) {
     return { ok: false, mensagem: msg(e, "Erro ao fechar o caixa") };
   }

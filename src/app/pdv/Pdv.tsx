@@ -19,7 +19,7 @@ function Tecla({ k, children }: { k: string; children: React.ReactNode }) {
   return <span className="whitespace-nowrap"><kbd className="rounded border bg-slate-50 px-1.5 text-[11px]">{k}</kbd> {children}</span>;
 }
 
-export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = true, podeCancelar = false }: { formas: Forma[]; caixa: { abertoEm: string; vendas: number; total: number }; podeDesconto?: boolean; podeSangria?: boolean; podeCancelar?: boolean }) {
+export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = true, podeCancelar = false }: { formas: Forma[]; caixa: { numero: number | null; operador: string; abertoEm: string; vendas: number; total: number }; podeDesconto?: boolean; podeSangria?: boolean; podeCancelar?: boolean }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [opcoes, setOpcoes] = useState<LinhaEstoque[]>([]);
@@ -96,7 +96,7 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
     <div className="flex min-h-[calc(100vh-50px)] flex-col p-3 md:p-4">
       <div className="mb-3 flex flex-wrap items-center gap-3 text-[12px] text-slate-600">
         <span className="flex items-center gap-1.5 text-[18px] text-slate-800"><Icone nome="pdv" size={18} /> PDV</span>
-        <span className="rounded border bg-white px-2 py-1">Caixa aberto em {caixa.abertoEm}</span>
+        <span className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-emerald-900"><b>Caixa {caixa.numero ?? ""}</b> aberto por {caixa.operador} em {caixa.abertoEm}</span>
         <span className="rounded border bg-white px-2 py-1">{caixa.vendas} venda(s) · {brl(caixa.total)}</span>
         <Link href="/vendas/balcao" className="ml-auto hover:underline">Vendas do balcão</Link>
         {podeSangria && <Link href="/pdv?acao=sangria" className="btn-sec py-1 text-[12px]" title="Retirar dinheiro da gaveta">Sangria</Link>}

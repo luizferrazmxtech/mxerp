@@ -24,6 +24,7 @@ import FormSituacao from "@/components/orcamentos/FormSituacao";
 import Resumo from "@/components/ui/Resumo";
 import { brl } from "@/lib/ui/format";
 import { caixaAberto } from "@/lib/pdv/caixa";
+import AvisoCaixa from "@/components/vendas/AvisoCaixa";
 
 export type TipoLista = "PEDIDO" | "SERVICO" | "BALCAO";
 const COLUNAS = [
@@ -63,7 +64,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "VENDA", origemId: { in: lista.map((v) => v.id) }, modelo: { in: ["NFE", "NFCE"] }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true } });
   const notaDe = new Map(notas.map((n) => [n.origemId, n]));
   // cartões de resumo do período, por situação (sem o filtro de situação)
-  const porSituacao = await prisma.venda.groupBy({ by: ["situacao"], where: await whereVendas(tipo, { ...sp, s: undefined }), _sum: { total: true }, _count: true });
+  const porSituacao = await prisma.venda.groupBy({ by: ["situacao"], where: await whereVendas(tipo, { ...sp, s: undefined }, { todasSituacoes: true }), _sum: { total: true }, _count: true });
   const grupo = (sits: string[]) => porSituacao.filter((g) => sits.includes(g.situacao)).reduce((a, g) => ({ n: a.n + g._count, v: a.v + Number(g._sum.total ?? 0) }), { n: 0, v: 0 });
   const tudo = grupo(["ORCAMENTO", "ABERTA", "CONCLUIDA", "CANCELADA"]);
   const abertas = grupo(["ORCAMENTO", "ABERTA"]), feitas = grupo(["CONCLUIDA"]), canceladas = grupo(["CANCELADA"]);
@@ -193,6 +194,8 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
           <div className="mt-3 flex gap-2"><button className="btn"><Icone nome="buscar" size={14} /> Buscar</button><Link href={`${base}?busca=1`} className="btn-sec"><Icone nome="fechar" size={14} /> Limpar</Link></div>
         </form>
       )}
+
+      {balcao && <AvisoCaixa />}
 
       <Resumo cartoes={[
         { rotulo: "Total do período", valor: brl(tudo.v), legenda: `${qtdV(tudo.n)} no período`, icone: "vendas", cor: "tinta", pct: tudo.v > 0 ? 100 : 0 },
