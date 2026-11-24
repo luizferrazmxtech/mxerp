@@ -34,7 +34,7 @@ import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import BoletoParcela from "@/components/BoletoParcela";
 import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
-import { divisaoOs, empresaDosServicos } from "@/lib/os/faturamento";
+import { divisaoOs, empresaDosServicos, servicosPorParcela } from "@/lib/os/faturamento";
 import { foneBonito, whatsappAtivo } from "@/lib/whatsapp/mxchat";
 import { mensagemOs } from "@/lib/whatsapp/os";
 import EnviarWhatsappOs from "@/components/whatsapp/EnviarWhatsappOs";
@@ -95,8 +95,11 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   const zapOs = sp.whatsapp && zapAtivo ? await mensagemOs(id) : null;
   // serviços faturados por outra empresa do grupo (ex.: VFX): cada conta mostra de qual empresa é
   const servicosFora = empresaDosServicos(o);
-  const nomesEmpresas = new Map((servicosFora ? await prisma.empresa.findMany({ where: { id: { in: [servicosFora, ...(o.empresaId ? [o.empresaId] : [])] } }, select: { id: true, nomeFantasia: true, razaoSocial: true } }) : []).map((e) => [e.id, e.nomeFantasia || e.razaoSocial]));
+  const nomesEmpresas = new Map((servicosFora ? await prisma.empresa.findMany({ where: { id: { in: [servicosFora, ...(o.empresaId ? [o.empresaId] : [])] } }, select: { id: true, nomeFantasia: true, razaoSocial: true } }) : []).map((e) => [e.id, e.id === servicosFora ? e.razaoSocial : e.nomeFantasia || e.razaoSocial]));
+  // a empresa dos serviços aparece pela razão social (o nome que vai na NFS-e)
   const empresaServicos = servicosFora ? nomesEmpresas.get(servicosFora) ?? "outra empresa" : null;
+  // antes de lançar o financeiro: como cada parcela vai ser dividida entre peças e serviços (um boleto para cada)
+  const partesServicos = servicosFora ? servicosPorParcela(o.parcelas, divisaoOs(o).servicos, Number(o.total)) : [];
   const errosBoleto = lancamentos.filter((l) => !l.pagoEm && l.boletos[0]?.situacao === "ERRO").length;
   const link = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}/cobranca/os/${o.token}`;
   const nomeEmpresa = empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH";
@@ -338,9 +341,21 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                 </div>
               ) : o.parcelas.length ? (
                 <div className="cartao overflow-x-auto">
-                  <p className="px-4 pt-3 text-[12px] text-slate-500">Esta situação não lança o financeiro: as parcelas viram contas a receber quando a OS for para uma situação que lança.</p>
-                  <table className="tabela"><thead><tr><th>Parcela</th><th>Vencimento</th><th className="text-right">Valor</th><th>Forma</th><th>Observação</th></tr></thead>
-                    <tbody>{o.parcelas.map((p) => <tr key={p.id}><td>{p.numero}</td><td>{dia(p.vencimento)}</td><td className="text-right">{num2(p.valor)}</td><td>{p.formaPagamento?.nome ?? o.formaPagamento?.nome ?? "A combinar"}</td><td>{p.observacao}</td></tr>)}</tbody></table>
+                  <p className="px-4 pt-3 text-[12px] text-slate-500">Esta situação não lança o financeiro: as parcelas viram contas a receber quando a OS for para uma situação que lança{servicosFora ? ", uma para as peças e outra para os serviços, cada uma com o seu boleto" : ""}.</p>
+                  {servicosFora ? (
+                    <table className="tabela"><thead><tr><th>Parcela</th><th>Empresa</th><th>Vencimento</th><th className="text-right">Valor</th><th>Forma</th><th>Observação</th></tr></thead>
+                      <tbody>{o.parcelas.flatMap((p, i) => {
+                        const forma = p.formaPagamento?.nome ?? o.formaPagamento?.nome ?? "A combinar";
+                        const pecas = Math.round((Number(p.valor) - partesServicos[i]) * 100) / 100;
+                        return [
+                          pecas > 0 && <tr key={`${p.id}-p`}><td>{p.numero}/{o.parcelas.length}</td><td>{nomeEmpresa} · peças</td><td>{dia(p.vencimento)}</td><td className="text-right">{num2(pecas)}</td><td>{forma}</td><td>{p.observacao}</td></tr>,
+                          partesServicos[i] > 0 && <tr key={`${p.id}-s`}><td>{p.numero}/{o.parcelas.length}</td><td>{empresaServicos} · serviços</td><td>{dia(p.vencimento)}</td><td className="text-right">{num2(partesServicos[i])}</td><td>{forma}</td><td>{p.observacao}</td></tr>,
+                        ].filter(Boolean);
+                      })}</tbody></table>
+                  ) : (
+                    <table className="tabela"><thead><tr><th>Parcela</th><th>Vencimento</th><th className="text-right">Valor</th><th>Forma</th><th>Observação</th></tr></thead>
+                      <tbody>{o.parcelas.map((p) => <tr key={p.id}><td>{p.numero}</td><td>{dia(p.vencimento)}</td><td className="text-right">{num2(p.valor)}</td><td>{p.formaPagamento?.nome ?? o.formaPagamento?.nome ?? "A combinar"}</td><td>{p.observacao}</td></tr>)}</tbody></table>
+                  )}
                 </div>
               ) : <Vazio icone="dinheiro" titulo="Nenhuma forma de pagamento foi definida" />}
             </div>
@@ -360,7 +375,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             </div>
           ) : <Vazio icone="percentual" titulo="Sem comissão" texto="Nenhum dado de comissão foi encontrado para este registro." />)}
 
-          {aba === "notas" && <NotasDoDocumento origemTipo="OS" origemId={id} podeEmitir={concluida} temProdutos={o.produtos.length > 0} temServicos={o.servicos.length > 0} />}
+          {aba === "notas" && <NotasDoDocumento origemTipo="OS" origemId={id} podeEmitir={concluida} temProdutos={o.produtos.length > 0} temServicos={o.servicos.length > 0} empresaServicos={empresaServicos} />}
 
           {aba === "campos" && <div className="cartao p-4 text-[13px]">{campos.map((x) => <div key={x.id}><b>{x.nome}:</b> {ce[x.id] || "—"}</div>)}</div>}
 

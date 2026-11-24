@@ -72,7 +72,7 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
   const c = os.cliente;
   // serviços faturados por outra empresa (ex.: VFX): cada parcela diz quem cobra (peças e serviços em boletos separados)
   const fora = empresaDosServicos(os);
-  const empresasCobranca = fora ? new Map((await prisma.empresa.findMany({ where: { id: { in: [...new Set(lanc.map((l) => l.empresaId).filter((x): x is string => !!x))] } }, select: { id: true, nomeFantasia: true, razaoSocial: true } })).map((e) => [e.id, e.nomeFantasia || e.razaoSocial])) : new Map<string, string>();
+  const empresasCobranca = fora ? new Map((await prisma.empresa.findMany({ where: { id: { in: [...new Set(lanc.map((l) => l.empresaId).filter((x): x is string => !!x))] } }, select: { id: true, nomeFantasia: true, razaoSocial: true } })).map((e) => [e.id, e.id === fora ? e.razaoSocial : e.nomeFantasia || e.razaoSocial])) : new Map<string, string>();
   const parcelas = lanc.length
     ? lanc.map((l) => ({ id: l.id, n: l.parcela, de: l.totalParcelas, venc: l.vencimento, valor: l.valor, forma: l.formaPagamento?.nome, pago: !!l.pagoEm,
       quem: fora ? `${l.empresaId === fora ? "Serviços" : "Peças"} · ${empresasCobranca.get(l.empresaId ?? "") ?? emp?.nomeFantasia ?? emp?.razaoSocial ?? ""}` : "" }))
