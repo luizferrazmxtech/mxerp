@@ -13,16 +13,27 @@ const D = (v: number) => new Prisma.Decimal(v.toFixed(2));
 export const DINHEIRO = "Dinheiro";
 export type Conferencia = { forma: string; esperado: number; contado: number };
 
-/** Caixa do PDV aberto por este usuário (cada operador tem o seu). */
-export function caixaAberto(usuarioId: string) {
-  return prisma.caixaPdv.findFirst({ where: { usuarioId, fechadoEm: null }, orderBy: { abertoEm: "desc" } });
+/**
+ * Um caixa por empresa (loja): o primeiro operador abre e todos vendem nele até alguém fechar (uma gaveta só).
+ * Se sobrou mais de um aberto (antes desta regra), o PDV usa o do próprio usuário ou, se não tiver, o mais antigo.
+ */
+export async function caixaAberto(usuarioId?: string) {
+  const abertos = await prisma.caixaPdv.findMany({ where: { fechadoEm: null }, orderBy: { abertoEm: "asc" } });
+  return abertos.find((c) => c.usuarioId === usuarioId) ?? abertos[0] ?? null;
+}
+
+/** Caixas abertos na empresa atual, com quem abriu (normalmente um só). */
+export function caixasAbertos() {
+  return prisma.caixaPdv.findMany({ where: { fechadoEm: null }, orderBy: { abertoEm: "asc" }, include: { usuario: { select: { id: true, nome: true } } } });
 }
 
 /** Abre o caixa com o dinheiro inicial; opcionalmente lança a abertura como recebimento no financeiro (conta Caixa). */
 export async function abrirCaixa(usuarioId: string, valor: number, gerarRecebimento = false) {
   if (!(valor >= 0)) throw new EstoqueError("Valor de abertura inválido");
   return prisma.$transaction(async (tx) => {
-    const ja = await tx.caixaPdv.findFirst({ where: { usuarioId, fechadoEm: null } });
+    // dois operadores abrindo ao mesmo tempo: só um cria, o outro entra no mesmo caixa
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('mxerp-abrir-caixa'))`;
+    const ja = await tx.caixaPdv.findFirst({ where: { fechadoEm: null }, orderBy: { abertoEm: "asc" } });
     if (ja) return ja;
     const caixa = await tx.caixaPdv.create({ data: { usuarioId, valorAbertura: D(valor), numero: await proximoNumero(tx, "CAIXA") } });
     if (gerarRecebimento && valor > 0) {
@@ -79,7 +90,7 @@ export async function movimentarCaixa(
   caixaId: string, usuarioId: string,
   d: { tipo: "SANGRIA" | "SUPRIMENTO"; valor: number; motivo?: string | null; contaId?: string | null },
 ) {
-  const c = await prisma.caixaPdv.findFirst({ where: { id: caixaId, usuarioId, fechadoEm: null } });
+  const c = await prisma.caixaPdv.findFirst({ where: { id: caixaId, fechadoEm: null } });
   if (!c) throw new EstoqueError("Caixa não está aberto");
   if (!(d.valor > 0)) throw new EstoqueError("Informe um valor maior que zero");
   const valor = Math.round(d.valor * 100) / 100;
@@ -108,13 +119,12 @@ export async function movimentarCaixa(
  * Fecha o caixa com a conferência: para cada forma de pagamento, o esperado (sistema) e o contado (operador).
  * `contado` pode ser só o dinheiro da gaveta (número) ou um mapa forma → valor; a forma não informada fica igual ao
  * esperado. Com `lancarDiferenca`, a sobra/falta de dinheiro vira um lançamento pago na conta Caixa do financeiro.
- * `qualquerOperador`: gerente fechando o caixa esquecido de outro operador.
  */
 export async function fecharCaixa(
   caixaId: string, usuarioId: string, contado: number | Record<string, number>, observacao?: string,
-  opts: { qualquerOperador?: boolean; lancarDiferenca?: boolean } = {},
+  opts: { lancarDiferenca?: boolean } = {},
 ) {
-  const c = await prisma.caixaPdv.findFirst({ where: { id: caixaId, fechadoEm: null, ...(opts.qualquerOperador ? {} : { usuarioId }) } });
+  const c = await prisma.caixaPdv.findFirst({ where: { id: caixaId, fechadoEm: null } });
   if (!c) throw new EstoqueError("Caixa não está aberto");
   const r = await resumoCaixa(caixaId);
   const mapa = typeof contado === "number" ? { [DINHEIRO]: contado } : contado;

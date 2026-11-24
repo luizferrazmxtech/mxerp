@@ -15,9 +15,9 @@ const ler = (t: string) => {
 
 /**
  * Fechamento com conferência por forma de pagamento (esperado × contado), diferença na hora e opção de lançar a
- * sobra/quebra do dinheiro no financeiro. `outro`: gerente fechando o caixa de outro operador.
+ * sobra/quebra do dinheiro no financeiro.
  */
-export default function FecharCaixa({ caixaId, linhas, outro = false }: { caixaId: string; linhas: Linha[]; outro?: boolean }) {
+export default function FecharCaixa({ caixaId, linhas }: { caixaId: string; linhas: Linha[] }) {
   const [r, , pendente, formAcao] = useFormAcao<ResultadoSimples>(fecharCaixaAcao, null);
   const [vals, setVals] = useState<string[]>(linhas.map((l) => fmt(l.esperado)));
   const difs = linhas.map((l, i) => { const v = ler(vals[i]); return Number.isFinite(v) ? Math.round((v - l.esperado) * 100) / 100 : 0; });
@@ -27,7 +27,6 @@ export default function FecharCaixa({ caixaId, linhas, outro = false }: { caixaI
   return (
     <form {...formAcao} className="space-y-3">
       <input type="hidden" name="caixaId" value={caixaId} />
-      {outro && <input type="hidden" name="outro" value="1" />}
       <div className="overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead><tr className="border-b text-left text-[12px] text-slate-500">

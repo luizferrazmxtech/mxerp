@@ -371,7 +371,8 @@ export async function registrarDevolucao(args: { vendaId: string; tipo: "DEVOLUC
 export type ParamsVendas = Record<string, string | undefined>;
 
 /** Filtros da lista: período (pela data), busca simples e busca avançada. */
-export async function whereVendas(tipo: "PEDIDO" | "SERVICO" | "BALCAO", sp: ParamsVendas): Promise<Prisma.VendaWhereInput> {
+/** `todasSituacoes`: ignora o "exibir na listagem" das situações (cartões de resumo, que contam as canceladas). */
+export async function whereVendas(tipo: "PEDIDO" | "SERVICO" | "BALCAO", sp: ParamsVendas, opts: { todasSituacoes?: boolean } = {}): Promise<Prisma.VendaWhereInput> {
   const w: Prisma.VendaWhereInput[] = [tipo === "BALCAO" ? { tipo } : { tipo: { in: ["PEDIDO", "SERVICO"] } }];
   const buscando = !!(sp.q || sp.codigo || sp.de || sp.ate || sp.cli);
   const per = buscando && !sp.periodo ? null : periodoDia(sp.periodo, sp.pde, sp.pate);
@@ -393,7 +394,9 @@ export async function whereVendas(tipo: "PEDIDO" | "SERVICO" | "BALCAO", sp: Par
   if (sp.serv) w.push({ servicos: { some: { servicoId: sp.serv } } });
   if (sp.cc) w.push({ centroCusto: sp.cc });
   if (sp.s) w.push({ situacaoId: sp.s });
-  else w.push({ OR: [{ situacaoId: null }, { situacaoCfg: { exibir: true } }] });
+  // situação marcada para não aparecer na lista fica escondida; no balcão, a venda cancelada do PDV sempre aparece
+  // (senão ela some da lista e do cartão "Canceladas" e só se vê dentro do caixa)
+  else if (!opts.todasSituacoes) w.push({ OR: [{ situacaoId: null }, { situacaoCfg: { exibir: true } }, ...(tipo === "BALCAO" ? [{ situacao: "CANCELADA" as const }] : [])] });
   return { AND: w };
 }
 

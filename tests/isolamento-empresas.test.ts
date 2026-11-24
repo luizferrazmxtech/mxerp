@@ -27,6 +27,8 @@ describe("com uma empresa escolhida, nada da outra aparece", () => {
     const b = await prisma.empresa.create({ data: { razaoSocial: "VFX INFO SERVICE", cnpj: "36130603000155" } });
     limparCacheLojas();
     const op = await prisma.usuario.create({ data: { nome: "T-OP", email: "t-op-caixa@x.test", senhaHash: "x" } });
+    // caixas abertos que sobraram de outros testes (sem empresa aparecem em todas) atrapalham a regra de um caixa por empresa
+    await prisma.caixaPdv.updateMany({ where: { fechadoEm: null }, data: { fechadoEm: new Date() } });
     try {
       const ca = await naLoja(a.id, () => abrirCaixa(op.id, 10));
       expect(ca.empresaId).toBe(a.id);

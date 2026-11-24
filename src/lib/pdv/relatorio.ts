@@ -6,13 +6,18 @@ import { DINHEIRO, diferencaTotal, lerConferencia, type Conferencia } from "./ca
 export type ParamsCaixas = Record<string, string | undefined>;
 const r2 = (x: number) => Math.round(x * 100) / 100;
 
-/** Filtro da lista de caixas: período de abertura, operador e situação. Sem `todos`, só os caixas do próprio usuário. */
+/** Caixas que o usuário sem a permissão pdv.caixas vê: o aberto, os que ele abriu e aqueles em que vendeu ou mexeu. */
+export const caixasDoUsuario = (usuarioId: string): Prisma.CaixaPdvWhereInput => ({
+  OR: [{ fechadoEm: null }, { usuarioId }, { fechadoPorId: usuarioId }, { vendas: { some: { vendedorId: usuarioId } } }, { movimentos: { some: { usuarioId } } }],
+});
+
+/** Filtro da lista de caixas: período de abertura, operador e situação. Sem `todos`, só os caixas do usuário (caixasDoUsuario). */
 export function whereCaixas(sp: ParamsCaixas, usuario: { id: string; todos: boolean }) {
   const per = periodoInstantes(sp.periodo, sp.pde, sp.pate);
   const w: Prisma.CaixaPdvWhereInput[] = [];
   if (per.filtro) w.push({ abertoEm: per.filtro });
-  if (!usuario.todos) w.push({ usuarioId: usuario.id });
-  else if (sp.op) w.push({ usuarioId: sp.op });
+  if (!usuario.todos) w.push(caixasDoUsuario(usuario.id));
+  if (usuario.todos && sp.op) w.push({ usuarioId: sp.op });
   if (sp.sit === "aberto") w.push({ fechadoEm: null });
   if (sp.sit === "fechado") w.push({ fechadoEm: { not: null } });
   if (sp.q && /^\d+$/.test(sp.q.trim())) w.push({ numero: Number(sp.q.trim()) });
