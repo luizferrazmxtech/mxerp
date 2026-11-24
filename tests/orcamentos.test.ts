@@ -80,6 +80,57 @@ describe("orçamentos", () => {
     await expect(orc.gerarVendaDoOrcamento(o.id, u)).rejects.toThrow(/já gerou/);
   });
 
+  it("cancelar a venda desfaz tudo: reserva, contas, recebido só com estorno e orçamento livre para gerar de novo", async () => {
+    const ped = await import("@/lib/vendas/pedidos");
+    const o = await orc.salvarOrcamento(dados(), u);
+    const { vendaId } = await orc.gerarVendaDoOrcamento(o.id, u);
+    // concretiza a venda (lança financeiro) e recebe uma parcela
+    const conc = await prisma.situacaoVendaConfig.findFirstOrThrow({ where: { estoque: "LANCAR", financeiro: true } });
+    await ped.alterarSituacaoPedido(vendaId, conc.id, u, { permitirNegativo: true });
+    const lancs = await prisma.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: vendaId }, orderBy: { parcela: "asc" } });
+    expect(lancs).toHaveLength(3);
+    await prisma.lancamento.update({ where: { id: lancs[0].id }, data: { pagoEm: new Date(), valorPago: lancs[0].valor } });
+    const previa = await ped.previaCancelamento(vendaId);
+    expect(previa.bloqueios).toEqual([]);
+    expect(previa.desfazer.join("\n")).toMatch(/Exclui as 2 contas a receber em aberto/);
+    expect(previa.desfazer.join("\n")).toMatch(/Estorna o recebimento/);
+    expect(previa.desfazer.join("\n")).toMatch(/Devolve ao estoque/);
+    expect(previa.desfazer.join("\n")).toMatch(new RegExp(`Orçamento nº ${o.numero}.*"Em aberto"`));
+    // pela troca de situação ou sem marcar o estorno: recusa
+    const cancelada = await prisma.situacaoVendaConfig.findFirstOrThrow({ where: { estoque: "NAO" } });
+    await expect(ped.alterarSituacaoPedido(vendaId, cancelada.id, u)).rejects.toThrow(/já recebida/);
+    await expect(ped.cancelarVenda(vendaId, u)).rejects.toThrow(/já recebida/);
+    const r = await ped.cancelarVenda(vendaId, u, { estornarPagos: true, motivo: "cliente desistiu" });
+    expect(r.estornado).toBeCloseTo(Number(lancs[0].valor));
+    expect(await prisma.lancamento.count({ where: { origemTipo: "VENDA", origemId: vendaId } })).toBe(0);
+    expect(Number((await prisma.saldo.findFirstOrThrow({ where: { produtoId: prod } })).quantidade)).toBe(5);
+    const depois = await prisma.orcamento.findUniqueOrThrow({ where: { id: o.id }, include: { situacao: true, historico: true } });
+    expect(depois.vendaId).toBeNull();
+    expect(depois.situacao.nome).toBe("Em aberto");
+    expect(depois.historico.some((h) => /cancelada: vínculo desfeito/.test(h.descricao))).toBe(true);
+    await expect(ped.cancelarVenda(vendaId, u)).rejects.toThrow(/já está cancelada/);
+    // gera de novo
+    const nova = await orc.gerarVendaDoOrcamento(o.id, u);
+    expect(nova.vendaId).not.toBe(vendaId);
+  });
+
+  it("venda em aberto cancelada por Alterar situação libera a reserva e o orçamento; OS cancelada também libera", async () => {
+    const ped = await import("@/lib/vendas/pedidos");
+    const os = await import("@/lib/os/ordens");
+    const o = await orc.salvarOrcamento(dados(), u);
+    const { vendaId } = await orc.gerarVendaDoOrcamento(o.id, u);
+    const cancelada = await prisma.situacaoVendaConfig.findFirstOrThrow({ where: { estoque: "NAO" } });
+    await ped.alterarSituacaoPedido(vendaId, cancelada.id, u);
+    expect(await prisma.reserva.count({ where: { origemTipo: "VENDA", origemId: vendaId, status: "ATIVA" } })).toBe(0);
+    expect((await prisma.orcamento.findUniqueOrThrow({ where: { id: o.id } })).vendaId).toBeNull();
+    const { osId } = await orc.gerarOsDoOrcamento(o.id, u);
+    const sitCancOs = await prisma.situacaoOsConfig.findFirstOrThrow({ where: { estoque: "NAO", NOT: { nome: { contains: "evolv", mode: "insensitive" } } } });
+    await os.alterarSituacaoOrdem(osId, sitCancOs.id, u);
+    const depois = await prisma.orcamento.findUniqueOrThrow({ where: { id: o.id }, include: { situacao: true } });
+    expect(depois.osId).toBeNull();
+    expect(depois.situacao.nome).toBe("Em aberto");
+  });
+
   it("gerar OS leva produtos e serviços", async () => {
     const o = await orc.salvarOrcamento(dados(), u);
     const { osId } = await orc.gerarOsDoOrcamento(o.id, u);

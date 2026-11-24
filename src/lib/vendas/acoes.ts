@@ -8,7 +8,7 @@ import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { avisoBoletos, boletosDoDocumento } from "@/lib/financeiro/boletos";
 import { emitirNfseVenda, emitirNotaVenda } from "@/lib/fiscal/emissao";
 import { configVenda } from "./config";
-import { alterarSituacaoPedido, cancelarVendaBalcao, clonarPedido, excluirPedido, registrarDevolucao, salvarPedido, type DadosPedido } from "./pedidos";
+import { alterarSituacaoPedido, cancelarVenda, cancelarVendaBalcao, clonarPedido, excluirPedido, registrarDevolucao, salvarPedido, type DadosPedido } from "./pedidos";
 
 export type Resultado = { ok: boolean; mensagem: string } | null;
 const VENDE: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"];
@@ -44,6 +44,7 @@ export async function alterarSituacaoVendaAcao(_: Resultado, form: FormData): Pr
     const r = await alterarSituacaoPedido(String(form.get("id")), String(form.get("situacaoId")), u, { observacao: String(form.get("observacao") ?? ""), forcar: form.get("forcar") === "1", permitirNegativo: (await configVenda()).estoqueNegativo });
     const bol = avisoBoletos(await boletosDoDocumento({ origemTipo: "VENDA", origemId: String(form.get("id")) }));
     revalidatePath("/vendas", "layout");
+    if (destino?.estoque === "NAO") revalidatePath("/orcamentos", "layout");
     return { ok: true, mensagem: `Situação alterada para ${r.para.nome}.${bol ? ` ${bol}` : ""}` };
   } catch (e) { return erro(e); }
 }
@@ -54,6 +55,7 @@ async function cancelarBalcao(id: string, motivo: string): Promise<Resultado> {
   revalidatePath("/vendas", "layout");
   revalidatePath("/pdv");
   revalidatePath("/financeiro");
+  revalidatePath("/orcamentos", "layout");
   const brl = (x: number) => x.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   return { ok: true, mensagem: `Venda nº ${r.numero} cancelada.${r.estornado ? ` Recebimento de ${brl(r.estornado)} estornado do financeiro: devolva o valor ao cliente.` : ""} Os produtos voltaram ao estoque.` };
 }
@@ -61,6 +63,23 @@ async function cancelarBalcao(id: string, motivo: string): Promise<Resultado> {
 /** Visualizar venda › Cancelar venda (só PDV/balcão): devolve o estoque e estorna o recebimento. */
 export async function cancelarVendaBalcaoAcao(_: Resultado, form: FormData): Promise<Resultado> {
   try { return await cancelarBalcao(String(form.get("id")), String(form.get("motivo") ?? "")); } catch (e) { return erro(e); }
+}
+
+/** Editar ▾ › Cancelar venda (qualquer venda): desfaz financeiro, estoque e o vínculo com o orçamento. */
+export async function cancelarVendaAcao(_: Resultado, form: FormData): Promise<Resultado> {
+  try {
+    const id = String(form.get("id"));
+    const v = await prisma.venda.findUniqueOrThrow({ where: { id }, select: { tipo: true, situacao: true } });
+    if (v.tipo === "BALCAO" && v.situacao === "CONCLUIDA") return await cancelarBalcao(id, String(form.get("motivo") ?? ""));
+    const u = await exigirAcao("venda.situacao");
+    const r = await cancelarVenda(id, u, { motivo: String(form.get("motivo") ?? ""), estornarPagos: form.get("estornar") === "1" });
+    await boletosDoDocumento({ lancamentoIds: [] }); // cancela no Inter os boletos que ficaram sem conta
+    revalidatePath("/vendas", "layout");
+    revalidatePath("/orcamentos", "layout");
+    revalidatePath("/financeiro");
+    const brl = (x: number) => x.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    return { ok: true, mensagem: `Venda nº ${r.numero} cancelada e vínculos desfeitos.${r.estornado ? ` Recebimento de ${brl(r.estornado)} estornado do financeiro: devolva o valor ao cliente.` : ""}` };
+  } catch (e) { return erro(e); }
 }
 
 export async function situacaoVendasEmMassaAcao(_: Resultado, form: FormData): Promise<Resultado> {

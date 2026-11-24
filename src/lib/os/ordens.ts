@@ -5,6 +5,7 @@ import { entrada } from "@/lib/estoque/estoque";
 import { localDaLoja } from "@/lib/estoque/entrada";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { cancelarRecebimentos } from "@/lib/financeiro/lancamentos";
+import { liberarOrcamentos } from "@/lib/orcamentos/vinculos";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
 import { parseDia, periodoDia } from "@/lib/datas";
@@ -87,7 +88,7 @@ async function lancarFinanceiro(tx: Tx, osId: string) {
 
 /** Passagem de uma situação para outra: estoque, financeiro e data de saída. */
 async function aplicar(tx: Tx, osId: string, de: EstadoEstoque, para: SituacaoOsConfig,
-  opts: { refazerItens?: () => Promise<void>; refazerFinanceiro?: boolean; permitirNegativo?: boolean; forcar?: boolean; usuarioId?: string }) {
+  opts: { refazerItens?: () => Promise<void>; refazerFinanceiro?: boolean; permitirNegativo?: boolean; forcar?: boolean; usuarioId?: string; usuarioNome?: string }) {
   const temLanc = (await tx.lancamento.count({ where: { origemTipo: "OS", origemId: osId } })) > 0;
   if (temLanc && (!para.financeiro || opts.refazerFinanceiro)) await cancelarRecebimentos(tx, "OS", osId, opts.forcar);
   const novo = estadoDe(para.estoque);
@@ -99,8 +100,10 @@ async function aplicar(tx: Tx, osId: string, de: EstadoEstoque, para: SituacaoOs
   } else {
     await transicionarEstoque(tx, "OS", osId, de, novo, itensDoc(tx, osId), opts);
   }
-  const atual = await tx.ordemServico.findUniqueOrThrow({ where: { id: osId }, select: { saida: true } });
+  const atual = await tx.ordemServico.findUniqueOrThrow({ where: { id: osId }, select: { saida: true, situacao: true, numero: true } });
   await tx.ordemServico.update({ where: { id: osId }, data: { situacaoId: para.id, situacao: enumDe(para), ...(para.preencherSaida && !atual.saida ? { saida: new Date() } : {}) } });
+  // OS cancelada: o orçamento que a gerou fica livre para gerar venda ou OS de novo
+  if (enumDe(para) === "CANCELADA" && atual.situacao !== "CANCELADA") await liberarOrcamentos(tx, { osId }, `OS nº ${atual.numero} cancelada`, opts.usuarioNome);
   const aindaTem = (await tx.lancamento.count({ where: { origemTipo: "OS", origemId: osId } })) > 0;
   if (para.financeiro && !aindaTem) await lancarFinanceiro(tx, osId);
 }
@@ -248,7 +251,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
       await tx.osParcela.createMany({ data: parcelas.map((p) => ({ ...p, osId: id })) });
       await criarServicos(id);
       await criarEquipamentos(id);
-      if (mudouItens) await aplicar(tx, id, estadoAtual(atual), para, { ...opts, usuarioId: u.id, refazerFinanceiro: mudouFin, refazerItens: () => criarItens(id) });
+      if (mudouItens) await aplicar(tx, id, estadoAtual(atual), para, { ...opts, usuarioId: u.id, usuarioNome: u.nome, refazerFinanceiro: mudouFin, refazerItens: () => criarItens(id) });
       else {
         // mesmos produtos e quantidades: troca valores sem mexer nas reservas/baixas
         const porProduto = new Map(existentes.map((e) => [e.produtoId, e]));
@@ -256,7 +259,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
           const e = porProduto.get(l.produtoId);
           if (e) await tx.osItemProduto.update({ where: { id: e.id }, data: { ordem: i, detalhes: t(l.detalhes), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)) } });
         }
-        await aplicar(tx, id, estadoAtual(atual), para, { ...opts, usuarioId: u.id, refazerFinanceiro: mudouFin });
+        await aplicar(tx, id, estadoAtual(atual), para, { ...opts, usuarioId: u.id, usuarioNome: u.nome, refazerFinanceiro: mudouFin });
       }
       await tx.osHistorico.create({ data: { osId: id, descricao: (atual.situacaoId !== para.id ? `OS alterada e levada para "${para.nome}"` : "OS alterada") + (mudancas.length ? `: ${mudancas.join("; ")}` : ""), situacao: para.nome, usuarioNome: u.nome, usuarioId: u.id } });
       return tx.ordemServico.findUniqueOrThrow({ where: { id } });
@@ -273,7 +276,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
     await criarItens(o.id);
     await criarServicos(o.id);
     await criarEquipamentos(o.id);
-    await aplicar(tx, o.id, "LIVRE", para, { ...opts, usuarioId: u.id });
+    await aplicar(tx, o.id, "LIVRE", para, { ...opts, usuarioId: u.id, usuarioNome: u.nome });
     await tx.osHistorico.create({ data: { osId: o.id, descricao: "A ordem de serviço foi cadastrada no sistema", situacao: para.nome, usuarioNome: u.nome, usuarioId: u.id } });
     return tx.ordemServico.findUniqueOrThrow({ where: { id: o.id } });
   }, { timeout: 30000 });
@@ -288,7 +291,7 @@ export async function alterarSituacaoOrdem(id: string, situacaoId: string, u: Us
     if (u.papel && o.situacaoCfg?.bloqueados.includes(u.papel)) throw new OsError(`Seu grupo não pode trocar a situação "${o.situacaoCfg.nome}"`);
     const para = await tx.situacaoOsConfig.findUniqueOrThrow({ where: { id: situacaoId } });
     if (o.situacaoId === para.id) return { para };
-    await aplicar(tx, id, estadoAtual(o), para, { ...opts, usuarioId: u.id });
+    await aplicar(tx, id, estadoAtual(o), para, { ...opts, usuarioId: u.id, usuarioNome: u.nome });
     await tx.osHistorico.create({ data: { osId: id, descricao: opts.observacao?.trim() || `Situação alterada para "${para.nome}"`, situacao: para.nome, usuarioNome: u.nome, usuarioId: u.id } });
     return { para };
   }, { timeout: 30000 });
@@ -307,7 +310,7 @@ export async function excluirOrdem(id: string, opts: { forcar?: boolean } = {}) 
     await transicionarEstoque(tx, "OS", id, await estadoEfetivo(tx, id, estadoAtual(o)), "LIVRE", itensDoc(tx, id));
     await tx.anexo.deleteMany({ where: { entidade: { in: ["OS", "OS_FOTO"] }, entidadeId: id } });
     await tx.anotacao.deleteMany({ where: { entidade: "OS", entidadeId: id } });
-    await tx.orcamento.updateMany({ where: { osId: id }, data: { osId: null } });
+    await liberarOrcamentos(tx, { osId: id }, `OS nº ${o.numero} excluída`);
     await tx.ordemServico.delete({ where: { id } });
     return o.numero;
   }, { timeout: 30000 });
