@@ -1,5 +1,6 @@
 import type { Prisma, Empresa, ModeloNota, OrigemDocumento, Pessoa, RegimeTributario } from "@prisma/client";
 import { dividirDesconto } from "./desconto";
+import { lerConfigNfse } from "./configNfse";
 import { empresaDosServicos } from "@/lib/os/faturamento";
 import { prisma } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
@@ -354,6 +355,8 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
 
   const cert = deps.cert ?? certificadoDaEmpresa(e);
   const amb: 1 | 2 = e.ambienteNfse === "PRODUCAO" ? 1 : 2;
+  // natureza de operação, apuração dos tributos, imunidade e suspensão configuradas na empresa (Configurações › Empresas)
+  const cfgNfse = lerConfigNfse(e.configNfse);
   const agora = deps.agora ?? new Date();
   // valor do serviço já com a parte do desconto geral (o que foi cobrado do cliente)
   const valor = Math.round((a.servicos.reduce((s, i) => s + Number(i.subtotal), 0) - (a.desconto ?? 0)) * 100) / 100;
@@ -373,7 +376,7 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
     const descricao = [...a.servicos.map((s) => `${Number(s.quantidade)} x ${s.servico.nome}`), ...a.extras, a.referencia, e.infCplNfse].filter(Boolean).join(" | ");
     const { xml } = montarDps({
       tpAmb: amb, emissao: agora, competencia: a.competencia ?? agora, serie, numero: nota.numero,
-      prestador: { cnpj: e.cnpj, im: e.inscricaoMunicipal, codigoMunicipio: e.codigoMunicipio!, fone: e.telefone, email: e.email, opSimpNac: OP_SIMPLES[e.regimeTributario], regEspTrib: e.regimeEspecialNfse },
+      prestador: { cnpj: e.cnpj, im: e.inscricaoMunicipal, codigoMunicipio: e.codigoMunicipio!, fone: e.telefone, email: e.email, opSimpNac: OP_SIMPLES[e.regimeTributario], regApTribSN: cfgNfse.apuracao, regEspTrib: e.regimeEspecialNfse },
       tomador: c.documento ? {
         documento: c.documento, nome: c.nome, email: c.email, fone: c.telefone,
         endereco: c.codigoMunicipio && c.cep && c.logradouro && c.bairro
@@ -382,6 +385,7 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
       servico: {
         codigoMunicipioPrestacao: e.codigoMunicipio!, cTribNac: codigos[0]!, cNBS: a.servicos[0].servico.codigoNbs,
         descricao, valor, aliquotaIss: a.servicos[0].servico.aliquotaIss == null ? null : Number(a.servicos[0].servico.aliquotaIss),
+        tribISSQN: cfgNfse.natureza, tpImunidade: cfgNfse.tpImunidade, suspensao: cfgNfse.tpSusp && cfgNfse.nProcesso ? { tpSusp: cfgNfse.tpSusp, nProcesso: cfgNfse.nProcesso } : null,
       },
     });
     const assinada = assinarDps(xml, cert);

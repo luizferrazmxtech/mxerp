@@ -5,8 +5,10 @@ import BotaoAcao from "@/components/BotaoAcao";
 import { emitirNfse, emitirOs, emitirVenda } from "@/app/fiscal/actions";
 
 /** Cartão de notas fiscais de uma venda ou OS, com botões de emissão. */
-export default async function NotasDoDocumento({ origemTipo, origemId, podeEmitir, temProdutos = true, temServicos = false }: {
+export default async function NotasDoDocumento({ origemTipo, origemId, podeEmitir, temProdutos = true, temServicos = false, empresaServicos }: {
   origemTipo: OrigemDocumento; origemId: string; podeEmitir: boolean; temProdutos?: boolean; temServicos?: boolean;
+  /** OS com os serviços faturados por outra empresa: o nome dela no botão da NFS-e */
+  empresaServicos?: string | null;
 }) {
   const notas = await prisma.notaFiscal.findMany({ where: { origemTipo, origemId }, orderBy: { createdAt: "desc" } });
   const autorizada = (m: string[]) => notas.some((n) => n.status === "AUTORIZADA" && m.includes(n.modelo));
@@ -39,7 +41,7 @@ export default async function NotasDoDocumento({ origemTipo, origemId, podeEmiti
             <BotaoAcao acao={emitirOs} campos={{ osId: origemId }} rotulo="Emitir NF-e das peças" />
           )}
           {origemTipo === "OS" && temServicos && !autorizada(["NFSE"]) && (
-            <BotaoAcao acao={emitirNfse} campos={{ osId: origemId }} rotulo="Emitir NFS-e dos serviços" secundario={temProdutos} />
+            <BotaoAcao acao={emitirNfse} campos={{ osId: origemId }} rotulo={`Emitir NFS-e dos serviços${empresaServicos ? ` (${empresaServicos})` : ""}`} secundario={temProdutos} />
           )}
         </div>
       )}

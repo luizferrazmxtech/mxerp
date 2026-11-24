@@ -52,6 +52,23 @@ describe("NFS-e nacional", () => {
     expect(xsd(assinarDps(xml, cert), "DPS_v1.00.xsd")).toBe("ok");
   });
 
+  it("natureza, apuração, imunidade e suspensão da empresa vão na DPS e validam no schema", () => {
+    const sus = montarDps({
+      ...dados,
+      prestador: { ...dados.prestador, regApTribSN: 2 },
+      servico: { ...dados.servico, aliquotaIss: 3, suspensao: { tpSusp: 2, nProcesso: "123456/2026" } },
+    }).xml;
+    expect(sus).toContain("<regApTribSN>2</regApTribSN>");
+    expect(sus).toContain(`<exigSusp><tpSusp>2</tpSusp><nProcesso>${"1234562026".padStart(30, "0")}</nProcesso></exigSusp>`);
+    expect(sus).toContain("<pAliq>3.00</pAliq>"); // ISS por fora do Simples: informa a alíquota
+    expect(xsd(assinarDps(sus, cert), "DPS_v1.00.xsd")).toBe("ok");
+    const imune = montarDps({ ...dados, servico: { ...dados.servico, tribISSQN: 2, tpImunidade: 3 } }).xml;
+    expect(imune).toContain("<tribISSQN>2</tribISSQN><tpImunidade>3</tpImunidade>");
+    expect(xsd(assinarDps(imune, cert), "DPS_v1.00.xsd")).toBe("ok");
+    const naoInc = montarDps({ ...dados, servico: { ...dados.servico, tribISSQN: 4 } }).xml;
+    expect(xsd(assinarDps(naoInc, cert), "DPS_v1.00.xsd")).toBe("ok");
+  });
+
   it("pedido de cancelamento é válido no schema", () => {
     const chave = "3548906212345678000195000000000004227011234567890".padEnd(50, "0");
     const xml = montarPedidoCancelamento({ tpAmb: 2, cnpj: "12345678000195", chave, cMotivo: 1, motivo: "Erro no valor do serviço informado" });

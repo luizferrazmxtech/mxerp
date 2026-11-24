@@ -57,6 +57,12 @@ export type DadosDps = {
     valor: number;
     aliquotaIss?: number | null;
     issRetido?: boolean;
+    /** tribISSQN: 1 operação tributável (padrão), 2 imunidade, 4 não incidência */
+    tribISSQN?: 1 | 2 | 4;
+    /** tpImunidade (só com tribISSQN = 2) */
+    tpImunidade?: number | null;
+    /** exigibilidade do ISS suspensa: 1 decisão judicial, 2 processo administrativo */
+    suspensao?: { tpSusp: 1 | 2; nProcesso: string } | null;
   };
 };
 
@@ -75,6 +81,7 @@ export function montarDps(d: DadosDps): { id: string; xml: string } {
   const id = idDps(d);
   const p = d.prestador;
   const tom = d.tomador;
+  const trib = d.servico.tribISSQN ?? 1;
   const docTag = (doc: string) => (so(doc).length === 11 ? t("CPF", so(doc)) : t("CNPJ", so(doc)));
   const infDPS = g("infDPS", [
     t("tpAmb", d.tpAmb),
@@ -114,10 +121,13 @@ export function montarDps(d: DadosDps): { id: string; xml: string } {
     g("valores", [
       g("vServPrest", t("vServ", dec(d.servico.valor))),
       g("trib", [
+        // ordem do leiaute (DPS 1.00): tribISSQN, cPaisResult, BM, exigSusp, tpImunidade, pAliq, tpRetISSQN
         g("tribMun", [
-          t("tribISSQN", 1), // operação tributável
-          // ME/EPP do Simples que recolhe ISS no DAS não informa alíquota, salvo retenção
-          (p.opSimpNac !== 3 || d.servico.issRetido) && d.servico.aliquotaIss != null && t("pAliq", dec(d.servico.aliquotaIss)),
+          t("tribISSQN", trib), // 1 operação tributável, 2 imunidade, 4 não incidência
+          trib === 1 && d.servico.suspensao && g("exigSusp", [t("tpSusp", d.servico.suspensao.tpSusp), t("nProcesso", so(d.servico.suspensao.nProcesso).slice(-30).padStart(30, "0")) /* 30 dígitos */]),
+          trib === 2 && t("tpImunidade", d.servico.tpImunidade ?? 0),
+          // ME/EPP do Simples que recolhe ISS no DAS (apuração 1) não informa alíquota, salvo retenção
+          trib === 1 && (p.opSimpNac !== 3 || (p.regApTribSN ?? 1) !== 1 || d.servico.issRetido) && d.servico.aliquotaIss != null && t("pAliq", dec(d.servico.aliquotaIss)),
           t("tpRetISSQN", d.servico.issRetido ? 2 : 1),
         ]),
         g("totTrib", t("indTotTrib", 0)),

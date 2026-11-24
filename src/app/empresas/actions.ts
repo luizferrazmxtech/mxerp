@@ -5,7 +5,8 @@ import { conferirLimiteEmpresas } from "@/lib/licenca/licenca";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { AmbienteFiscal, RegimeTributario } from "@prisma/client";
+import type { AmbienteFiscal, Prisma, RegimeTributario } from "@prisma/client";
+import { lerConfigNfse, validarConfigNfse } from "@/lib/fiscal/configNfse";
 import { prisma } from "@/lib/db";
 import { codigoIbge } from "@/lib/cadastros/municipio";
 import { exigirUsuario } from "@/lib/auth/atual";
@@ -55,6 +56,12 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
     if (!razaoSocial) throw new Error("Informe a razão social");
     const ie = s(form.get("ie"));
     const regimeEspecial = Number(form.get("regimeEspecialNfse") || 0);
+    // tributação da NFS-e (natureza, apuração, imunidade, suspensão e os códigos da prefeitura)
+    const configNfse = lerConfigNfse({
+      natureza: s(form.get("nfseNatureza")), apuracao: s(form.get("nfseApuracao")), tpImunidade: s(form.get("nfseImunidade")),
+      tpSusp: s(form.get("nfseSuspensao")), nProcesso: s(form.get("nfseProcesso")), tipoOperacao: s(form.get("nfseTipoOperacao")), indicadorOperacao: s(form.get("nfseIndicador")),
+    });
+    validarConfigNfse(configNfse);
     const dados = {
       razaoSocial, nomeFantasia: s(form.get("nomeFantasia")) || null, cnpj,
       // "ISENTO" vai como está na NF-e; os demais só com dígitos
@@ -73,6 +80,7 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
       cscId: s(form.get("cscId")) || null,
       ...(s(form.get("cscToken")) ? { cscToken: s(form.get("cscToken")) } : {}),
       infCplNfe: s(form.get("infCplNfe")) || null, infCplNfse: s(form.get("infCplNfse")) || null,
+      configNfse: configNfse as Prisma.InputJsonValue,
     };
     // código IBGE sai da cidade/UF (o campo não aparece na tela)
     if (dados.cidade && dados.uf) dados.codigoMunicipio = (await codigoIbge(dados.cidade, dados.uf)) ?? dados.codigoMunicipio;

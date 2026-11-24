@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { lerConfigNfse } from "@/lib/fiscal/configNfse";
 import { Pagina } from "@/components/ui/Pagina";
 import { exigirArea } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
@@ -26,7 +27,7 @@ export default async function Empresa({ params }: { params: Promise<{ id: string
           cnae: e.cnae, regime: e.regimeTributario, logradouro: e.logradouro, complemento: e.complemento, numero: e.numero, bairro: e.bairro, cidade: e.cidade,
           codigoMunicipio: e.codigoMunicipio, uf: e.uf, cep: e.cep, telefone: e.telefone, email: e.email, ativa: e.ativa,
           ambiente: e.ambienteFiscal, ambienteNfse: e.ambienteNfse, serieNfe: e.serieNfe, serieNfce: e.serieNfce, serieDps: e.serieDps,
-          regimeEspecialNfse: e.regimeEspecialNfse, cscId: e.cscId, temCsc: !!e.cscToken, infCplNfe: e.infCplNfe, infCplNfse: e.infCplNfse,
+          regimeEspecialNfse: e.regimeEspecialNfse, cscId: e.cscId, temCsc: !!e.cscToken, infCplNfe: e.infCplNfe, infCplNfse: e.infCplNfse, configNfse: lerConfigNfse(e.configNfse),
           certificado: e.certificadoValidade ? { titular: e.certificadoTitular, validade: e.certificadoValidade.toISOString() } : null,
           temLogo: !!e.logo,
         }}
