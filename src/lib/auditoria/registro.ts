@@ -10,6 +10,7 @@ import type { PrismaClient } from "@prisma/client";
 export const AUDITADOS: Record<string, { rotulo: string; titulo?: (r: Record<string, unknown>) => string }> = {
   Venda: { rotulo: "venda", titulo: (r) => `nº ${r.numero}` },
   OrdemServico: { rotulo: "OS", titulo: (r) => `nº ${r.numero}` },
+  OsTrabalho: { rotulo: "tempo de mão de obra da OS", titulo: (r) => (r.inicio ? `trecho de ${new Date(r.inicio as string | Date).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}` : "") },
   Orcamento: { rotulo: "orçamento", titulo: (r) => `nº ${r.numero}` },
   Compra: { rotulo: "compra", titulo: (r) => `nº ${r.numero}` },
   Contrato: { rotulo: "contrato", titulo: (r) => `nº ${r.numero}` },

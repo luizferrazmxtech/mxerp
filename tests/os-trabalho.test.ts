@@ -81,3 +81,45 @@ describe("tempo de mão de obra da OS", () => {
     expect((await tr.resumoTrabalho(osId)).trechos[0].iniciadoPor).toBe("gerente");
   });
 });
+
+describe("correção do tempo pelo administrador", () => {
+  it("altera, inclui e exclui trechos, valida e grava o antes → depois no histórico", async () => {
+    const adm = await usuario("admin", "ADMIN");
+    await tr.iniciarTrabalho(ana, osId, t0);
+    await tr.pararTrabalho(ana, osId, { motivo: "Almoço / intervalo" }, mais(1));
+    await tr.iniciarTrabalho(ana, osId, mais(10));
+    await tr.pararTrabalho(ana, osId, { finalizar: true }, mais(11));
+    const [a, b] = (await tr.resumoTrabalho(osId)).trechos;
+    const agora = mais(1000);
+
+    await expect(tr.corrigirTrabalho(adm, osId, [{ id: a.id, inicio: mais(0), fim: mais(30) }, { id: b.id, inicio: mais(20), fim: mais(40) }], "", agora)).rejects.toThrow(/se sobrepõem/);
+    await expect(tr.corrigirTrabalho(adm, osId, [{ id: a.id, inicio: mais(30), fim: mais(30) }], "", agora)).rejects.toThrow(/fim tem que ser depois/);
+    await expect(tr.corrigirTrabalho(adm, osId, [{ inicio: mais(30), fim: null }], "", agora)).rejects.toThrow(/Informe o fim/);
+    await expect(tr.corrigirTrabalho(adm, osId, [{ inicio: mais(30), fim: mais(2000) }], "", agora)).rejects.toThrow(/futuro/);
+
+    const r = await tr.corrigirTrabalho(adm, osId, [
+      { id: a.id, inicio: t0, fim: mais(120), motivo: "Almoço / intervalo" }, // 1min → 2h
+      { inicio: mais(180), fim: mais(210) }, // novo, 30min; o b é excluído
+    ], "técnico esqueceu de pausar", agora);
+    expect(r).toMatchObject({ estado: "FINALIZADO", fechadoMs: 150 * 60000 });
+    expect(r.trechos.map((t) => t.iniciadoPor)).toEqual(["ana", "admin"]);
+    const h = await prisma.osHistorico.findFirst({ where: { osId }, orderBy: { createdAt: "desc" } });
+    expect(h?.usuarioNome).toBe("admin");
+    const aud = await prisma.registroAuditoria.findMany({ where: { entidade: "OsTrabalho", entidadeId: { in: [a.id, b.id] } } });
+    expect(aud.map((x) => x.acao).sort()).toEqual(expect.arrayContaining(["ALTERAR", "EXCLUIR"]));
+    expect(aud.find((x) => x.acao === "ALTERAR")?.campos).toHaveProperty("fim");
+    expect(h?.descricao).toBe("Mão de obra corrigida: excluído 21/11/2026 09:10–09:11 (1min); 21/11/2026 09:00–09:01 (1min) → 21/11/2026 09:00–11:00 (2h 00min); incluído 21/11/2026 12:00–12:30 (30min) · total 2min → 2h 30min · técnico esqueceu de pausar");
+    await expect(tr.corrigirTrabalho(adm, osId, r.trechos.map((t) => ({ id: t.id, inicio: new Date(t.inicio), fim: t.fim ? new Date(t.fim) : null, motivo: t.motivo })), "", agora)).rejects.toThrow(/Nada foi alterado/);
+
+    // excluir tudo volta a "não iniciado"
+    expect((await tr.corrigirTrabalho(adm, osId, [], "", agora)).estado).toBe("NAO_INICIADO");
+  });
+
+  it("corrigir o trecho em andamento pode fechá-lo", async () => {
+    const adm = await usuario("admin", "ADMIN");
+    await tr.iniciarTrabalho(ana, osId, t0);
+    const [a] = (await tr.resumoTrabalho(osId)).trechos;
+    const r = await tr.corrigirTrabalho(adm, osId, [{ id: a.id, inicio: t0, fim: mais(45) }], "", mais(60));
+    expect(r).toMatchObject({ estado: "PAUSADO", fechadoMs: 45 * 60000 });
+  });
+});
