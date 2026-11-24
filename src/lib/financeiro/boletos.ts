@@ -155,10 +155,15 @@ export async function emitirBoleto(lancamentoId: string, opts: { cliente?: Clien
     if (l.vencimento < hoje) throw new BoletoError(`O vencimento (${l.vencimento.toLocaleDateString("pt-BR", { timeZone: "UTC" })}) já passou: altere a data da parcela para emitir o boleto`);
     const pagador = pagadorInter(l.pessoa);
     const a = ctx.ajustes;
+    // título agrupado: as vendas/OS que geraram as contas saem nas linhas 3 a 5 da mensagem do boleto
+    const refs = l.origemTipo === "AGRUPAMENTO" ? (await (await import("./agrupar")).referenciasBoleto(l.id)).slice(0, 3) : [];
     const corpo = {
       seuNumero: b.seuNumero, valorNominal: Math.round(valor * 100) / 100, dataVencimento: iso(l.vencimento),
       numDiasAgenda: Math.max(0, Math.min(60, a.diasBaixa)), pagador,
-      mensagem: { linha1: descricaoParcela(l).slice(0, 78), ...(a.mensagemBoleto ? { linha2: a.mensagemBoleto.slice(0, 78) } : {}) },
+      mensagem: {
+        linha1: descricaoParcela(l).slice(0, 78), ...(a.mensagemBoleto ? { linha2: a.mensagemBoleto.slice(0, 78) } : {}),
+        ...Object.fromEntries(refs.map((r, i) => [`linha${i + 3}`, r.slice(0, 78)])),
+      },
       ...(a.multaPct > 0 ? { multa: { codigo: "PERCENTUAL", taxa: a.multaPct } } : {}),
       ...(a.jurosMesPct > 0 ? { mora: { codigo: "TAXAMENSAL", taxa: a.jurosMesPct } } : {}),
     };

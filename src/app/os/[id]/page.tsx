@@ -1,6 +1,7 @@
 import { usuarioAtual } from "@/lib/auth/atual";
 import { podeAcessar } from "@/lib/auth/permissoes";
 import Link from "next/link";
+import AvisoJuncao from "@/components/documentos/AvisoJuncao";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -128,6 +129,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   return (
     <Pagina voltar="/os" titulo="Visualizar OS" trilha={[{ rotulo: "Ordens de serviços", href: "/os" }, { rotulo: "Visualizar" }]}>
       <VoltarConta contaId={sp.conta} />
+      <AvisoJuncao tipo="OS" id={id} />
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="os" size={18} /> OS #{o.numero}

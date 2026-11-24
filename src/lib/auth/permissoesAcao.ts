@@ -14,6 +14,7 @@ export const ACOES = {
   "venda.situacao": { grupo: "Vendas", rotulo: "Mudar a situação de vendas", padrao: VENDE },
   "venda.excluir": { grupo: "Vendas", rotulo: "Excluir vendas", padrao: GER },
   "venda.devolucao": { grupo: "Vendas", rotulo: "Registrar trocas e devoluções", padrao: VENDE },
+  "venda.juntar": { grupo: "Vendas", rotulo: "Juntar vendas do mesmo cliente numa só", padrao: VENDE },
   "venda.etiqueta": { grupo: "Vendas", rotulo: "Comprar e cancelar etiquetas de frete (Melhor Envio)", padrao: VENDE },
   "pdv.desconto": { grupo: "PDV", rotulo: "Dar desconto no PDV", padrao: VENDE },
   "pdv.sangria": { grupo: "PDV", rotulo: "Fazer sangria e reforço de caixa", padrao: VENDE },
@@ -21,6 +22,7 @@ export const ACOES = {
   "pdv.cancelar": { grupo: "PDV", rotulo: "Cancelar venda do PDV (estorna o recebimento)", padrao: GER },
   "os.situacao": { grupo: "Ordens de serviço", rotulo: "Mudar a situação de OS", padrao: TODOS },
   "os.excluir": { grupo: "Ordens de serviço", rotulo: "Excluir OS", padrao: GER },
+  "os.juntar": { grupo: "Ordens de serviço", rotulo: "Juntar OS do mesmo cliente numa só", padrao: ["ADMIN", "GERENTE", "OPERADOR"] as PapelUsuario[] },
   "os.tecnicoItens": { grupo: "Ordens de serviço", rotulo: "Lançar itens e marcar instalados pela tela do técnico", padrao: TODOS },
   "os.tecnicoFotos": { grupo: "Ordens de serviço", rotulo: "Anexar fotos da instalação pela tela do técnico", padrao: TODOS },
   "orcamento.excluir": { grupo: "Orçamentos", rotulo: "Excluir orçamentos", padrao: GER },
@@ -36,6 +38,7 @@ export const ACOES = {
   "financeiro.lancar": { grupo: "Financeiro", rotulo: "Lançar contas a pagar e receber", padrao: GER },
   "financeiro.baixar": { grupo: "Financeiro", rotulo: "Baixar contas", padrao: GER },
   "financeiro.estornar": { grupo: "Financeiro", rotulo: "Estornar baixas", padrao: GER },
+  "financeiro.agrupar": { grupo: "Financeiro", rotulo: "Agrupar e desagrupar contas a receber", padrao: GER },
   "financeiro.excluir": { grupo: "Financeiro", rotulo: "Excluir lançamentos", padrao: GER },
 } satisfies Record<string, { grupo: string; rotulo: string; padrao: PapelUsuario[] }>;
 

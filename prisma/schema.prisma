@@ -676,6 +676,7 @@ enum OrigemDocumento {
   TRANSFERENCIA
   DEVOLUCAO
   IMPLANTACAO
+  AGRUPAMENTO // título que junta várias contas a receber do mesmo cliente (ver LancamentoAgrupado)
 }
 
 enum StatusReserva {
@@ -843,6 +844,11 @@ model OrdemServico {
   googleSincEm     DateTime?
   googleErro       String?
   googlePendente   Boolean   @default(false) // a última tentativa falhou: o agendador tenta de novo
+
+  /// OS cancelada porque foi juntada com outras do mesmo cliente nesta OS
+  juntadaEmId String?
+  juntadaEm   OrdemServico?  @relation("OsJuncao", fields: [juntadaEmId], references: [id], onDelete: SetNull)
+  juntadas    OrdemServico[] @relation("OsJuncao")
 
   @@index([situacao])
   @@index([clienteId])
@@ -1149,6 +1155,11 @@ model Venda {
   parcelas   VendaParcela[]
   historico  VendaHistorico[]
   devolucoes Devolucao[]
+
+  /// venda cancelada porque foi juntada com outras do mesmo cliente nesta venda
+  juntadaEmId String?
+  juntadaEm   Venda?  @relation("VendaJuncao", fields: [juntadaEmId], references: [id], onDelete: SetNull)
+  juntadas    Venda[] @relation("VendaJuncao")
 
   @@index([empresaId])
 }
@@ -1772,6 +1783,8 @@ model Lancamento {
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   avisosBoleto     AvisoBoleto[]
+  /// título agrupado (origemTipo AGRUPAMENTO): as contas que ele juntou, com o documento que gerou cada uma
+  agrupados        LancamentoAgrupado[]
   // pagamento a funcionário feito pela conciliação (folha e painel de mão de obra)
   funcionarioId    String?
   funcionario      Usuario?            @relation("LancamentoFuncionario", fields: [funcionarioId], references: [id], onDelete: SetNull)
@@ -1797,6 +1810,35 @@ model CentroCusto {
 }
 
 /// Divisão de um lançamento entre categorias (ex.: venda com peças e serviços): a DRE usa as frações; o lançamento continua um só (um boleto).
+/**
+ * Conta a receber que foi agrupada num único título (Lancamento com origemTipo AGRUPAMENTO).
+ * Guarda a conta como era (para mostrar a referência à venda/OS e para desagrupar) e o documento que a gerou.
+ */
+model LancamentoAgrupado {
+  id               String            @id @default(cuid())
+  lancamentoId     String
+  lancamento       Lancamento        @relation(fields: [lancamentoId], references: [id], onDelete: Cascade)
+  origemTipo       OrigemDocumento?
+  origemId         String?
+  descricao        String
+  valor            Decimal           @db.Decimal(14, 2)
+  vencimento       DateTime          @db.Date
+  competencia      DateTime          @db.Date
+  parcela          Int               @default(1)
+  totalParcelas    Int               @default(1)
+  categoriaId      String
+  centroCustoId    String?
+  formaPagamentoId String?
+  observacao       String?
+  idLegado         String?
+  /// [{ categoriaId, fracao }] da conta original
+  rateio           Json              @default("[]")
+  createdAt        DateTime          @default(now())
+
+  @@index([lancamentoId])
+  @@index([origemTipo, origemId])
+}
+
 model LancamentoRateio {
   id           String              @id @default(cuid())
   lancamentoId String

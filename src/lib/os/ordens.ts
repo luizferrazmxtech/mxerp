@@ -4,7 +4,7 @@ import { prisma, type Tx } from "@/lib/db";
 import { entrada } from "@/lib/estoque/estoque";
 import { localDaLoja } from "@/lib/estoque/entrada";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
-import { cancelarRecebimentos } from "@/lib/financeiro/lancamentos";
+import { cancelarRecebimentos, temContas } from "@/lib/financeiro/lancamentos";
 import { liberarOrcamentos } from "@/lib/orcamentos/vinculos";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
@@ -42,7 +42,7 @@ export async function situacaoPadraoOs(tx: Tx | typeof prisma = prisma) {
   return s;
 }
 
-async function travar(tx: Tx, osId: string) {
+export async function travar(tx: Tx, osId: string) {
   const [o] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "OrdemServico" WHERE id = ${osId} FOR NO KEY UPDATE`;
   if (!o) throw new OsError("OS não encontrada");
   return tx.ordemServico.findUniqueOrThrow({ where: { id: osId }, include: { situacaoCfg: true } });
@@ -51,7 +51,7 @@ async function travar(tx: Tx, osId: string) {
 const itensDoc = (tx: Tx, osId: string) => async () =>
   (await tx.osItemProduto.findMany({ where: { osId } })).map((i) => ({ id: i.id, produtoId: i.produtoId, quantidade: Number(i.quantidade), localId: i.localOrigemId }));
 
-const estadoAtual = (o: { situacao: SituacaoOs; situacaoCfg: SituacaoOsConfig | null }) => (o.situacaoCfg ? estadoDe(o.situacaoCfg.estoque) : estadoEstoque(o.situacao));
+export const estadoAtual = (o: { situacao: SituacaoOs; situacaoCfg: SituacaoOsConfig | null }) => (o.situacaoCfg ? estadoDe(o.situacaoCfg.estoque) : estadoEstoque(o.situacao));
 
 /** OS migrada já concluída no Gestão Click (sem movimento aqui): ao sair do "lançado", devolve as peças. */
 async function estadoEfetivo(tx: Tx, osId: string, estado: EstadoEstoque, usuarioId?: string): Promise<EstadoEstoque> {
@@ -87,9 +87,9 @@ async function lancarFinanceiro(tx: Tx, osId: string) {
 }
 
 /** Passagem de uma situação para outra: estoque, financeiro e data de saída. */
-async function aplicar(tx: Tx, osId: string, de: EstadoEstoque, para: SituacaoOsConfig,
+export async function aplicar(tx: Tx, osId: string, de: EstadoEstoque, para: SituacaoOsConfig,
   opts: { refazerItens?: () => Promise<void>; refazerFinanceiro?: boolean; permitirNegativo?: boolean; forcar?: boolean; usuarioId?: string; usuarioNome?: string }) {
-  const temLanc = (await tx.lancamento.count({ where: { origemTipo: "OS", origemId: osId } })) > 0;
+  const temLanc = await temContas(tx, "OS", osId);
   if (temLanc && (!para.financeiro || opts.refazerFinanceiro)) await cancelarRecebimentos(tx, "OS", osId, opts.forcar);
   const novo = estadoDe(para.estoque);
   if (opts.refazerItens || novo !== de) de = await estadoEfetivo(tx, osId, de, opts.usuarioId);
@@ -104,7 +104,7 @@ async function aplicar(tx: Tx, osId: string, de: EstadoEstoque, para: SituacaoOs
   await tx.ordemServico.update({ where: { id: osId }, data: { situacaoId: para.id, situacao: enumDe(para), ...(para.preencherSaida && !atual.saida ? { saida: new Date() } : {}) } });
   // OS cancelada: o orçamento que a gerou fica livre para gerar venda ou OS de novo
   if (enumDe(para) === "CANCELADA" && atual.situacao !== "CANCELADA") await liberarOrcamentos(tx, { osId }, `OS nº ${atual.numero} cancelada`, opts.usuarioNome);
-  const aindaTem = (await tx.lancamento.count({ where: { origemTipo: "OS", origemId: osId } })) > 0;
+  const aindaTem = await temContas(tx, "OS", osId); // conta agrupada no financeiro também conta (não lança de novo)
   if (para.financeiro && !aindaTem) await lancarFinanceiro(tx, osId);
 }
 

@@ -67,8 +67,16 @@ export async function gerarRecebimentos(
   }
 }
 
+/** O documento tem contas no financeiro (próprias ou agrupadas num título de agrupamento). */
+export async function temContas(tx: Tx, origemTipo: OrigemDocumento, origemId: string) {
+  return (await tx.lancamento.count({ where: { origemTipo, origemId } })) + (await tx.lancamentoAgrupado.count({ where: { origemTipo, origemId } })) > 0;
+}
+
 /** Remove os lançamentos em aberto de um documento (cancelamento). Recusa se já houver recebido. */
 export async function cancelarRecebimentos(tx: Tx, origemTipo: OrigemDocumento, origemId: string, forcar = false) {
+  // a conta foi agrupada com outras num título: só dá para mexer depois de desagrupar (senão o título fica errado)
+  const agrupada = await tx.lancamentoAgrupado.findFirst({ where: { origemTipo, origemId }, select: { lancamento: { select: { descricao: true } } } });
+  if (agrupada) throw new Error(`A conta a receber deste documento foi agrupada no título "${agrupada.lancamento.descricao}" do financeiro: desagrupe o título antes (Financeiro › abra o título › Desagrupar)`);
   const pagos = await tx.lancamento.count({ where: { origemTipo, origemId, pagoEm: { not: null } } });
   if (pagos && !forcar) throw new Error("Há parcelas já recebidas. Estorne o recebimento antes de cancelar.");
   await tx.lancamento.deleteMany({ where: { origemTipo, origemId } });

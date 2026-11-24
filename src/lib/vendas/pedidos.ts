@@ -4,7 +4,7 @@ import { prisma, type Tx } from "@/lib/db";
 import { entrada } from "@/lib/estoque/estoque";
 import { localDaLoja, localEhCarro } from "@/lib/estoque/entrada";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
-import { cancelarRecebimentos } from "@/lib/financeiro/lancamentos";
+import { cancelarRecebimentos, temContas } from "@/lib/financeiro/lancamentos";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
 import { diaSP, parseDia, periodoDia } from "@/lib/datas";
@@ -13,6 +13,7 @@ import { produtoAvulsoId } from "@/lib/itens/avulso";
 import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 import { liberarOrcamentos, previaOrcamentos } from "@/lib/orcamentos/vinculos";
 import { ATIVOS as BOLETOS_ATIVOS } from "@/lib/financeiro/boletos";
+import { tituloAgrupado } from "@/lib/financeiro/agrupar";
 
 /**
  * Pedido de venda completo (padrão Gestão Click). A situação configurável decide o que acontece:
@@ -32,7 +33,7 @@ const dia = (s: string) => (t(s) ? parseDia(s) : null);
 export const estadoDe = (e: EstoqueSituacao): EstadoEstoque => (e === "LANCAR" ? "BAIXADO" : e === "RESERVAR" ? "RESERVADO" : "LIVRE");
 /** A coluna antiga `situacao` continua sendo o "estado" usado pelo PDV, caixa, notas e relatórios. */
 export const enumDe = (e: EstoqueSituacao): SituacaoVenda => (e === "LANCAR" ? "CONCLUIDA" : e === "RESERVAR" ? "ABERTA" : "CANCELADA");
-const estadoDoEnum = (s: SituacaoVenda): EstadoEstoque => (s === "CONCLUIDA" ? "BAIXADO" : s === "ABERTA" ? "RESERVADO" : "LIVRE");
+export const estadoDoEnum = (s: SituacaoVenda): EstadoEstoque => (s === "CONCLUIDA" ? "BAIXADO" : s === "ABERTA" ? "RESERVADO" : "LIVRE");
 
 export async function situacaoPadraoVenda(tx: Tx | typeof prisma = prisma) {
   const s = (await tx.situacaoVendaConfig.findFirst({ where: { padrao: true } })) ?? (await tx.situacaoVendaConfig.findFirst({ orderBy: { ordem: "asc" } }));
@@ -49,7 +50,7 @@ export async function situacaoDoEstado(tx: Tx, s: SituacaoVenda) {
   return tx.situacaoVendaConfig.findFirst({ where: { estoque, ...(s === "CONCLUIDA" ? { financeiro: true } : {}) }, orderBy: { ordem: "asc" } });
 }
 
-async function travar(tx: Tx, vendaId: string) {
+export async function travar(tx: Tx, vendaId: string) {
   const [v] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Venda" WHERE id = ${vendaId} FOR NO KEY UPDATE`;
   if (!v) throw new PedidoError("Venda não encontrada");
   return tx.venda.findUniqueOrThrow({ where: { id: vendaId }, include: { situacaoCfg: true } });
@@ -100,13 +101,13 @@ async function estadoEfetivo(tx: Tx, vendaId: string, estado: EstadoEstoque, usu
  * Aplica a passagem de uma situação para outra: estoque (reserva/baixa/estorno) e financeiro.
  * `refazerItens` roda entre a liberação e a nova aplicação (edição dos produtos).
  */
-async function aplicar(tx: Tx, vendaId: string, de: { estado: EstadoEstoque; financeiro: boolean }, para: SituacaoVendaConfig,
+export async function aplicar(tx: Tx, vendaId: string, de: { estado: EstadoEstoque; financeiro: boolean }, para: SituacaoVendaConfig,
   opts: { refazerItens?: () => Promise<void>; refazerFinanceiro?: boolean; permitirNegativo?: boolean; forcar?: boolean; usuarioId?: string; usuarioNome?: string }) {
   const cancelando = enumDe(para.estoque) === "CANCELADA";
   const venda = await tx.venda.findUniqueOrThrow({ where: { id: vendaId }, select: { situacao: true, numero: true } });
   // venda nova nasce com situacao CANCELADA provisória: só confere ao cancelar uma venda que existia ativa
   if (cancelando && venda.situacao !== "CANCELADA") await conferirCancelamento(tx, vendaId, !!opts.forcar);
-  const temLanc = (await tx.lancamento.count({ where: { origemTipo: "VENDA", origemId: vendaId } })) > 0;
+  const temLanc = await temContas(tx, "VENDA", vendaId);
   if (temLanc && (!para.financeiro || opts.refazerFinanceiro)) await cancelarRecebimentos(tx, "VENDA", vendaId, opts.forcar);
   const novo = estadoDe(para.estoque);
   if (opts.refazerItens || novo !== de.estado) de = { ...de, estado: await estadoEfetivo(tx, vendaId, de.estado, opts.usuarioId) };
@@ -117,7 +118,7 @@ async function aplicar(tx: Tx, vendaId: string, de: { estado: EstadoEstoque; fin
   } else {
     await transicionarEstoque(tx, "VENDA", vendaId, de.estado, novo, itensDoc(tx, vendaId), opts);
   }
-  const aindaTem = (await tx.lancamento.count({ where: { origemTipo: "VENDA", origemId: vendaId } })) > 0;
+  const aindaTem = await temContas(tx, "VENDA", vendaId); // conta agrupada no financeiro também conta (não lança de novo)
   if (para.financeiro && !aindaTem) await lancarFinanceiro(tx, vendaId);
   await tx.venda.update({ where: { id: vendaId }, data: { situacaoId: para.id, situacao: enumDe(para.estoque) } });
   // cancelada: o orçamento que gerou a venda fica livre para gerar venda ou OS de novo
@@ -312,6 +313,8 @@ export async function previaCancelamento(id: string): Promise<PreviaCancelamento
   const ids = lancs.map((l) => l.id);
   if (lancs.some((l) => l.transacaoId) || (ids.length && (await prisma.transacaoPagSeguro.count({ where: { lancamentoId: { in: ids } } }))))
     bloqueios.push("O recebimento já foi conciliado com o extrato (banco ou PagSeguro): desfaça a conciliação antes de cancelar");
+  const agrupada = await tituloAgrupado("VENDA", id);
+  if (agrupada) bloqueios.push(agrupada);
   const abertos = lancs.filter((l) => !l.pagoEm), pagos = lancs.filter((l) => l.pagoEm);
   const soma = (ls: typeof lancs) => ls.reduce((s, l) => s + Number(l.valor), 0);
   if (abertos.length) desfazer.push(`Exclui ${abertos.length === 1 ? "a conta a receber em aberto" : `as ${abertos.length} contas a receber em aberto`} (${brl(soma(abertos))}) do financeiro`);
