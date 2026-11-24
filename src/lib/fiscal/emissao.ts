@@ -367,10 +367,16 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
   const chave = chaveDps(e.cnpj, e.serieDps, amb);
   let enviou = false;
   const nota = await prisma.$transaction(async (tx) => {
+    const dados = { empresaId: e.id, cnae: a.servicos[0]?.servico.cnae?.replace(/\D/g, "") || e.cnae, modelo: "NFSE" as const, serie: e.serieDps, ambiente: amb === 1 ? "PRODUCAO" as const : "HOMOLOGACAO" as const, origemTipo: a.origemTipo, origemId: a.origemId, valorTotal: valor };
+    // DPS recusada pela Sefin (não foi registrada) e nada emitido depois dela: a nova tentativa usa o mesmo número
+    const atual = (await tx.sequencia.findUnique({ where: { chave } }))?.valor;
+    const recusada = atual ? await tx.notaFiscal.findFirst({
+      where: { origemTipo: a.origemTipo, origemId: a.origemId, modelo: "NFSE", status: "REJEITADA", chave: null, empresaId: e.id, serie: e.serieDps, ambiente: dados.ambiente, numero: atual },
+    }) : null;
+    if (recusada && !DPS_REGISTRADA.test(recusada.motivo ?? ""))
+      return tx.notaFiscal.update({ where: { id: recusada.id }, data: { ...dados, status: "RASCUNHO", xml: null, motivo: null } });
     const numero = await proximoNumero(tx, chave);
-    return tx.notaFiscal.create({
-      data: { empresaId: e.id, cnae: a.servicos[0]?.servico.cnae?.replace(/\D/g, "") || e.cnae, modelo: "NFSE", serie: e.serieDps, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: a.origemTipo, origemId: a.origemId, valorTotal: valor },
-    });
+    return tx.notaFiscal.create({ data: { ...dados, numero } });
   });
   try {
     const descricao = [...a.servicos.map((s) => `${Number(s.quantidade)} x ${s.servico.nome}`), ...a.extras, a.referencia, e.infCplNfse].filter(Boolean).join(" | ");
@@ -406,6 +412,9 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
     throw err;
   }
 }
+
+/** Recusa que indica que a DPS chegou a ser registrada (número já usado): aí a nova tentativa leva outro número. */
+const DPS_REGISTRADA = /E0014|j[áa] (existe|foi)|duplicad/i;
 
 export async function cancelarNfse(notaId: string, cMotivo: 1 | 2 | 9, motivo: string, deps: DependenciasNfse = {}) {
   const n = await prisma.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });

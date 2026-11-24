@@ -147,6 +147,9 @@ describe("NFS-e da OS", () => {
     await osSvc.adicionarServico(o.id, { servicoId: sv.id });
     await expect(fiscal.emitirNfseOs(o.id, { cert })).rejects.toThrow(/Conclua/);
     await osSvc.alterarSituacao(o.id, "CONCLUIDA");
+    // recusada pela Sefin (DPS não registrada): a nova tentativa usa o mesmo número
+    const recusada = await fiscal.emitirNfseOs(o.id, { cert, transporte: async () => ({ status: 400, corpo: JSON.stringify({ erros: [{ Codigo: "E1229", Descricao: "Xml não está utilizando codificação UTF-8." }] }) }) });
+    expect(recusada).toMatchObject({ status: "REJEITADA", numero: 1 });
     let enviado = "";
     const n = await fiscal.emitirNfseOs(o.id, {
       cert,
@@ -155,7 +158,8 @@ describe("NFS-e da OS", () => {
         return { status: 201, corpo: JSON.stringify({ chaveAcesso: "35489062".padEnd(50, "1"), nfseXmlGZipB64: gzipB64("<NFSe>ok</NFSe>") }) };
       },
     });
-    expect(n).toMatchObject({ status: "AUTORIZADA", modelo: "NFSE", numero: 1, xml: "<NFSe>ok</NFSe>" });
+    expect(n).toMatchObject({ id: recusada.id, status: "AUTORIZADA", modelo: "NFSE", numero: 1, motivo: "NFS-e gerada" });
+    expect(n.xml).toContain("<NFSe>ok</NFSe>");
     expect(Number(n.valorTotal)).toBe(600);
     expect(enviado).toContain("dpsXmlGZipB64");
     const c = await fiscal.cancelarNfse(n.id, 1, "Erro no valor do serviço informado", {

@@ -69,6 +69,12 @@ describe("NFS-e nacional", () => {
     expect(xsd(assinarDps(naoInc, cert), "DPS_v1.00.xsd")).toBe("ok");
   });
 
+  it("a DPS vai para a Sefin com a declaração UTF-8 (E1229) e sem duplicar", () => {
+    const xml = gunzipB64(gzipB64(montarDps(dados).xml));
+    expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?><DPS')).toBe(true);
+    expect(gunzipB64(gzipB64('\uFEFF<?xml version="1.0"?><a/>'))).toBe('<?xml version="1.0" encoding="UTF-8"?><a/>');
+  });
+
   it("pedido de cancelamento é válido no schema", () => {
     const chave = "3548906212345678000195000000000004227011234567890".padEnd(50, "0");
     const xml = montarPedidoCancelamento({ tpAmb: 2, cnpj: "12345678000195", chave, cMotivo: 1, motivo: "Erro no valor do serviço informado" });
@@ -84,7 +90,8 @@ describe("NFS-e nacional", () => {
       return { status: 201, corpo: JSON.stringify({ chaveAcesso: "3".repeat(50), nfseXmlGZipB64: gzipB64("<NFSe/>") }) };
     };
     const r = await new ClienteNfse(cert, 2, fake).emitir(assinarDps(montarDps(dados).xml, cert));
-    expect(r).toMatchObject({ ok: true, chave: "3".repeat(50), xmlNfse: "<NFSe/>" });
+    expect(r).toMatchObject({ ok: true, chave: "3".repeat(50) });
+    expect(r.xmlNfse).toContain("<NFSe/>");
     expect(gunzipB64(enviado!.dpsXmlGZipB64)).toContain("<infDPS");
   });
 
