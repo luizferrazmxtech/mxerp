@@ -9,6 +9,7 @@ import Icone from "@/components/Icone";
 import CelulaEstoque from "@/components/estoque/CelulaEstoque";
 import BarraCadastro from "@/components/ui/BarraCadastro";
 import { LinkSuspenso } from "@/components/ui/BarraLista";
+import FiltroAtivos from "@/components/ui/FiltroAtivos";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Movimentações de estoque" };
@@ -27,6 +28,7 @@ export default async function Movimentacoes({ searchParams }: { searchParams: Pr
   return (
     <Pagina titulo="Movimentações de estoque" icone="transferir" trilha={[{ rotulo: "Movimentações", href: base }, { rotulo: "Listar" }]}>
       <BarraCadastro base={base} params={sp} avancada={false} placeholder="Código, nome ou código de barras"
+        filtros={<FiltroAtivos base={base} params={sp} />}
         maisAcoes={<>
           <LinkSuspenso href="/estoque" icone="estoque">Consultar estoque</LinkSuspenso>
           <LinkSuspenso href="/estoque/ajustes" icone="ajustes">Ajustes de estoque</LinkSuspenso>

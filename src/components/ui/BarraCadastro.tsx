@@ -7,12 +7,14 @@ import { urlCom } from "./BarraLista";
  * Barra das listagens de cadastro do Gestão Click:
  * [+ Adicionar] [⚙ Mais ações ▾] … [☰ colunas] [Buscar por nome][🔍] [🔍+ Busca avançada]
  */
-export default function BarraCadastro({ base, params, adicionar, maisAcoes, colunas, placeholder = "Buscar por nome", avancada = true }: {
+export default function BarraCadastro({ base, params, adicionar, maisAcoes, colunas, filtros, placeholder = "Buscar por nome", avancada = true }: {
   base: string;
   params: Record<string, string | undefined>;
   adicionar?: { href: string; rotulo?: string };
   maisAcoes?: React.ReactNode;
   colunas?: React.ReactNode;
+  /** Filtros rápidos ao lado da busca (ex.: Ativos ▾). */
+  filtros?: React.ReactNode;
   placeholder?: string;
   avancada?: boolean;
 }) {
@@ -26,6 +28,7 @@ export default function BarraCadastro({ base, params, adicionar, maisAcoes, colu
         </Suspenso>
       )}
       <div className="ml-auto flex items-center gap-2">
+        {filtros}
         {colunas}
         <form action={base} className="flex">
           {Object.entries(params).filter(([k, v]) => v && !["q", "p"].includes(k)).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
