@@ -24,6 +24,7 @@ export const ACOES = {
   "os.excluir": { grupo: "Ordens de serviço", rotulo: "Excluir OS", padrao: GER },
   "os.juntar": { grupo: "Ordens de serviço", rotulo: "Juntar OS do mesmo cliente numa só", padrao: ["ADMIN", "GERENTE", "OPERADOR"] as PapelUsuario[] },
   "os.tecnicoItens": { grupo: "Ordens de serviço", rotulo: "Lançar itens e marcar instalados pela tela do técnico", padrao: TODOS },
+  "os.editarTempo": { grupo: "Ordens de serviço", rotulo: "Corrigir o tempo de mão de obra da OS (início, fim, incluir e excluir trechos)", padrao: ["ADMIN"] as PapelUsuario[] },
   "os.tecnicoFotos": { grupo: "Ordens de serviço", rotulo: "Anexar fotos da instalação pela tela do técnico", padrao: TODOS },
   "orcamento.excluir": { grupo: "Orçamentos", rotulo: "Excluir orçamentos", padrao: GER },
   "compra.excluir": { grupo: "Compras e estoque", rotulo: "Excluir compras", padrao: GER },

@@ -12,6 +12,7 @@ import { juntarOrdens } from "./juntar";
 import { alterarSituacaoOrdem, clonarOrdem, excluirOrdem, salvarOrdem } from "./ordens";
 import type { DadosOs } from "./tipos";
 import { definirOrigemItens } from "./itensCarro";
+import { corrigirTrabalho, duracao } from "./trabalho";
 import { avisoAutomaticoOs } from "@/lib/whatsapp/os";
 
 const situacaoAtual = async (id: string | undefined) => (id ? (await prisma.ordemServico.findUnique({ where: { id }, select: { situacaoId: true } }))?.situacaoId ?? null : null);
@@ -281,4 +282,18 @@ export async function juntarOsAcao(_: Resultado, form: FormData): Promise<Result
     destino = `/os/${r.os.id}`;
   } catch (e) { return erro(e); }
   redirect(destino);
+}
+
+/** Correção do tempo de mão de obra (padrão: só administrador). Datas chegam como "AAAA-MM-DDTHH:MM" no horário de Brasília. */
+export async function corrigirTempoOsAcao(_: Resultado, form: FormData): Promise<Resultado> {
+  const u = await exigirAcao("os.editarTempo");
+  try {
+    const id = String(form.get("id"));
+    const sp = (v: unknown) => (v ? new Date(`${String(v)}:00-03:00`) : null);
+    const trechos = (JSON.parse(String(form.get("trechos") ?? "[]")) as { id?: string; inicio: string; fim: string; motivo?: string }[])
+      .map((t) => ({ id: t.id || null, inicio: sp(t.inicio) ?? new Date(NaN), fim: sp(t.fim), motivo: t.motivo ?? null }));
+    const r = await corrigirTrabalho(u, id, trechos, String(form.get("observacao") ?? ""));
+    revalidatePath(`/os/${id}`);
+    return { ok: true, mensagem: `Tempo corrigido. Mão de obra: ${duracao(r.fechadoMs)}.` };
+  } catch (e) { return erro(e); }
 }

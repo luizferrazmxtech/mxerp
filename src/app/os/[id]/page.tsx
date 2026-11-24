@@ -27,6 +27,8 @@ import FormItensCarro from "@/components/os/FormItensCarro";
 import DicaSaldo from "@/components/estoque/DicaSaldo";
 import { carrosDasEquipes, livreNosCarros } from "@/lib/estoque/carro";
 import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
+import { pode } from "@/lib/auth/permissoesAcao";
+import EditarTempoOs from "@/components/os/EditarTempoOs";
 import { fotosDoHistorico } from "@/lib/os/historicoFotos";
 import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
@@ -53,6 +55,7 @@ function Vazio({ icone, titulo, texto }: { icone: string; titulo: string; texto?
 export default async function VerOs({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string; carro?: string; q?: string; conta?: string; whatsapp?: string }> }) {
   const eu = await usuarioAtual();
   const verFinanceiro = !!eu && podeAcessar(eu.papel, "/financeiro");
+  const corrigeTempo = !!eu && (await pode(eu.papel, "os.editarTempo"));
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const o = await prisma.ordemServico.findUnique({
     where: { id },
@@ -204,7 +207,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             </dl>
             <div className="mt-2 border-t pt-2 text-[11px] text-slate-500">Atualizado em {dataSP(o.updatedAt)} {horaSP(o.updatedAt)}</div>
           </div>
-          {trabalho.estado !== "NAO_INICIADO" && (
+          {(trabalho.estado !== "NAO_INICIADO" || corrigeTempo) && (
             <div className="cartao p-4 text-[13px]">
               <div className="mb-1 flex items-center font-semibold">Mão de obra
                 <span className={`ml-auto text-[12px] ${{ TRABALHANDO: "text-emerald-700", PAUSADO: "text-amber-700", FINALIZADO: "text-sky-700", NAO_INICIADO: "" }[trabalho.estado]}`}>
@@ -220,6 +223,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                   </li>
                 ))}
               </ul>
+              {corrigeTempo && <EditarTempoOs key={trabalho.trechos.map((t) => `${t.id}${t.inicio}${t.fim}`).join()} osId={id} trechos={trabalho.trechos} />}
             </div>
           )}
           {o.situacaoCfg?.exibirCobranca !== false && (
