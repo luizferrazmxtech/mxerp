@@ -2,6 +2,7 @@ import { centroPorNome } from "@/lib/financeiro/plano";
 import { Prisma, type EstoqueSituacao, type PapelUsuario, type PrioridadeOs, type SituacaoOs, type SituacaoOsConfig } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { entrada } from "@/lib/estoque/estoque";
+import { localDaLoja } from "@/lib/estoque/entrada";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { cancelarRecebimentos } from "@/lib/financeiro/lancamentos";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
@@ -57,10 +58,9 @@ async function estadoEfetivo(tx: Tx, osId: string, estado: EstadoEstoque, usuari
   const o = await tx.ordemServico.findUniqueOrThrow({ where: { id: osId }, select: { idLegado: true, numero: true, produtos: { select: { produtoId: true, quantidade: true, custoUnit: true, produto: { select: { controlaEstoque: true, localPadraoId: true } } } } } });
   if (!o.idLegado) return estado;
   if (await tx.movimentoEstoque.count({ where: { origemTipo: "OS", origemId: osId } })) return estado;
-  const local = (await tx.local.findFirst({ orderBy: { codigo: "asc" }, select: { id: true } }))?.id;
   for (const i of o.produtos) {
-    const localId = i.produto.localPadraoId ?? local;
-    if (!i.produto.controlaEstoque || !localId || !(Number(i.quantidade) > 0)) continue;
+    if (!i.produto.controlaEstoque || !(Number(i.quantidade) > 0)) continue;
+    const localId = await localDaLoja(tx, i.produto.localPadraoId); // volta para a loja, nunca para o carro
     await entrada(tx, { produtoId: i.produtoId, localId, quantidade: Number(i.quantidade), custoUnit: Number(i.custoUnit), origemTipo: "AJUSTE", origemId: osId, observacao: `OS ${o.numero} migrada do Gestão Click: peças voltam ao estoque`, usuarioId });
   }
   return "LIVRE";

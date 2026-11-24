@@ -2,6 +2,7 @@ import { centroPorNome } from "@/lib/financeiro/plano";
 import { Prisma, type EstoqueSituacao, type PapelUsuario, type SituacaoVenda, type SituacaoVendaConfig } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { entrada } from "@/lib/estoque/estoque";
+import { localDaLoja, localEhCarro } from "@/lib/estoque/entrada";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { cancelarRecebimentos } from "@/lib/financeiro/lancamentos";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
@@ -85,10 +86,9 @@ async function estadoEfetivo(tx: Tx, vendaId: string, estado: EstadoEstoque, usu
   const v = await tx.venda.findUniqueOrThrow({ where: { id: vendaId }, select: { idLegado: true, numero: true, itens: { select: { produtoId: true, quantidade: true, custoUnit: true, produto: { select: { controlaEstoque: true, localPadraoId: true } } } } } });
   if (!v.idLegado) return estado;
   if (await tx.movimentoEstoque.count({ where: { origemTipo: "VENDA", origemId: vendaId } })) return estado;
-  const local = (await tx.local.findFirst({ orderBy: { codigo: "asc" }, select: { id: true } }))?.id;
   for (const i of v.itens) {
-    const localId = i.produto.localPadraoId ?? local;
-    if (!i.produto.controlaEstoque || !localId) continue;
+    if (!i.produto.controlaEstoque) continue;
+    const localId = await localDaLoja(tx, i.produto.localPadraoId); // volta para a loja, nunca para o carro
     await entrada(tx, { produtoId: i.produtoId, localId, quantidade: Number(i.quantidade), custoUnit: Number(i.custoUnit), origemTipo: "AJUSTE", origemId: vendaId, observacao: `Venda ${v.numero} migrada do Gestão Click: peças voltam ao estoque`, usuarioId });
   }
   return "LIVRE";
@@ -349,8 +349,9 @@ export async function registrarDevolucao(args: { vendaId: string; tipo: "DEVOLUC
     for (const l of linhas) {
       const saida = await tx.movimentoEstoque.findFirst({ where: { origemTipo: "VENDA", origemId: v.id, produtoId: l.it.produtoId }, orderBy: { createdAt: "desc" } });
       const prod = await tx.produto.findUniqueOrThrow({ where: { id: l.it.produtoId }, select: { localPadraoId: true, controlaEstoque: true } });
-      const localId = saida?.localId ?? prod.localPadraoId ?? (await tx.local.findFirst({ orderBy: { codigo: "asc" } }))?.id;
-      if (!prod.controlaEstoque || !localId) continue;
+      if (!prod.controlaEstoque) continue;
+      // volta para onde saiu; se saiu de um carro (venda não usa carro), volta para a loja
+      const localId = saida && !(await localEhCarro(tx, saida.localId)) ? saida.localId : await localDaLoja(tx, prod.localPadraoId);
       await entrada(tx, { produtoId: l.it.produtoId, localId, quantidade: l.quantidade, custoUnit: Number(l.it.custoUnit), origemTipo: "DEVOLUCAO", origemId: dev.id, observacao: `${args.tipo === "TROCA" ? "Troca" : "Devolução"} nº ${numero} da venda ${v.numero}`, usuarioId: u.id });
     }
     if (args.tipo === "TROCA") {

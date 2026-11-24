@@ -2,10 +2,10 @@ import { Prisma, type PapelUsuario } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { disponivelPorLocal, entrada, saida, transferir } from "@/lib/estoque/estoque";
 import { proximoNumero } from "@/lib/sequencia";
-import { lojaAtualId } from "@/lib/empresa/loja";
 import { parseDia } from "@/lib/datas";
 import { lerNumero } from "@/lib/itens/tipos";
 import { atualizarCustoPorEntrada } from "./custo";
+import { localDaLoja } from "./entrada";
 
 /**
  * Documentos de estoque do Gestão Click: ajustes (entrada/saída avulsa), transferências entre
@@ -18,15 +18,9 @@ export class DocEstoqueError extends Error {}
 const n = (s: string | number) => (typeof s === "number" ? s : lerNumero(s) ?? 0);
 const arred = (v: number, c = 4) => Math.round(v * 10 ** c) / 10 ** c;
 
-/** Primeiro local da loja atual (depósito da loja ou sem loja). */
-async function localPadrao(tx: Tx) {
-  const loja = await lojaAtualId();
-  const l = await tx.local.findFirst({
-    where: loja ? { deposito: { OR: [{ empresaId: loja }, { empresaId: null }] } } : {},
-    orderBy: [{ deposito: { empresaId: { sort: "asc", nulls: "last" } } }, { codigo: "asc" }], select: { id: true },
-  });
-  if (!l) throw new DocEstoqueError("Cadastre um local de estoque antes");
-  return l.id;
+/** Local da loja atual para o ajuste sem prateleira escolhida (nunca o carro). */
+async function localPadrao(tx: Tx, localPadraoProduto?: string | null) {
+  try { return await localDaLoja(tx, localPadraoProduto); } catch (e) { throw new DocEstoqueError((e as Error).message); }
 }
 
 async function saldosPorLocal(tx: Tx, produtoId: string, depositoId?: string) {
@@ -34,11 +28,15 @@ async function saldosPorLocal(tx: Tx, produtoId: string, depositoId?: string) {
   return rows.map((r) => ({ localId: r.localId, quantidade: Number(r.quantidade) }));
 }
 
-/** Retira `q` do produto: primeiro dos locais com saldo (maior primeiro); o que faltar sai do local padrão. */
+/**
+ * Retira `q` do produto: primeiro dos locais da loja com saldo (maior primeiro); o que faltar sai do local padrão.
+ * Só os locais da loja atual que não são carro (o carro só muda por OS da equipe, transferência ou ajuste no local dele).
+ */
 async function retirar(tx: Tx, produtoId: string, q: number, base: { origemTipo: "AJUSTE"; origemId: string; observacao: string; usuarioId?: string }, padrao: string) {
   let resta = q;
   const partes: { localId: string; quantidade: number }[] = [];
-  for (const s of await saldosPorLocal(tx, produtoId)) {
+  const daLoja = new Set((await disponivelPorLocal(tx, produtoId)).map((l) => l.localId)); // loja atual, sem carros
+  for (const s of (await saldosPorLocal(tx, produtoId)).filter((x) => daLoja.has(x.localId))) {
     if (resta <= 0 || s.quantidade <= 0) continue;
     const parte = Math.min(resta, s.quantidade);
     partes.push({ localId: s.localId, quantidade: parte });
@@ -78,7 +76,6 @@ export async function criarAjusteTx(tx: Tx, d: DadosAjuste, u: Usuario | null, e
   const a = await tx.ajusteEstoque.create({
     data: { numero, tipo: d.tipo, frete, total, observacoes: d.observacoes.trim() || null, criadoPorId: u?.id, criadoPorNome: u?.nome, inventarioId: extra.inventarioId },
   });
-  const padrao = await localPadrao(tx);
   const obs = `Ajuste de estoque nº ${numero}`;
   for (const [ordem, i] of itens.entries()) {
     // conversão: 2 CX a R$ 600 = 610 MT a R$ 1,9672 (o total da linha não muda)
@@ -88,13 +85,13 @@ export async function criarAjusteTx(tx: Tx, d: DadosAjuste, u: Usuario | null, e
     if (i.salvarConversao && un && f > 0) await tx.produto.update({ where: { id: p.id }, data: { unidadeCompra: un, fatorConversao: f.toFixed(4) } });
     let localId = i.localId ?? null;
     if (d.tipo === "ENTRADA") {
-      localId ??= p.localPadraoId ?? padrao;
+      localId ??= await localPadrao(tx, p.localPadraoId);
       if (d.atualizarCusto) await atualizarCustoPorEntrada(tx, p.id, q, custo);
       await entrada(tx, { produtoId: p.id, localId, quantidade: q, custoUnit: custo, origemTipo: "AJUSTE", origemId: a.id, observacao: obsLinha, usuarioId: u?.id });
     } else if (localId) {
       await saida(tx, { produtoId: p.id, localId, quantidade: q, origemTipo: "AJUSTE", origemId: a.id, observacao: obsLinha, usuarioId: u?.id });
     } else {
-      const partes = await retirar(tx, p.id, q, { origemTipo: "AJUSTE", origemId: a.id, observacao: obsLinha, usuarioId: u?.id }, p.localPadraoId ?? padrao);
+      const partes = await retirar(tx, p.id, q, { origemTipo: "AJUSTE", origemId: a.id, observacao: obsLinha, usuarioId: u?.id }, await localPadrao(tx, p.localPadraoId));
       localId = partes.length === 1 ? partes[0].localId : null;
     }
     await tx.ajusteEstoqueItem.create({ data: { ajusteId: a.id, ordem, produtoId: p.id, localId, quantidade: q, custoUnit: custo.toFixed(4), total: Math.round(n(i.quantidade) * n(i.custo) * 100) / 100 } });
@@ -107,7 +104,9 @@ export const criarAjuste = (d: DadosAjuste, u: Usuario) => prisma.$transaction((
 /** "Zerar estoque": um ajuste de saída com todo o saldo positivo de cada local. */
 export async function zerarEstoque(u: Usuario, observacao = "Estoque zerado") {
   return prisma.$transaction(async (tx) => {
-    const saldos = await tx.saldo.findMany({ where: { quantidade: { gt: 0 }, produto: { controlaEstoque: true } }, include: { produto: { select: { custo: true } } } });
+    // só os estoques da empresa atual (a extensão filtra Deposito pela loja): nunca zerar o de outra empresa
+    const deps = (await tx.deposito.findMany({ select: { id: true } })).map((d) => d.id);
+    const saldos = await tx.saldo.findMany({ where: { quantidade: { gt: 0 }, produto: { controlaEstoque: true }, local: { depositoId: { in: deps } } }, include: { produto: { select: { custo: true } } } });
     if (!saldos.length) throw new DocEstoqueError("Não há saldo para zerar");
     return criarAjusteTx(tx, {
       tipo: "SAIDA", frete: "0", observacoes: observacao,

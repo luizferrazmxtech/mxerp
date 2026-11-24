@@ -2,6 +2,7 @@ import { Prisma, OrigemDocumento } from "@prisma/client";
 import type { Tx } from "@/lib/db";
 import { alocar, arred, type Alocacao } from "./alocacao";
 import { lojaAtualId, sqlDaLoja } from "@/lib/empresa/loja";
+import { localDaLoja } from "./entrada";
 
 /**
  * Regras de estoque do MXERP.
@@ -274,7 +275,7 @@ export async function transferir(
 /**
  * Baixa o estoque de um documento: cada reserva ativa vira uma saída do
  * local onde estava reservada. Se houver falta, recusa — a não ser que
- * `permitirNegativo` seja true, caso em que a falta sai do local padrão.
+ * `permitirNegativo` seja true, caso em que a falta sai do local padrão da loja (localDaLoja).
  */
 export async function baixarDocumento(
   tx: Tx,
@@ -295,7 +296,8 @@ export async function baixarDocumento(
   }
 
   for (const r of reservas) {
-    const localId = r.localId ?? r.produto.localPadraoId ?? (await localQualquer(tx));
+    // falta baixada no negativo: sai da loja (nunca do carro)
+    const localId = r.localId ?? (await localDaLoja(tx, r.produto.localPadraoId));
     await somarSaldo(tx, r.produtoId, localId, -n(r.quantidade));
     await tx.movimentoEstoque.create({
       data: {
@@ -352,8 +354,3 @@ export async function estornarBaixa(
   return [...afetados];
 }
 
-async function localQualquer(tx: Tx) {
-  const l = await tx.local.findFirst({ where: { ativo: true }, orderBy: { codigo: "asc" } });
-  if (!l) throw new EstoqueError("Cadastre ao menos um local de estoque");
-  return l.id;
-}
