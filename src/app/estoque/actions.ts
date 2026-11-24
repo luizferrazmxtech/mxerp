@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { entrada, saida, transferir } from "@/lib/estoque/estoque";
+import { entrada, saida } from "@/lib/estoque/estoque";
+import { criarTransferencia } from "@/lib/estoque/documentos";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { lerNumero } from "@/lib/itens/tipos";
 import { criarEstoqueEquipe } from "@/lib/estoque/carro";
@@ -46,18 +47,17 @@ export async function darSaida(form: FormData) {
   revalidatePath(`/estoque/produto/${produtoId}`);
 }
 
+/** "Mudar de prateleira" no estoque do produto: vira uma transferência de verdade (aparece na lista e no relatório). */
 export async function fazerTransferencia(form: FormData) {
   const u = await exigirUsuario([...ESTOQUE]);
   const produtoId = String(form.get("produtoId"));
-  await prisma.$transaction((tx) =>
-    transferir(tx, {
-      produtoId,
-      deLocalId: String(form.get("deLocalId")),
-      paraLocalId: String(form.get("paraLocalId")),
-      quantidade: num(form.get("quantidade")),
-      usuarioId: u.id,
-    }),
-  );
+  const deLocalId = String(form.get("deLocalId")), paraLocalId = String(form.get("paraLocalId"));
+  const locais = await prisma.local.findMany({ where: { id: { in: [deLocalId, paraLocalId] } }, select: { id: true, depositoId: true } });
+  const dep = (id: string) => locais.find((l) => l.id === id)?.depositoId ?? "";
+  await criarTransferencia({
+    origemDepositoId: dep(deLocalId), destinoDepositoId: dep(paraLocalId), origemLocalId: deLocalId, destinoLocalId: paraLocalId,
+    observacoes: "Mudança de prateleira", itens: [{ produtoId, quantidade: String(form.get("quantidade") ?? "") }],
+  }, u);
   revalidatePath(`/estoque/produto/${produtoId}`);
 }
 

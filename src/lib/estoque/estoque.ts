@@ -236,9 +236,9 @@ export async function saida(
 /** Move mercadoria entre prateleiras, levando junto as reservas se necessário. */
 export async function transferir(
   tx: Tx,
-  args: { produtoId: string; deLocalId: string; paraLocalId: string; quantidade: number; usuarioId?: string },
+  args: { produtoId: string; deLocalId: string; paraLocalId: string; quantidade: number; usuarioId?: string; /** id da TransferenciaEstoque, para o kardex abrir o documento */ origemId?: string },
 ) {
-  const base = { produtoId: args.produtoId, quantidade: args.quantidade, origemTipo: "TRANSFERENCIA" as const, usuarioId: args.usuarioId };
+  const base = { produtoId: args.produtoId, quantidade: args.quantidade, origemTipo: "TRANSFERENCIA" as const, origemId: args.origemId, usuarioId: args.usuarioId };
   const cods = new Map((await tx.local.findMany({ where: { id: { in: [args.deLocalId, args.paraLocalId] } }, select: { id: true, codigo: true } })).map((l) => [l.id, l.codigo]));
   await saida(tx, { ...base, localId: args.deLocalId, observacao: `para ${cods.get(args.paraLocalId) ?? args.paraLocalId}` });
   await entrada(tx, { ...base, localId: args.paraLocalId, observacao: `de ${cods.get(args.deLocalId) ?? args.deLocalId}` });

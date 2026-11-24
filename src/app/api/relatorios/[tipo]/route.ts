@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { curvaAbc, duracao, relatorioComissoes, relatorioLucro, tempoOs, type AgruparLucro, type CriterioAbc } from "@/lib/relatorios/relatorios";
 import { periodoRelatorio } from "@/lib/relatorios/periodo";
 import { textoPrazo } from "@/lib/os/prazo";
+import { relatorioTransferencias } from "@/lib/estoque/relatorioTransferencias";
 
 /**
  * Exporta o relatório em Excel (?formato=xlsx, números de verdade, cabeçalho em negrito) ou em CSV
@@ -12,7 +13,7 @@ const esc = (v: unknown) => { const s = String(v ?? ""); return /[;"\n]/.test(s)
 const dia = (d: Date) => d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const TITULOS: Record<string, string> = { lucro: "Lucro", "curva-abc": "Curva ABC", comissoes: "Comissões", "tempo-os": "Tempo das OS" };
+const TITULOS: Record<string, string> = { lucro: "Lucro", "curva-abc": "Curva ABC", comissoes: "Comissões", "tempo-os": "Tempo das OS", transferencias: "Transferências" };
 
 type Celula = string | number | null | undefined;
 
@@ -39,6 +40,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ tipo: st
     const r = await tempoOs(per);
     cab = ["OS", "Cliente", "Técnico", "Entrada", "Saída", "Horas", "Tempo", "Atrasou"];
     linhas = r.linhas.map((l) => [l.numero, l.cliente, l.tecnico, dia(l.entrada), dia(l.saida), r2(l.horas), duracao(l.horas), l.atrasada ? "sim" : "não"]);
+  } else if (tipo === "transferencias") {
+    const r = await relatorioTransferencias({ de: per.de, ate: per.ate, origem: sp.origem || undefined, destino: sp.destino || undefined, carro: sp.carro || undefined, produto: sp.produto || undefined });
+    if (sp.por === "produtos") {
+      cab = ["Código", "Produto", "Unidade", "Transferências", "Quantidade", "Valor (custo)"];
+      linhas = r.produtos.map((p) => [p.codigo, p.produto, p.unidade, p.transferencias, p.quantidade, p.total]);
+    } else {
+      cab = ["Nº", "Data", "Origem", "Destino", "Código", "Produto", "Unidade", "Quantidade", "Custo unit.", "Total", "Usuário", "Observações"];
+      linhas = r.linhas.map((l) => [l.numero, dia(l.data), l.origem, l.destino, l.codigo, l.produto, l.unidade, l.quantidade, l.custoUnit, l.total, l.usuario, l.observacoes]);
+    }
   } else return new Response("relatório desconhecido", { status: 404 });
 
   if (sp.formato === "xlsx") {

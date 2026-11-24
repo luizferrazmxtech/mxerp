@@ -141,6 +141,10 @@ export async function criarTransferencia(d: DadosTransferencia, u: Usuario) {
     // do carro só sai o que não está separado para uma OS
     const origemCarro = await tx.deposito.findFirst({ where: { id: d.origemDepositoId, equipeId: { not: null } }, select: { id: true } });
     const numero = await proximoNumero(tx, "TRANSFERENCIA");
+    // o documento nasce antes dos movimentos, para cada movimento apontar para ele (kardex e histórico do carro)
+    const doc = await tx.transferenciaEstoque.create({
+      data: { numero, origemDepositoId: d.origemDepositoId, destinoDepositoId: d.destinoDepositoId, observacoes: d.observacoes.trim() || null, criadoPorId: u.id, criadoPorNome: u.nome },
+    });
     let total = 0;
     const linhas = [];
     for (const [ordem, i] of itens.entries()) {
@@ -159,15 +163,13 @@ export async function criarTransferencia(d: DadosTransferencia, u: Usuario) {
       for (const s of saldos) {
         if (resta <= 0) break;
         const parte = Math.min(resta, s.quantidade);
-        await transferir(tx, { produtoId: p.id, deLocalId: s.localId, paraLocalId: para, quantidade: parte, usuarioId: u.id });
+        await transferir(tx, { produtoId: p.id, deLocalId: s.localId, paraLocalId: para, quantidade: parte, usuarioId: u.id, origemId: doc.id });
         resta = arred(resta - parte);
       }
       total += q * Number(p.custo);
       linhas.push({ ordem, produtoId: p.id, quantidade: q, custoUnit: Number(p.custo) });
     }
-    return tx.transferenciaEstoque.create({
-      data: { numero, origemDepositoId: d.origemDepositoId, destinoDepositoId: d.destinoDepositoId, total: Math.round(total * 100) / 100, observacoes: d.observacoes.trim() || null, criadoPorId: u.id, criadoPorNome: u.nome, itens: { create: linhas } },
-    });
+    return tx.transferenciaEstoque.update({ where: { id: doc.id }, data: { total: Math.round(total * 100) / 100, itens: { create: linhas } } });
   }, { timeout: 60000 });
 }
 

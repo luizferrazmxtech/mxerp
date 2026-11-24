@@ -24,9 +24,11 @@ export default async function Transferencias({ searchParams }: { searchParams: P
     prisma.transferenciaEstoque.findMany({ where, orderBy: { numero: "desc" }, skip, take, include: { _count: { select: { itens: true } } } }),
     prisma.transferenciaEstoque.count({ where }),
     prisma.transferenciaEstoque.count(),
-    todasAsLojas(() => prisma.deposito.findMany({ select: { id: true, nome: true } })),
+    todasAsLojas(() => prisma.deposito.findMany({ select: { id: true, nome: true, equipeId: true } })),
   ]);
   const nome = new Map(depositos.map((d) => [d.id, d.nome]));
+  const carro = new Set(depositos.filter((d) => d.equipeId).map((d) => d.id));
+  const marca = (id: string) => carro.has(id) && <span className="etiqueta ml-1 text-[11px] normal-case text-slate-500">carro</span>;
   return (
     <Pagina titulo="Transferências" icone="transferir" trilha={[{ rotulo: "Transferências", href: base }, { rotulo: "Listar" }]}>
       {!existe ? (
@@ -45,6 +47,7 @@ export default async function Transferencias({ searchParams }: { searchParams: P
         <>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <Link href={`${base}/adicionar`} className="btn"><Icone nome="mais" size={15} /> Adicionar</Link>
+            <Link href={`${base}/relatorio${sp.periodo ? `?${new URLSearchParams(Object.entries({ periodo: sp.periodo, pde: sp.pde, pate: sp.pate }).filter(([, v]) => v) as [string, string][])}` : ""}`} className="btn-sec"><Icone nome="grafico" size={15} /> Relatório</Link>
             <div className="ml-auto"><SeletorPeriodo base={base} params={sp} /></div>
           </div>
           <div className="cartao overflow-x-auto">
@@ -53,7 +56,7 @@ export default async function Transferencias({ searchParams }: { searchParams: P
               <tbody>
                 {lista.map((t) => (
                   <tr key={t.id}>
-                    <td>{t.numero}</td><td className="uppercase">{nome.get(t.origemDepositoId)}</td><td className="uppercase">{nome.get(t.destinoDepositoId)}</td>
+                    <td>{t.numero}</td><td className="uppercase">{nome.get(t.origemDepositoId)}{marca(t.origemDepositoId)}</td><td className="uppercase">{nome.get(t.destinoDepositoId)}{marca(t.destinoDepositoId)}</td>
                     <td className="text-right">{t._count.itens}</td><td className="text-right">{num2(t.total)}</td>
                     <td className="text-[12px]">{t.createdAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" })}</td>
                     <td><div className="flex justify-end gap-1">
