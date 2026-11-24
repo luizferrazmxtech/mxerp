@@ -86,6 +86,12 @@ describe("orçamentos", () => {
     const os = await prisma.ordemServico.findUniqueOrThrow({ where: { id: osId }, include: { produtos: true, servicos: true } });
     expect(os.produtos).toHaveLength(1);
     expect(os.servicos).toHaveLength(1);
+    expect(Number(os.total)).toBe(350);
+    const depois = await prisma.orcamento.findUniqueOrThrow({ where: { id: o.id }, include: { situacao: true, historico: true } });
+    expect(depois.situacao.nome).toBe("Concretizado");
+    expect(depois.osId).toBe(osId);
+    expect(depois.historico.some((h) => /Gerada a OS/.test(h.descricao))).toBe(true);
+    await expect(orc.gerarOsDoOrcamento(o.id, u)).rejects.toThrow(/já gerou uma OS/);
   });
 
   it("item avulso: digitado sem cadastro, não reserva nem baixa estoque e segue do orçamento para a venda e a OS", async () => {
