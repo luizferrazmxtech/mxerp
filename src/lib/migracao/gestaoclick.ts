@@ -6,6 +6,7 @@ import { baixarLancamento } from "@/lib/financeiro/lancamentos";
 import { enumDe } from "@/lib/os/ordens";
 import { lancaEstoque, lancaFinanceiro } from "@/lib/compras/tipos";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
+import { documentoDaDescricao } from "@/lib/financeiro/origem";
 import { proximoNumero } from "@/lib/sequencia";
 import { lerPlanilha, normalizar, numeroBr, type Linha } from "./planilha";
 import { importarPessoas, importarProdutos, importarServicos, type Resultado } from "./importar";
@@ -591,12 +592,7 @@ async function garantirFormas(nomesGc: Iterable<string | undefined>) {
  * Documento que gerou a conta, pela descrição do Gestão Click ("Venda de nº 8558", "Ordem de serviço de nº 6946",
  * "Compra de nº 934"). Só liga a documentos trazidos do backup (pelo idLegado), nunca a um do MXERP com o mesmo número.
  */
-export function documentoDaConta(descricao: string | undefined): { tipo: "VENDA" | "OS" | "COMPRA"; numero: number } | null {
-  const d = chaveNome(descricao ?? "");
-  const m = /^(venda|ordem de servico|compra) de n\S{0,2}\s*(\d+)/.exec(d);
-  if (!m) return null;
-  return { tipo: m[1] === "venda" ? "VENDA" : m[1] === "compra" ? "COMPRA" : "OS", numero: Number(m[2]) };
-}
+export const documentoDaConta = (descricao: string | undefined) => documentoDaDescricao(descricao);
 async function origemDaConta(descricao: string | undefined): Promise<{ origemTipo: "VENDA" | "OS" | "COMPRA"; origemId: string } | null> {
   const doc = documentoDaConta(descricao);
   if (!doc) return null;

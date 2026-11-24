@@ -6,6 +6,7 @@ import { brl } from "@/lib/ui/format";
 import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
 import { boletoAbrivel, contaAvulsa, iconeForma, origemConta, situacaoConta } from "@/lib/financeiro/lista";
 import { ATIVOS } from "@/lib/financeiro/boletos";
+import { origemPelaDescricao } from "@/lib/financeiro/origem";
 import { baixarContaAcao, estornarContaAcao, excluirContaAcao } from "../../actions";
 import { Bloco, Campo, Pagina } from "@/components/ui/Pagina";
 import FormAcao from "@/components/financeiro/FormAcao";
@@ -44,7 +45,9 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
   const titulo = pagar ? "Contas a pagar" : "Contas a receber";
   const hoje = diaSP();
   const s = situacaoConta(l, hoje);
-  const orig = origemConta(l);
+  // conta do Gestão Click sem o documento ligado: acha pelo número da descrição
+  const d = (await origemPelaDescricao([l])).get(l.id) ?? l;
+  const orig = origemConta({ id: l.id, ...d });
   const pdf = boletoAbrivel(l.boletos.find((b) => ATIVOS.includes(b.situacao)));
   const ic = iconeForma(l.formaPagamento);
   const [contas, interAtivo, base] = await Promise.all([
@@ -84,7 +87,7 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
           <Linha rotulo="Cadastrada em">{l.createdAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" })}</Linha>
         </Bloco>
 
-          <ResumoOrigem origemTipo={l.origemTipo} origemId={l.origemId} contaId={l.id} />
+          <ResumoOrigem origemTipo={d.origemTipo} origemId={d.origemId} contaId={l.id} />
         </div>
 
         <div>
