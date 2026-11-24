@@ -100,6 +100,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   const empresaServicos = servicosFora ? nomesEmpresas.get(servicosFora) ?? "outra empresa" : null;
   // antes de lançar o financeiro: como cada parcela vai ser dividida entre peças e serviços (um boleto para cada)
   const partesServicos = servicosFora ? servicosPorParcela(o.parcelas, divisaoOs(o).servicos, Number(o.total)) : [];
+  const notasOs = await prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: id }, orderBy: { createdAt: "asc" }, select: { id: true, modelo: true, serie: true, numero: true, status: true, valorTotal: true, empresaId: true } });
   const errosBoleto = lancamentos.filter((l) => !l.pagoEm && l.boletos[0]?.situacao === "ERRO").length;
   const link = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}/cobranca/os/${o.token}`;
   const nomeEmpresa = empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH";
@@ -231,6 +232,42 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                 ))}
               </ul>
               {corrigeTempo && <EditarTempoOs key={trabalho.trechos.map((t) => `${t.id}${t.inicio}${t.fim}`).join()} osId={id} trechos={trabalho.trechos} />}
+            </div>
+          )}
+          {(notasOs.length > 0 || lancamentos.length > 0) && (
+            <div className="cartao p-4 text-[13px]">
+              <div className="mb-1 font-semibold">Notas fiscais e pagamentos</div>
+              {notasOs.length > 0 && (
+                <ul className="space-y-1 border-b pb-2">
+                  {notasOs.map((n) => (
+                    <li key={n.id} className="flex items-center gap-2">
+                      <Link href={`/fiscal/${n.id}`} className="text-marca hover:underline">{n.modelo === "NFSE" ? "NFS-e" : n.modelo === "NFCE" ? "NFC-e" : "NF-e"} {n.serie}/{n.numero}</Link>
+                      <span className={`text-[11px] ${n.status === "AUTORIZADA" ? "text-emerald-700" : n.status === "REJEITADA" || n.status === "CANCELADA" ? "text-red-700" : "text-slate-500"}`}>{n.status.toLowerCase()}</span>
+                      <span className="ml-auto text-[12px] text-slate-600">{brl(n.valorTotal)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {lancamentos.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {lancamentos.map((l) => {
+                    const sit = l.pagoEm ? `pago ${dia(l.pagoEm)}` : l.vencimento < diaSP() ? "atrasado" : "em aberto";
+                    return (
+                      <li key={l.id} className="text-[12px]">
+                        <div className="flex gap-2">
+                          {verFinanceiro ? <Link href={`/financeiro/lancamentos/${l.id}`} className="text-marca hover:underline">{l.totalParcelas > 1 ? `Parcela ${l.parcela}/${l.totalParcelas}` : "Parcela única"}</Link> : <span>{l.totalParcelas > 1 ? `Parcela ${l.parcela}/${l.totalParcelas}` : "Parcela única"}</span>}
+                          <b className="ml-auto">{brl(l.valor)}</b>
+                        </div>
+                        <div className="flex gap-2 text-slate-500">
+                          <span>{servicosFora ? `${l.empresaId === servicosFora ? "Serviços" : "Peças"} · ` : ""}vence {dia(l.vencimento)}</span>
+                          <span className={`ml-auto ${l.pagoEm ? "text-emerald-700" : sit === "atrasado" ? "text-red-700" : ""}`}>{sit}</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {servicosFora && <p className="mt-2 text-[11px] text-slate-500">Peças: {nomeEmpresa}. Serviços: {empresaServicos}.</p>}
             </div>
           )}
           {o.situacaoCfg?.exibirCobranca !== false && (

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { empresaDosServicos } from "@/lib/os/faturamento";
+import { ATIVOS } from "@/lib/financeiro/boletos";
 import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { brl, dataSP, horaSP, qtd } from "@/lib/ui/format";
 import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
@@ -42,7 +43,7 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
   const emp = os ? await empresaDoDocumento(os.empresaId) : null;
   if (!os || (cobranca && os.situacaoCfg?.exibirCobranca === false)) return <p className="p-8 text-center">Ordem de serviço não encontrada.</p>;
   const [lanc, tecs] = await Promise.all([
-    prisma.lancamento.findMany({ where: { origemTipo: "OS", origemId: os.id }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }], include: { formaPagamento: true } }),
+    prisma.lancamento.findMany({ where: { origemTipo: "OS", origemId: os.id, tipo: "RECEBER" }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }], include: { formaPagamento: true, boletos: { where: { situacao: { in: ATIVOS } }, select: { token: true }, take: 1 } } }),
     prisma.usuario.findMany({ where: { id: { in: os.tecnicoIds } }, select: { nome: true } }),
   ]);
   const completa = modo !== "simples";
@@ -50,12 +51,14 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
     resumoTrabalho(os.id),
     prisma.anexo.findMany({ where: { entidade: "OS_FOTO", entidadeId: os.id, ...(completa ? {} : { tipo: { in: IMAGENS } }) }, select: { id: true, nome: true, createdAt: true, referencia: true }, orderBy: { createdAt: "asc" } }),
   ]);
-  const [notas, anotacoes, campos, instaladores] = completa ? await Promise.all([
-    prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: os.id }, orderBy: { createdAt: "asc" } }),
+  // notas da OS (a do cliente só vê as autorizadas), com a empresa que emitiu cada uma
+  const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: os.id, ...(completa ? {} : { status: "AUTORIZADA" }) }, orderBy: { createdAt: "asc" }, select: { id: true, modelo: true, serie: true, numero: true, status: true, valorTotal: true, emitidaEm: true, chave: true, empresaId: true } });
+  const emissoras = new Map((await prisma.empresa.findMany({ where: { id: { in: [...new Set(notas.map((n) => n.empresaId).filter((x): x is string => !!x))] } }, select: { id: true, razaoSocial: true, cnpj: true } })).map((e) => [e.id, e]));
+  const [anotacoes, campos, instaladores] = completa ? await Promise.all([
     prisma.anotacao.findMany({ where: { entidade: "OS", entidadeId: os.id }, orderBy: { createdAt: "asc" } }),
     prisma.campoExtra.findMany({ where: { entidade: "OS" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
     prisma.usuario.findMany({ where: { id: { in: [...os.produtos, ...os.servicos].map((i) => i.instaladoPorId).filter((x): x is string => !!x) } }, select: { id: true, nome: true } }),
-  ]) : [[], [], [], []] as const;
+  ]) : [[], [], []] as const;
   const nomeUsu = new Map(instaladores.map((u) => [u.id, u.nome]));
   const autoresAnot = completa ? new Map((await prisma.usuario.findMany({ where: { id: { in: anotacoes.map((a) => a.usuarioId).filter((x): x is string => !!x) } }, select: { id: true, nome: true } })).map((u) => [u.id, u.nome])) : new Map<string, string>();
   const tecnicos = (tecs.length ? tecs.map((t) => t.nome) : [os.tecnico?.nome]).filter(Boolean).join(", ")
@@ -75,8 +78,11 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
   const empresasCobranca = fora ? new Map((await prisma.empresa.findMany({ where: { id: { in: [...new Set(lanc.map((l) => l.empresaId).filter((x): x is string => !!x))] } }, select: { id: true, nomeFantasia: true, razaoSocial: true } })).map((e) => [e.id, e.id === fora ? e.razaoSocial : e.nomeFantasia || e.razaoSocial])) : new Map<string, string>();
   const parcelas = lanc.length
     ? lanc.map((l) => ({ id: l.id, n: l.parcela, de: l.totalParcelas, venc: l.vencimento, valor: l.valor, forma: l.formaPagamento?.nome, pago: !!l.pagoEm,
+      pagoEm: l.pagoEm, boleto: l.boletos[0]?.token ?? null,
       quem: fora ? `${l.empresaId === fora ? "Serviços" : "Peças"} · ${empresasCobranca.get(l.empresaId ?? "") ?? emp?.nomeFantasia ?? emp?.razaoSocial ?? ""}` : "" }))
-    : os.parcelas.map((p) => ({ id: p.id, n: p.numero, de: os.parcelas.length, venc: p.vencimento, valor: p.valor, forma: p.formaPagamento?.nome ?? os.formaPagamento?.nome, pago: false, quem: "" }));
+    : os.parcelas.map((p) => ({ id: p.id, n: p.numero, de: os.parcelas.length, venc: p.vencimento, valor: p.valor, forma: p.formaPagamento?.nome ?? os.formaPagamento?.nome, pago: false, pagoEm: null as Date | null, boleto: null as string | null, quem: "" }));
+  const hojeUtc = new Date(new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }) + "T00:00:00Z");
+  const situacaoParcela = (p: { pagoEm: Date | null; venc: Date }) => (!lanc.length ? "" : p.pagoEm ? `Paga em ${p.pagoEm.toLocaleDateString("pt-BR", { timeZone: "UTC" })}` : p.venc < hojeUtc ? "Atrasada" : "Em aberto");
   return (
     <div className="mx-auto max-w-[820px] bg-white p-6 text-[12px] text-black print:p-0">
       <header className="flex items-center gap-4 border-b-2 border-marca pb-3">
@@ -178,8 +184,14 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
 
       {parcelas.length > 0 && (
         <table className="mt-3 w-full border-collapse">
-          <thead><tr className="border-b border-slate-400 text-left"><th className="py-1">Pagamento</th><th className="w-28">Vencimento</th><th className="w-40">Forma</th><th className="w-24 text-right">Valor</th></tr></thead>
-          <tbody>{parcelas.map((p) => <tr key={p.id} className="border-b border-slate-200"><td className="py-1">Parcela {p.n}/{p.de}{p.quem ? ` · ${p.quem}` : ""}{p.pago ? " · paga" : ""}</td><td>{p.venc.toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td><td>{p.forma ?? "A combinar"}</td><td className="text-right">{brl(p.valor)}</td></tr>)}</tbody>
+          <thead><tr className="border-b border-slate-400 text-left"><th className="py-1">Pagamento</th><th className="w-24">Vencimento</th><th className="w-32">Forma</th><th className="w-28">Situação</th><th className="w-24 text-right">Valor</th></tr></thead>
+          <tbody>{parcelas.map((p) => (
+            <tr key={p.id} className="border-b border-slate-200">
+              <td className="py-1">Parcela {p.n}/{p.de}{p.quem ? ` · ${p.quem}` : ""}</td><td>{p.venc.toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td>
+              <td>{p.forma ?? "A combinar"}{p.boleto && !p.pago && <> · <a href={`/cobranca/boleto/${p.boleto}`} target="_blank" className="text-marca underline">boleto</a></>}</td>
+              <td>{situacaoParcela(p)}</td><td className="text-right">{brl(p.valor)}</td>
+            </tr>
+          ))}</tbody>
         </table>
       )}
 
@@ -223,10 +235,20 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
         </>
       )}
 
-      {completa && notas.length > 0 && (
+      {notas.length > 0 && (
         <>
           <div className={titulo}>Notas fiscais</div>
-          {notas.map((n) => <div key={n.id}>{n.modelo === "NFSE" ? "NFS-e" : n.modelo === "NFCE" ? "NFC-e" : "NF-e"} nº {n.numero} · {n.status.toLowerCase()} · {brl(n.valorTotal)}{n.emitidaEm ? ` · ${quando(n.emitidaEm)}` : ""}</div>)}
+          {notas.map((n) => {
+            const e = n.empresaId ? emissoras.get(n.empresaId) : null;
+            return (
+              <div key={n.id} className="mb-1" style={{ breakInside: "avoid" }}>
+                <b>{n.modelo === "NFSE" ? "NFS-e" : n.modelo === "NFCE" ? "NFC-e" : "NF-e"} nº {n.numero}</b>{n.modelo !== "NFSE" ? ` série ${n.serie}` : ""}
+                {completa ? ` · ${n.status.toLowerCase()}` : ""} · {brl(n.valorTotal)}{n.emitidaEm ? ` · emitida em ${quando(n.emitidaEm)}` : ""}
+                {e && <span> · {e.razaoSocial} (CNPJ {docFmt(e.cnpj)})</span>}
+                {n.chave && n.status === "AUTORIZADA" && <div className="break-all text-[10px] text-slate-600">Chave de acesso: {n.chave}</div>}
+              </div>
+            );
+          })}
         </>
       )}
 

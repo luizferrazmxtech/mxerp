@@ -96,6 +96,18 @@ describe("serviços da OS faturados por outra empresa", () => {
     });
     await naLoja(mx, async () => expect(await prisma.lancamento.count({ where: { tipo: "RECEBER" } })).toBe(2));
 
+    // impressão: as parcelas das duas empresas, com situação, e a nota autorizada com quem emitiu
+    await prisma.notaFiscal.create({ data: { empresaId: mx, modelo: "NFE", serie: 1, numero: 6906, ambiente: "HOMOLOGACAO", origemTipo: "OS", origemId: o.id, valorTotal: 190, status: "AUTORIZADA", chave: "3".repeat(44) } });
+    (globalThis as { React?: unknown }).React = await import("react"); // o vitest compila o JSX no modo clássico
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const DocumentoOs = (await import("@/components/os/DocumentoOs")).default;
+    const html = renderToStaticMarkup(await DocumentoOs({ token: o.token }));
+    expect(html).toContain("Serviços · VFX INFO SERVICE LTDA");
+    expect(html).toContain("Em aberto");
+    expect(html).toContain("NF-e nº 6906");
+    expect(html).toContain("MXTECH LTDA (CNPJ 12.965.283/0001-95)");
+    await prisma.notaFiscal.deleteMany({});
+
     // relatório de lucro: peças na MXTECH, serviços na VFX
     const p = { de: new Date("2026-11-01T00:00:00Z"), ate: new Date("2026-11-30T00:00:00Z") };
     const tipos = async (loja: string) => (await naLoja(loja, () => itensVendidos(p))).map((i) => i.tipo);
