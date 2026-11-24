@@ -12,7 +12,12 @@ export default function FormSelecao({ acao, titulo, botao, perigo, voltar, campo
 }) {
   const [estado, , pendente, formEnviar] = useFormAcao<Resultado>(acao, null);
   return (
-    <form {...formEnviar} onSubmit={(e) => { if (confirmar && !window.confirm(confirmar)) e.preventDefault(); }}>
+    // o onSubmit do useFormAcao é quem envia para a ação: aqui só pergunta antes (sobrescrever o onSubmit fazia o
+    // navegador enviar o formulário como GET para a própria lista, e nada acontecia)
+    <form ref={formEnviar.ref} onSubmit={(e) => {
+      if (confirmar && !window.confirm(confirmar)) { e.preventDefault(); return; }
+      formEnviar.onSubmit(e);
+    }}>
       <div className={`mb-2 rounded border px-3 py-2 text-[13px] ${perigo ? "border-red-200 bg-red-50 text-red-800" : "border-sky-200 bg-sky-50 text-slate-800"}`}>
         <div className="flex flex-wrap items-center gap-3">
           <b>{titulo}</b>
