@@ -408,6 +408,11 @@ export function ramoDoCnae(cnae: string) {
 
 // ---------- análise
 
+/** Forma de pagamento Pix (tPag 17 da NF-e, 20 = Pix estático, ou "pix" no nome). */
+export function ehPix(f: { tPag: string; nome: string }) {
+  return f.tPag === "17" || f.tPag === "20" || /\bpix\b/i.test(f.nome);
+}
+
 export type TransacaoAnalise = {
   id: string; data: Date; valor: number; descricao: string; documento?: string | null; conta: string; contaBancariaId: string;
   dataHora?: Date | null; contraparteDocumento?: string | null; criadaEm?: Date;
@@ -420,7 +425,20 @@ export type AbertoAnalise = {
   pessoaDocumento?: string | null;
   /** nosso número e txid dos boletos da conta */
   boletos?: string[];
+  /** quando a conta de uma venda/OS feita no sistema foi lançada (o momento da venda no balcão/PDV) */
+  lancadaEm?: Date | null;
+  /** forma de pagamento da conta: true = Pix, false = outra forma, null = sem forma */
+  formaPix?: boolean | null;
 };
+
+/** Diferença máxima entre o horário do Pix no extrato e o lançamento da venda para casar pelo horário. */
+export const MINUTOS_PIX_VENDA = 20;
+
+/** Minutos entre o Pix recebido e o lançamento da venda, quando os dois têm horário e o Pix é de entrada. */
+export function minutosDaVenda(t: TransacaoAnalise, l: AbertoAnalise): number | null {
+  if (!t.dataHora || !l.lancadaEm || t.valor <= 0 || l.tipo !== "RECEBER") return null;
+  return Math.abs(t.dataHora.getTime() - l.lancadaEm.getTime()) / 60000;
+}
 /** Ramo de atividade (CNAE) conhecido de cada favorecido, para sugerir a categoria das despesas. */
 export type RamoFavorecido = { cnae: string; documento: string | null };
 
@@ -429,7 +447,7 @@ const horaSP = (d: Date | null | undefined) => (d ? d.toLocaleTimeString("pt-BR"
 const nivelDe = (c: number): Nivel => (c >= 80 ? "alta" : c >= 60 ? "media" : "baixa");
 
 /** Pontua um par extrato × conta em aberto (0 a 99) e diz por quê. Null quando o valor não serve. */
-export function pontuar(t: TransacaoAnalise, l: AbertoAnalise, h: Historico, f: string): { confianca: number; motivos: string[]; nome: boolean } | null {
+export function pontuar(t: TransacaoAnalise, l: AbertoAnalise, h: Historico, f: string): { confianca: number; motivos: string[]; nome: boolean; horario?: boolean } | null {
   const tipo = t.valor < 0 ? "PAGAR" : "RECEBER";
   if (l.tipo !== tipo) return null;
   const v = Math.abs(t.valor);
@@ -452,6 +470,11 @@ export function pontuar(t: TransacaoAnalise, l: AbertoAnalise, h: Historico, f: 
   else if (l.pessoaId && hist?.pessoas.get(l.pessoaId)) ident = "favorecido já foi conciliado com esta pessoa";
   else if ((l.pessoaNomes ?? (l.pessoa ? [l.pessoa] : [])).some((n) => nomeConfere(t.descricao, n))) ident = "nome confere";
   else if (!l.pessoaId && palavrasEmComum(t.descricao, l.descricao) >= 2) ident = "descrição confere";
+  // venda no balcão/PDV paga no Pix: quem paga muitas vezes não é o cliente da venda (consumidor final, parente),
+  // mas o Pix do mesmo valor minutos depois da venda identifica a conta
+  const min = dif <= 0.009 && l.formaPix !== false ? minutosDaVenda(t, l) : null;
+  const horario = !ident && min !== null && min <= MINUTOS_PIX_VENDA;
+  if (horario) ident = `venda lançada às ${horaSP(l.lancadaEm)} (Pix às ${horaSP(t.dataHora)})`;
   const nome = !!ident;
   if (ident === "nosso número do boleto" || ident === "CPF/CNPJ confere") p += 45;
   else if (ident) p += 35;
@@ -465,7 +488,7 @@ export function pontuar(t: TransacaoAnalise, l: AbertoAnalise, h: Historico, f: 
 
   // sem identificar quem pagou/recebeu, a conta só aparece na lista para escolha manual, nunca como sugestão
   if (!ident) { p = Math.min(p, 30); motivos.push(tipo === "RECEBER" ? "pagador não confere com o cliente" : "favorecido não confere com o fornecedor"); }
-  return { confianca: Math.min(99, p), motivos, nome };
+  return { confianca: Math.min(99, p), motivos, nome, horario };
 }
 
 /** Cliente/fornecedor cadastrado e as categorias das contas dele no sistema (compras, vendas, despesas lançadas). */
@@ -522,11 +545,16 @@ export function analisar(
     const f = favorecido(t.descricao);
     favs.set(t.id, f);
     const lista: Candidato[] = [];
+    const peloHorario: Candidato[] = [];
     for (const l of abertos) {
       const r = pontuar(t, l, h, f);
       if (!r) continue;
-      lista.push({ lancamentoId: l.id, descricao: l.descricao, pessoa: l.pessoa, valor: l.valor, vencimento: iso(l.vencimento), confianca: r.confianca, motivos: r.motivos, centroCustoId: l.centroCustoId });
+      const c: Candidato = { lancamentoId: l.id, descricao: l.descricao, pessoa: l.pessoa, valor: l.valor, vencimento: iso(l.vencimento), confianca: r.confianca, motivos: r.motivos, centroCustoId: l.centroCustoId };
+      lista.push(c);
+      if (r.horario) peloHorario.push(c);
     }
+    // duas vendas do mesmo valor perto do mesmo Pix: não dá para saber qual foi, fica para escolha manual
+    if (peloHorario.length > 1) for (const c of peloHorario) { c.confianca = Math.min(c.confianca, 55); c.motivos.push("outra venda do mesmo valor no mesmo horário"); }
     lista.sort((a, b) => b.confianca - a.confianca || a.vencimento.localeCompare(b.vencimento));
     cands.set(t.id, lista.slice(0, 12));
     for (const c of lista) if (c.confianca >= 60) pares.push({ t: t.id, l: c.lancamentoId, c: c.confianca });
@@ -782,7 +810,7 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
   const [abertos, conciliadas, comCentro, categorias] = await (Promise.all([
     prisma.lancamento.findMany({
       where: { pagoEm: null, transferenciaId: null, vencimento: { gte: min, lte: max } },
-      include: { pessoa: { select: { nome: true, fantasia: true, documento: true } }, boletos: { select: { nossoNumero: true, txid: true } } },
+      include: { pessoa: { select: { nome: true, fantasia: true, documento: true } }, boletos: { select: { nossoNumero: true, txid: true } }, formaPagamento: { select: { tPag: true, nome: true } } },
     }),
     prisma.transacaoBancaria.findMany({
       where: { situacao: "CONCILIADA" }, orderBy: { data: "desc" }, take: 3000,
@@ -823,6 +851,9 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
       pessoa: l.pessoa ? [l.pessoa.nome, l.pessoa.fantasia].filter(Boolean).join(" / ") : null, pessoaId: l.pessoaId, categoriaId: l.categoriaId, centroCustoId: l.centroCustoId,
       pessoaNomes: l.pessoa ? [l.pessoa.nome, l.pessoa.fantasia].filter((x): x is string => !!x) : [], pessoaDocumento: l.pessoa?.documento ?? null,
       boletos: l.boletos.flatMap((b) => [b.nossoNumero, b.txid]).filter((x): x is string => !!x),
+      // só contas de venda/OS feitas no MXERP: a data de lançamento das importadas é a da importação
+      lancadaEm: !l.idLegado && (l.origemTipo === "VENDA" || l.origemTipo === "OS") ? l.createdAt : null,
+      formaPix: l.formaPagamento ? ehPix(l.formaPagamento) : null,
     })),
     h, categorias, diaSP(), ramos, pessoal, regras, [...porPessoa.values()],
   );
