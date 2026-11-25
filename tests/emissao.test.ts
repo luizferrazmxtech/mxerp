@@ -16,7 +16,7 @@ const { garantirPadroes } = await import("@/lib/financeiro/padroes");
 const { lerCertificado } = await import("@/lib/fiscal/certificado");
 const fiscal = await import("@/lib/fiscal/emissao");
 const osSvc = await import("@/lib/os/os");
-const { gzipB64 } = await import("@/lib/fiscal/nfse");
+const { gzipB64, gunzipB64 } = await import("@/lib/fiscal/nfse");
 type Transporte = import("@/lib/fiscal/sefaz").Transporte;
 
 const { pfx, senha } = pfxDeTeste();
@@ -166,6 +166,29 @@ describe("NFS-e da OS", () => {
       cert, transporte: async () => ({ status: 201, corpo: JSON.stringify({ eventoXmlGZipB64: gzipB64("<evento/>") }) }),
     });
     expect(c.status).toBe("CANCELADA");
+  });
+
+  it("emite sem inscrição municipal, e com IM cadastrada mas marcada para não enviar", async () => {
+    const cli = await prisma.pessoa.create({ data: { nome: "Condomínio", documento: "11222333000181" } });
+    const sv = await prisma.servico.create({ data: { codigo: "INST", nome: "Instalação", preco: 300, codigoTributacaoNacional: "140101" } });
+    const o = await osSvc.criarOs({ clienteId: cli.id, equipamentos: [{ equipamento: "Rack" }] });
+    await osSvc.adicionarServico(o.id, { servicoId: sv.id });
+    await osSvc.alterarSituacao(o.id, "CONCLUIDA");
+    let xml = "";
+    const transporte = async (_m: string, _u: string, corpo: string | null) => {
+      xml = gunzipB64(JSON.parse(corpo!).dpsXmlGZipB64);
+      return { status: 400, corpo: JSON.stringify({ erros: [{ Codigo: "E9999", Descricao: "teste" }] }) };
+    };
+    await prisma.empresa.updateMany({ data: { inscricaoMunicipal: null } });
+    await fiscal.emitirNfseOs(o.id, { cert, transporte });
+    expect(xml).toContain("<prest>");
+    expect(xml).not.toContain("<IM>");
+    await prisma.empresa.updateMany({ data: { inscricaoMunicipal: "12345", configNfse: { enviarIm: false } } });
+    await fiscal.emitirNfseOs(o.id, { cert, transporte });
+    expect(xml).not.toContain("<IM>");
+    await prisma.empresa.updateMany({ data: { configNfse: {} } });
+    await fiscal.emitirNfseOs(o.id, { cert, transporte });
+    expect(xml).toContain("<IM>12345</IM>");
   });
 
   it("exige código de tributação nacional no serviço", async () => {

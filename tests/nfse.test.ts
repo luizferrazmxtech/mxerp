@@ -52,6 +52,12 @@ describe("NFS-e nacional", () => {
     expect(xsd(assinarDps(xml, cert), "DPS_v1.00.xsd")).toBe("ok");
   });
 
+  it("sem inscrição municipal a DPS sai sem <IM> e valida (E0120)", () => {
+    const { xml } = montarDps({ ...dados, prestador: { ...dados.prestador, im: null } });
+    expect(xml).not.toContain("<IM>");
+    expect(xsd(assinarDps(xml, cert), "DPS_v1.00.xsd")).toBe("ok");
+  });
+
   it("natureza, apuração, imunidade e suspensão da empresa vão na DPS e validam no schema", () => {
     const sus = montarDps({
       ...dados,

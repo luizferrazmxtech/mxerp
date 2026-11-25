@@ -16,6 +16,8 @@ export type ConfigNfse = {
   /** códigos guardados como no Gestão Click (acesso à prefeitura); a DPS 1.00 não tem campo para eles */
   tipoOperacao: string | null;
   indicadorOperacao: string | null;
+  /** manda a inscrição municipal na DPS (desligar quando a Sefin recusar com E0120: município sem cadastro complementar) */
+  enviarIm: boolean;
 };
 
 export const NATUREZAS_NFSE: [number, string][] = [
@@ -51,6 +53,7 @@ export function lerConfigNfse(v: unknown): ConfigNfse {
     nProcesso: txt(o.nProcesso)?.slice(0, 30) ?? null,
     tipoOperacao: txt(o.tipoOperacao),
     indicadorOperacao: txt(o.indicadorOperacao),
+    enviarIm: o.enviarIm !== false && o.enviarIm !== "0" && o.enviarIm !== "false",
   };
 }
 

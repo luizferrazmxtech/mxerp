@@ -214,7 +214,7 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
       </Bloco>
 
       <Bloco icone="servicos" titulo={<>Configure a <b>NFS-e</b> (serviços, padrão nacional)</>}
-        subtitulo="Emitida na NFS-e Nacional (São Carlos usa o padrão nacional). Precisa da inscrição municipal e do código de tributação nacional em cada serviço.">
+        subtitulo="Emitida na NFS-e Nacional (São Carlos usa o padrão nacional). Precisa do código de tributação nacional em cada serviço.">
         <div className="grid gap-3 md:grid-cols-4">
           {ambiente("ambienteNfse", e?.ambienteNfse ?? "HOMOLOGACAO")}
           {t("serieDps", "Série da DPS (RPS)", e?.serieDps ?? 1, "", { type: "number", min: 1 })}
@@ -231,6 +231,10 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
           {sel("nfseNatureza", "Natureza de operação", NATUREZAS_NFSE, cfg.natureza)}
           {sel("nfseApuracao", "Apuração dos tributos (Simples Nacional)", APURACOES_NFSE, cfg.apuracao)}
           {sel("nfseImunidade", "Tipo imunidade (natureza Imunidade)", IMUNIDADES_NFSE, cfg.tpImunidade, true)}
+          <label className="flex items-start gap-2 text-[13px] md:col-span-3">
+            <input type="checkbox" name="nfseEnviarIm" defaultChecked={cfg.enviarIm} className="mt-1" />
+            <span>Enviar a inscrição municipal na NFS-e <span className="block text-[11px] text-slate-500">Desmarque se a NFS-e for recusada com E0120 (&quot;IM do prestador não deve ser informada&quot;): o município não tem o cadastro complementar no CNC NFS-e. A inscrição fica guardada no cadastro.</span></span>
+          </label>
         </div>
         <div className="mt-4 border-t pt-3 text-[12px] font-semibold uppercase text-slate-500">Acesso à prefeitura</div>
         <div className="mt-2 grid gap-3 md:grid-cols-3">
