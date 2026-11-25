@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import BotaoAcao from "@/components/BotaoAcao";
 import { docFmt } from "@/lib/ui/format";
 import { emitirNfse, emitirOs, emitirVenda } from "@/app/fiscal/actions";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 /** Cartão de notas fiscais de uma venda ou OS, com botões de emissão. */
 export default async function NotasDoDocumento({ origemTipo, origemId, podeEmitir, temProdutos = true, temServicos = false, empresaServicos }: {
@@ -22,7 +23,7 @@ export default async function NotasDoDocumento({ origemTipo, origemId, podeEmiti
         {notas.map((n) => (
           <li key={n.id}>
             <Link href={`/fiscal/${n.id}`} className="text-marca hover:underline">
-              {n.modelo === "NFCE" ? "NFC-e" : n.modelo === "NFE" ? "NF-e" : "NFS-e"} {n.serie}/{n.numero}
+              {n.modelo === "NFCE" ? "NFC-e" : n.modelo === "NFE" ? "NF-e" : "NFS-e"} {n.modelo === "NFSE" ? `nº ${numeroDaNota(n)}` : `${n.serie}/${n.numero}`}
             </Link>{" "}
             · {n.status.toLowerCase()}
             {n.empresaId && emissoras.get(n.empresaId) && <span className="text-slate-500"> · emitida por <b className="font-medium text-slate-700">{emissoras.get(n.empresaId)!.razaoSocial}</b> (CNPJ {docFmt(emissoras.get(n.empresaId)!.cnpj)})</span>}

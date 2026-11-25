@@ -12,6 +12,7 @@ import { estimativaDoMes, mesAnterior, mesAtual } from "@/lib/fiscal/impostos";
 import { consultarStatus } from "./actions";
 import AcoesNota from "./AcoesNota";
 import Resumo from "@/components/ui/Resumo";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Notas fiscais" };
@@ -120,7 +121,7 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
               const [rot, cor] = SITUACAO[n.status] ?? [n.status, "bg-slate-50 text-slate-600"];
               return (
                 <tr key={n.id}>
-                  <td><Link href={`/fiscal/${n.id}`} className="font-semibold text-marca hover:underline">{n.numero}</Link><span className="text-[11px] text-slate-500"> série {n.serie}</span>
+                  <td><Link href={`/fiscal/${n.id}`} className="font-semibold text-marca hover:underline">{numeroDaNota(n)}</Link><span className="text-[11px] text-slate-500">{n.modelo === "NFSE" ? ` DPS ${n.serie}/${n.numero}` : ` série ${n.serie}`}</span>
                     {n.ambiente === "HOMOLOGACAO" && <div className="text-[10px] text-amber-700">homologação</div>}</td>
                   {!modelo && <td className="text-[12px]">{MODELOS[n.modelo]?.curto ?? n.modelo}</td>}
                   <td>{o ? <Link href={o.href} className="text-marca hover:underline">{o.rotulo}</Link> : <span className="text-slate-400">—</span>}</td>

@@ -12,6 +12,7 @@ import { codigoNumerico } from "./chave";
 import { incluirInfNFeSupl, montarNfe, qrCodeNfce, type DadosNota, type Destinatario, type ItemNota, type PagamentoNota } from "./nfe";
 import { ClienteSefaz, montarProc, type Transporte } from "./sefaz";
 import { ClienteNfse, assinarDps, montarDps, type TransporteRest } from "./nfse";
+import { numeroNfseDoXml } from "./numeroNota";
 
 export class FiscalError extends Error {}
 
@@ -401,7 +402,7 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
     if (r.ok) {
       return prisma.notaFiscal.update({
         where: { id: nota.id },
-        data: { status: "AUTORIZADA", chave: r.chave, xml: r.xmlNfse ?? assinada, motivo: r.mensagem, emitidaEm: agora },
+        data: { status: "AUTORIZADA", chave: r.chave, xml: r.xmlNfse ?? assinada, numeroNfse: numeroNfseDoXml(r.xmlNfse), motivo: r.mensagem, emitidaEm: agora },
       });
     }
     return prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "REJEITADA", motivo: r.mensagem.slice(0, 1000) } });

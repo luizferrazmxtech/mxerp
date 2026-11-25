@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { disposicao, nomeBoleto } from "@/lib/documentos/nomeArquivo";
 import { ATIVOS, pdfBoleto } from "@/lib/financeiro/boletos";
 
 /** Link público do boleto (o cliente abre sem login, pelo link mandado por WhatsApp/e-mail). */
@@ -12,7 +13,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
   }
   try {
     const pdf = await pdfBoleto(b.id);
-    return new Response(new Uint8Array(pdf), { headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="boleto-${b.seuNumero}.pdf"`, "Cache-Control": "private, no-store" } });
+    return new Response(new Uint8Array(pdf), { headers: { "Content-Type": "application/pdf", "Content-Disposition": disposicao((await nomeBoleto(b.id).catch(() => null)) ?? `Boleto ${b.seuNumero}`), "Cache-Control": "private, no-store" } });
   } catch {
     return new Response("Não foi possível gerar o boleto agora. Tente de novo em alguns minutos.", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }

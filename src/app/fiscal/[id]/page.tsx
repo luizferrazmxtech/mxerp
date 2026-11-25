@@ -8,6 +8,7 @@ import BotaoAcao from "@/components/BotaoAcao";
 import { cancelar, cancelarServico, cartaCorrecaoAcao, consultarNotaAcao } from "../actions";
 import { Pagina } from "@/components/ui/Pagina";
 import Icone from "@/components/Icone";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
   const emissora = n.empresaId ? await prisma.empresa.findUnique({ where: { id: n.empresaId }, select: { razaoSocial: true, cnpj: true } }) : null;
   const curto = n.modelo === "NFE" ? "NF-e" : n.modelo === "NFCE" ? "NFC-e" : "NFS-e";
   return (
-    <Pagina voltar={`/fiscal?modelo=${n.modelo}`} titulo={`${curto} nº ${n.numero}`} icone="notas" trilha={[{ rotulo: "Fiscal", href: "/fiscal" }, { rotulo: curto, href: `/fiscal?modelo=${n.modelo}` }, { rotulo: "Visualizar" }]}>
+    <Pagina voltar={`/fiscal?modelo=${n.modelo}`} titulo={`${curto} nº ${numeroDaNota(n)}`} icone="notas" trilha={[{ rotulo: "Fiscal", href: "/fiscal" }, { rotulo: curto, href: `/fiscal?modelo=${n.modelo}` }, { rotulo: "Visualizar" }]}>
     <div className="space-y-4">
       <div className="no-print flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
@@ -56,7 +57,7 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
 
       {/* situação: a mesma informação da lista, com a última consulta na SEFAZ */}
       <div className="cartao flex flex-wrap items-center gap-x-6 gap-y-1 p-3 text-[13px]">
-        <span><span className="text-slate-500">{n.modelo === "NFE" ? "NF-e" : n.modelo === "NFCE" ? "NFC-e" : "NFS-e"} </span><b>{n.numero}</b> <span className="text-slate-500">série {n.serie}</span></span>
+        <span><span className="text-slate-500">{n.modelo === "NFE" ? "NF-e" : n.modelo === "NFCE" ? "NFC-e" : "NFS-e"} </span><b>{numeroDaNota(n)}</b> <span className="text-slate-500">{n.modelo === "NFSE" ? `DPS ${n.serie}/${n.numero}` : `série ${n.serie}`}</span></span>
         {emissora && <span>Emitida por: <b>{emissora.razaoSocial}</b> <span className="text-slate-500">(CNPJ {docFmt(emissora.cnpj)})</span></span>}
         <span>Situação: <b className={n.status === "AUTORIZADA" ? "text-emerald-700" : n.status === "CANCELADA" ? "text-slate-600" : "text-amber-700"}>{SIT[n.status] ?? n.status}</b></span>
         <span>Valor: <b>{brl(n.valorTotal)}</b></span>
@@ -72,7 +73,7 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
 
       {n.modelo === "NFSE" && (
         <div className="cartao mx-auto max-w-md space-y-1 p-4 text-sm">
-          <h1 className="font-semibold">NFS-e · DPS {n.serie}/{n.numero}</h1>
+          <h1 className="font-semibold">NFS-e{n.numeroNfse ? ` nº ${n.numeroNfse}` : ""} · DPS {n.serie}/{n.numero}</h1>
           <p>Situação: {n.status.toLowerCase()} {n.motivo && <span className="text-slate-500">({n.motivo})</span>}</p>
           <p>Valor dos serviços: {brl(n.valorTotal)}</p>
           {n.chave && <p className="break-all font-mono text-xs">Chave {n.chave}</p>}

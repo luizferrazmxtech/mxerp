@@ -1,8 +1,13 @@
 import DocumentoVenda from "@/components/vendas/DocumentoVenda";
 import BotaoImprimir from "@/components/orcamentos/BotaoImprimir";
+import { tituloVenda } from "@/lib/documentos/nomeArquivo";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Imprimir vendas" };
+/** Uma só marcada: mesmo nome da impressão individual; várias: o título de sempre. */
+export async function generateMetadata({ searchParams }: { searchParams: Promise<{ ids?: string | string[] }> }) {
+  const ids = [(await searchParams).ids ?? []].flat();
+  return ids.length === 1 ? tituloVenda({ id: ids[0] }, "Imprimir vendas") : { title: "Imprimir vendas" };
+}
 
 /** Mais ações › Imprimir: as marcadas, uma por página. */
 export default async function ImprimirVarias({ searchParams }: { searchParams: Promise<{ ids?: string | string[] }> }) {

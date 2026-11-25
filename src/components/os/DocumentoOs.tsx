@@ -6,6 +6,7 @@ import { brl, dataSP, docFmt, horaSP, qtd } from "@/lib/ui/format";
 import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
 import { fotosDoHistorico } from "@/lib/os/historicoFotos";
 import { rotuloPrioridade } from "@/lib/os/tipos";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 /**
  * simples = a OS do cliente (link de cobrança, Área do Cliente, impressão comum): dados da OS, observações,
@@ -50,7 +51,7 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
     prisma.anexo.findMany({ where: { entidade: "OS_FOTO", entidadeId: os.id, ...(completa ? {} : { tipo: { in: IMAGENS } }) }, select: { id: true, nome: true, createdAt: true, referencia: true }, orderBy: { createdAt: "asc" } }),
   ]);
   // notas da OS (a do cliente só vê as autorizadas), com a empresa que emitiu cada uma
-  const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: os.id, ...(completa ? {} : { status: "AUTORIZADA" }) }, orderBy: { createdAt: "asc" }, select: { id: true, modelo: true, serie: true, numero: true, status: true, valorTotal: true, emitidaEm: true, chave: true, empresaId: true } });
+  const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: os.id, ...(completa ? {} : { status: "AUTORIZADA" }) }, orderBy: { createdAt: "asc" }, select: { id: true, modelo: true, serie: true, numero: true, numeroNfse: true, status: true, valorTotal: true, emitidaEm: true, chave: true, empresaId: true } });
   const emissoras = new Map((await prisma.empresa.findMany({ where: { id: { in: [...new Set(notas.map((n) => n.empresaId).filter((x): x is string => !!x))] } }, select: { id: true, razaoSocial: true, cnpj: true } })).map((e) => [e.id, e]));
   const [anotacoes, campos, instaladores] = completa ? await Promise.all([
     prisma.anotacao.findMany({ where: { entidade: "OS", entidadeId: os.id }, orderBy: { createdAt: "asc" } }),
@@ -251,7 +252,7 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
             const e = n.empresaId ? emissoras.get(n.empresaId) : null;
             return (
               <div key={n.id} className="mb-1" style={{ breakInside: "avoid" }}>
-                <b>{n.modelo === "NFSE" ? "NFS-e" : n.modelo === "NFCE" ? "NFC-e" : "NF-e"} nº {n.numero}</b>{n.modelo !== "NFSE" ? ` série ${n.serie}` : ""}
+                <b>{n.modelo === "NFSE" ? "NFS-e" : n.modelo === "NFCE" ? "NFC-e" : "NF-e"} nº {numeroDaNota(n)}</b>{n.modelo !== "NFSE" ? ` série ${n.serie}` : ""}
                 {completa ? ` · ${n.status.toLowerCase()}` : ""} · {brl(n.valorTotal)}{n.emitidaEm ? ` · emitida em ${quando(n.emitidaEm)}` : ""}
                 {e && <span> · {e.razaoSocial} (CNPJ {docFmt(e.cnpj)})</span>}
                 {n.chave && n.status === "AUTORIZADA" && <div className="break-all text-[10px] text-slate-600">Chave de acesso: {n.chave}</div>}
