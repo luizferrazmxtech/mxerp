@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { baixarLancamento, criarLancamentos } from "./lancamentos";
 import { contaDoInter } from "./boletos";
 import { lerConfigInter } from "./inter";
+import { ordenarCandidatas, resolverAvisosJaLancados } from "./avisoJaLancado";
 
 /**
  * Avisos de boleto pago no Inter sem conta no sistema (ver registrarAviso em boletos.ts). Cada aviso é resolvido
@@ -11,7 +12,11 @@ import { lerConfigInter } from "./inter";
 
 const D = (v: number) => new Prisma.Decimal(v.toFixed(2));
 
-export const avisosPendentes = () => prisma.avisoBoleto.count({ where: { resolvidoEm: null } });
+/** Quantos avisos faltam resolver (antes, encerra os que já têm o recebimento lançado). */
+export async function avisosPendentes() {
+  await resolverAvisosJaLancados().catch(() => 0);
+  return prisma.avisoBoleto.count({ where: { resolvidoEm: null } });
+}
 
 async function pendente(id: string) {
   const a = await prisma.avisoBoleto.findUniqueOrThrow({ where: { id } });
@@ -63,10 +68,10 @@ export async function encerrarAviso(id: string, explicacao: string, usuario: str
   return prisma.avisoBoleto.update({ where: { id }, data: { resolvidoEm: new Date(), resolvidoPor: usuario, resolucao: explicacao.trim().slice(0, 500) } });
 }
 
-/** Contas a receber em aberto que podem ser deste pagamento: mesmo pagador (CPF/CNPJ) ou valor parecido. */
-export async function candidatasDoAviso(a: { pagadorDocumento: string | null; valor: Prisma.Decimal | null; valorRecebido: Prisma.Decimal | null }) {
+/** Contas a receber em aberto que podem ser deste pagamento: mesmo pagador (CPF/CNPJ) ou valor parecido, a mais provável primeiro. */
+export async function candidatasDoAviso(a: { pagadorDocumento: string | null; valor: Prisma.Decimal | null; valorRecebido: Prisma.Decimal | null; pagoEm: Date | null }) {
   const v = recebido(a);
-  return prisma.lancamento.findMany({
+  const ls = await prisma.lancamento.findMany({
     where: {
       tipo: "RECEBER", pagoEm: null,
       OR: [
@@ -74,6 +79,8 @@ export async function candidatasDoAviso(a: { pagadorDocumento: string | null; va
         { valor: { gte: D(v * 0.9), lte: D(v * 1.1) } },
       ],
     },
-    include: { pessoa: { select: { nome: true } } }, orderBy: { vencimento: "asc" }, take: 30,
+    include: { pessoa: { select: { nome: true, documento: true } } }, orderBy: { vencimento: "asc" }, take: 30,
   });
+  // a mais provável (mesmo pagador, mesmo valor, vencimento perto do pagamento) primeiro
+  return ordenarCandidatas(a, ls);
 }

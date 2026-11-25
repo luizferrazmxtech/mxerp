@@ -177,4 +177,37 @@ describe("estoque do carro da equipe", () => {
     await expect(doc.criarTransferencia({ origemDepositoId: loja, destinoDepositoId: loja, observacoes: "", itens: [{ produtoId: prod, quantidade: "1" }] }, escritorio)).rejects.toThrow(/diferentes/);
     await expect(doc.criarTransferencia({ origemDepositoId: loja, origemLocalId: carroAna.localId, destinoDepositoId: carroAna.depositoId, observacoes: "", itens: [{ produtoId: prod, quantidade: "1" }] }, escritorio)).rejects.toThrow(/não é deste estoque/);
   });
+
+  it("o carro mostra de onde veio o saldo, com o documento de cada movimento, e a transferência sai no relatório", async () => {
+    const hist = await import("@/lib/estoque/historicoCarro");
+    const rel = await import("@/lib/estoque/relatorioTransferencias");
+    const t = await abastecer(4);
+    // compra que caiu direto no carro (o bug de antes do PR #83)
+    await prisma.$transaction((tx) => est.entrada(tx, { produtoId: prod, localId: carroAna.localId, quantidade: 2, origemTipo: "COMPRA" }));
+    const movs = await hist.movimentosDoCarro(carroAna.depositoId, { produtoId: prod });
+    const daTransf = movs.linhas.find((m) => m.origemTipo === "TRANSFERENCIA")!;
+    expect(daTransf.doc).toMatchObject({ rotulo: `Transferência #${t.numero}`, href: `/estoque/transferencias/${t.id}` });
+    expect(movs.linhas.map((m) => m.saldoDepois)).toEqual([6, 4]);
+    const origem = (await hist.origemDoSaldo(carroAna.depositoId)).get(prod)!;
+    expect(origem.grupos).toMatchObject({ TRANSFERENCIA: 4, COMPRA: 2 });
+    // relatório: filtrado pelo carro e pelo produto
+    const hoje = new Date(); const dia = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), hoje.getUTCDate()));
+    const r = await rel.relatorioTransferencias({ de: new Date(dia.getTime() - 86400e3), ate: new Date(dia.getTime() + 86400e3), carro: carroAna.depositoId, produto: "rj45" });
+    expect(r.resumo).toMatchObject({ transferencias: 1, quantidade: 4, total: 2, paraCarros: 1 });
+    expect(r.linhas[0]).toMatchObject({ numero: t.numero, destinoCarro: true, origem: "Loja" });
+    const nada = await rel.relatorioTransferencias({ de: new Date(dia.getTime() - 86400e3), ate: new Date(dia.getTime() + 86400e3), produto: "não existe" });
+    expect(nada.linhas).toHaveLength(0);
+  });
+
+  it("movimento antigo de transferência sem o documento é ligado pela hora e pelo produto", async () => {
+    const t = await abastecer(1);
+    // como era antes: movimentos sem o documento, e o documento gravado no fim (depois dos movimentos)
+    await prisma.movimentoEstoque.updateMany({ where: { origemTipo: "TRANSFERENCIA" }, data: { origemId: null } });
+    const ultimo = await prisma.movimentoEstoque.findFirst({ where: { origemTipo: "TRANSFERENCIA" }, orderBy: { createdAt: "desc" } });
+    await prisma.transferenciaEstoque.update({ where: { id: t.id }, data: { createdAt: new Date(ultimo!.createdAt.getTime() + 800) } });
+    const { documentosDosMovimentos, documentoDe } = await import("@/lib/estoque/origens");
+    const movs = await prisma.movimentoEstoque.findMany({ where: { origemTipo: "TRANSFERENCIA" } });
+    const docs = await documentosDosMovimentos(movs);
+    expect(movs.map((m) => documentoDe(docs, m)?.rotulo)).toEqual([`Transferência #${t.numero}`, `Transferência #${t.numero}`]);
+  });
 });

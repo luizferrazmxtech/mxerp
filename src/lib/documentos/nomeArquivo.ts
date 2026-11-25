@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 /**
  * Nome dos documentos ao imprimir/salvar em PDF (o navegador sugere o <title> da página e,
@@ -57,12 +58,12 @@ export async function nomeBoleto(boletoId: string) {
   if (l?.origemTipo && l.origemId) {
     const notas = await prisma.notaFiscal.findMany({
       where: { origemTipo: l.origemTipo, origemId: l.origemId, status: { in: ["AUTORIZADA", "ENVIADA"] }, ambiente: "PRODUCAO" },
-      select: { numero: true, empresaId: true }, orderBy: { numero: "asc" },
+      select: { numero: true, numeroNfse: true, modelo: true, empresaId: true }, orderBy: { numero: "asc" },
     });
     // OS com serviços faturados por outra empresa: a conta de cada empresa cita a nota dela
     const daEmpresa = notas.filter((n) => n.empresaId === l.empresaId);
     const usar = daEmpresa.length ? daEmpresa : notas;
-    if (usar.length) partes.push(`NOTA FISCAL ${[...new Set(usar.map((n) => n.numero))].join(", ")}`);
+    if (usar.length) partes.push(`NOTA FISCAL ${[...new Set(usar.map(numeroDaNota))].join(", ")}`);
   }
   if (l && l.totalParcelas > 1) partes.push(`Parcela ${l.parcela}/${l.totalParcelas}`);
   return limparNome(partes.join(" - "));

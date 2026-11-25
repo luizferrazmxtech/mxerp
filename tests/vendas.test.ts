@@ -85,6 +85,12 @@ describe("vendas", () => {
     expect(depois.situacao).toBe("CANCELADA");
     expect(depois.historico[0].descricao).toMatch(/estornado.*Motivo: cliente desistiu/);
     await expect(ped.cancelarVendaBalcao(v.id, u)).rejects.toThrow(/já está cancelada/);
+    // a situação "Cancelada" vem marcada para não aparecer na lista, mas no balcão a venda cancelada aparece
+    expect(depois.situacaoId).not.toBeNull();
+    await prisma.situacaoVendaConfig.update({ where: { id: depois.situacaoId! }, data: { exibir: false } });
+    const sp = { periodo: "todos" };
+    expect((await prisma.venda.findMany({ where: await ped.whereVendas("BALCAO", sp) })).map((x) => x.id)).toContain(v.id);
+    expect((await prisma.venda.findMany({ where: await ped.whereVendas("PEDIDO", { periodo: "todos" }, { todasSituacoes: true }) })).map((x) => x.id)).not.toContain(v.id);
   });
 
   it("não cancela venda do PDV com recebimento já conciliado", async () => {

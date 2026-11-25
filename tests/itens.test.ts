@@ -125,6 +125,16 @@ describe("produtos", () => {
     await prisma.$transaction((tx) => entrada(tx, { produtoId: sem.id, localId, quantidade: 5, custoUnit: 2, origemTipo: "AJUSTE" }));
     expect(await ids({ sit: "minimo" })).toEqual([sem.id]);
   });
+
+  it("lista só produtos ativos por padrão; inativos só quando escolhidos", async () => {
+    const ativo = await prod.salvarProduto(dados({ codigo: "60" }), null);
+    const inativo = await prod.salvarProduto(dados({ codigo: "61", ativo: false }), null);
+    const ids = async (sp: Record<string, string>) => (await prisma.produto.findMany({ where: await filtros.whereProdutos(sp), select: { id: true } })).map((x) => x.id).sort();
+    expect(await ids({})).toEqual([ativo.id]);
+    expect(await ids({ ativo: "" })).toEqual([ativo.id]);
+    expect(await ids({ ativo: "nao" })).toEqual([inativo.id]);
+    expect(await ids({ ativo: "todos" })).toEqual([ativo.id, inativo.id].sort());
+  });
 });
 
 describe("importação de itens", () => {

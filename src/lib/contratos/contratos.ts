@@ -14,6 +14,7 @@ import { enviarEmail, preencher, type Transporte } from "@/lib/email/email";
 import { enviarWhatsapp, numeroDaPessoa, numeroWhatsapp, type TransporteWhatsapp } from "@/lib/whatsapp/mxchat";
 import { configContratos, situacaoVendaContrato } from "./config";
 import { n, primeiroVencimento, referencia, totaisContrato, vencimentoSeguinte, type DadosContrato, type PeriodicidadeContrato } from "./tipos";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 /**
  * Contratos (serviços recorrentes): a cada vencimento, N dias antes, gera uma venda de serviços com o
@@ -206,7 +207,7 @@ async function notaDaCobranca(cobrancaId: string, deps: Deps) {
   await prisma.contratoCobranca.update({ where: { id: cob.id }, data: { notaTentadaEm: new Date() } });
   try {
     const nota = await emitirNfseVenda(cob.vendaId, deps.nfse);
-    const m = nota.status === "AUTORIZADA" ? `NFS-e nº ${nota.numero} autorizada` : `NFS-e nº ${nota.numero}: ${nota.motivo ?? nota.status}`;
+    const m = nota.status === "AUTORIZADA" ? `NFS-e nº ${numeroDaNota(nota)} autorizada` : `NFS-e (DPS ${nota.numero}): ${nota.motivo ?? nota.status}`;
     await prisma.contratoCobranca.update({ where: { id: cob.id }, data: { notaMsg: m.slice(0, 500) } });
     await prisma.vendaHistorico.create({ data: { vendaId: cob.vendaId, descricao: m.slice(0, 500) } });
   } catch (e) {

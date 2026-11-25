@@ -2,6 +2,7 @@ import { Prisma, OrigemDocumento } from "@prisma/client";
 import type { Tx } from "@/lib/db";
 import { alocar, arred, type Alocacao } from "./alocacao";
 import { lojaAtualId, sqlDaLoja } from "@/lib/empresa/loja";
+import { localDaLoja } from "./entrada";
 
 /**
  * Regras de estoque do MXERP.
@@ -236,9 +237,9 @@ export async function saida(
 /** Move mercadoria entre prateleiras, levando junto as reservas se necessário. */
 export async function transferir(
   tx: Tx,
-  args: { produtoId: string; deLocalId: string; paraLocalId: string; quantidade: number; usuarioId?: string },
+  args: { produtoId: string; deLocalId: string; paraLocalId: string; quantidade: number; usuarioId?: string; /** id da TransferenciaEstoque, para o kardex abrir o documento */ origemId?: string },
 ) {
-  const base = { produtoId: args.produtoId, quantidade: args.quantidade, origemTipo: "TRANSFERENCIA" as const, usuarioId: args.usuarioId };
+  const base = { produtoId: args.produtoId, quantidade: args.quantidade, origemTipo: "TRANSFERENCIA" as const, origemId: args.origemId, usuarioId: args.usuarioId };
   const cods = new Map((await tx.local.findMany({ where: { id: { in: [args.deLocalId, args.paraLocalId] } }, select: { id: true, codigo: true } })).map((l) => [l.id, l.codigo]));
   await saida(tx, { ...base, localId: args.deLocalId, observacao: `para ${cods.get(args.paraLocalId) ?? args.paraLocalId}` });
   await entrada(tx, { ...base, localId: args.paraLocalId, observacao: `de ${cods.get(args.deLocalId) ?? args.deLocalId}` });
@@ -274,7 +275,7 @@ export async function transferir(
 /**
  * Baixa o estoque de um documento: cada reserva ativa vira uma saída do
  * local onde estava reservada. Se houver falta, recusa — a não ser que
- * `permitirNegativo` seja true, caso em que a falta sai do local padrão.
+ * `permitirNegativo` seja true, caso em que a falta sai do local padrão da loja (localDaLoja).
  */
 export async function baixarDocumento(
   tx: Tx,
@@ -295,7 +296,8 @@ export async function baixarDocumento(
   }
 
   for (const r of reservas) {
-    const localId = r.localId ?? r.produto.localPadraoId ?? (await localQualquer(tx));
+    // falta baixada no negativo: sai da loja (nunca do carro)
+    const localId = r.localId ?? (await localDaLoja(tx, r.produto.localPadraoId));
     await somarSaldo(tx, r.produtoId, localId, -n(r.quantidade));
     await tx.movimentoEstoque.create({
       data: {
@@ -352,8 +354,3 @@ export async function estornarBaixa(
   return [...afetados];
 }
 
-async function localQualquer(tx: Tx) {
-  const l = await tx.local.findFirst({ where: { ativo: true }, orderBy: { codigo: "asc" } });
-  if (!l) throw new EstoqueError("Cadastre ao menos um local de estoque");
-  return l.id;
-}

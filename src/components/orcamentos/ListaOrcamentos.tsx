@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { usuarioAtual } from "@/lib/auth/atual";
 import { cor, ordemOrcamentos, whereOrcamentos, type ParamsOrcamentos } from "@/lib/orcamentos/orcamentos";
-import { clonarOrcamentoAcao, excluirOrcamentoAcao, excluirOrcamentosAcao, situacaoEmMassaAcao } from "@/lib/orcamentos/acoes";
+import { clonarOrcamentoAcao, excluirOrcamentoAcao, excluirOrcamentosAcao, gerarOsAcao, gerarVendaAcao, situacaoEmMassaAcao } from "@/lib/orcamentos/acoes";
 import { colunasVisiveis } from "@/lib/ui/colunas";
 import { brl, num2 } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
@@ -44,6 +44,13 @@ export default async function ListaOrcamentos({ sp }: { sp: ParamsOrcamentos }) 
     sp.prod ? prisma.produto.findUnique({ where: { id: sp.prod }, select: { id: true, nome: true } }) : null,
     sp.serv ? prisma.servico.findUnique({ where: { id: sp.serv }, select: { id: true, nome: true } }) : null,
   ]);
+  // venda/OS já geradas pelos orçamentos da página (o ⋮ mostra "Ver venda"/"Ver OS" no lugar de gerar de novo)
+  const [vendasGer, osGer] = await Promise.all([
+    prisma.venda.findMany({ where: { id: { in: lista.flatMap((o) => (o.vendaId ? [o.vendaId] : [])) } }, select: { id: true, numero: true } }),
+    prisma.ordemServico.findMany({ where: { id: { in: lista.flatMap((o) => (o.osId ? [o.osId] : [])) } }, select: { id: true, numero: true } }),
+  ]);
+  const vendaDe = (o: { vendaId: string | null }) => vendasGer.find((v) => v.id === o.vendaId);
+  const osDe = (o: { osId: string | null }) => osGer.find((v) => v.id === o.osId);
   const centros = (await prisma.orcamento.findMany({ where: { centroCusto: { not: null } }, distinct: ["centroCusto"], select: { centroCusto: true } })).map((x) => x.centroCusto!);
   const vis = colunasVisiveis(u?.preferencias, base, COLUNAS, ["numero", "cliente", "data", "situacao", "conteudo", "valor"]);
   const tem = (c: string) => vis.includes(c);
@@ -52,7 +59,7 @@ export default async function ListaOrcamentos({ sp }: { sp: ParamsOrcamentos }) 
   const selecao = modo === "situacoes" || modo === "excluir" || modo === "imprimir";
   const filtros = Object.fromEntries(Object.entries(sp).filter(([k, v]) => v && !["p", "pp", "acao", "busca", "o", "situacao"].includes(k)));
   const sem = urlCom(base, sp, { acao: undefined, situacao: undefined });
-  const emSituacao = sp.situacao ? await prisma.orcamento.findUnique({ where: { id: sp.situacao }, select: { id: true, numero: true, situacaoId: true } }) : null;
+  const emSituacao = sp.situacao ? await prisma.orcamento.findUnique({ where: { id: sp.situacao }, select: { id: true, numero: true, situacaoId: true, vendaId: true, osId: true } }) : null;
 
   // cartões de resumo do período, por grupo de situação (sem o filtro de situação), como nas vendas
   const porSit = await prisma.orcamento.groupBy({ by: ["situacaoId"], where: await whereOrcamentos({ ...sp, s: undefined }), _sum: { total: true }, _count: true });
@@ -82,6 +89,7 @@ export default async function ListaOrcamentos({ sp }: { sp: ParamsOrcamentos }) 
         <tbody>
           {lista.map((o) => {
             const c = cor(o.situacao.cor);
+            const venda = vendaDe(o), os = osDe(o);
             return (
               <tr key={o.id}>
                 {selecao && <td><input type="checkbox" name="ids" value={o.id} /></td>}
@@ -100,6 +108,10 @@ export default async function ListaOrcamentos({ sp }: { sp: ParamsOrcamentos }) 
                     <Suspenso direita classe="btn-icone" botao={<Icone nome="opcoes" size={13} />}>
                       <a href={`/proposta/${o.token}`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="olho" size={15} /> Ver proposta</a>
                       <LinkSuspenso href={urlCom(base, sp, { situacao: o.id })} icone="atualizar">Alterar situação</LinkSuspenso>
+                      {venda ? <LinkSuspenso href={`/vendas/${venda.id}`} icone="carrinho">Ver venda nº {venda.numero}</LinkSuspenso>
+                        : <BotaoAcao acao={gerarVendaAcao.bind(null, o.id)} icone="carrinho" confirmar={`Gerar a venda do orçamento nº ${o.numero}? O orçamento passa para concretizado e os produtos ficam reservados no estoque.`}>Gerar venda</BotaoAcao>}
+                      {os ? <LinkSuspenso href={`/os/${os.id}`} icone="os">Ver OS nº {os.numero}</LinkSuspenso>
+                        : <BotaoAcao acao={gerarOsAcao.bind(null, o.id)} icone="os" confirmar={`Gerar uma OS do orçamento nº ${o.numero}? O orçamento passa para concretizado e a OS leva o cliente, os itens e os valores.`}>Gerar OS</BotaoAcao>}
                       <a href={`/orcamentos/${o.id}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> Imprimir</a>
                       <LinkSuspenso href={`/orcamentos/${o.id}?compartilhar=1`} icone="compartilhar">Compartilhar</LinkSuspenso>
                       <BotaoAcao acao={clonarOrcamentoAcao.bind(null, o.id)} icone="copiar">Gerar cópia</BotaoAcao>
@@ -166,7 +178,7 @@ export default async function ListaOrcamentos({ sp }: { sp: ParamsOrcamentos }) 
         { rotulo: "Taxa de aprovação", valor: `${tudo.n ? Math.round((aprovados.n / tudo.n) * 100) : 0}%`, legenda: "dos orçamentos do período", icone: "percentual", cor: "cinza", pct: tudo.n ? (aprovados.n / tudo.n) * 100 : 0 },
       ]} />
 
-      {emSituacao && <FormSituacao id={emSituacao.id} numero={emSituacao.numero} atual={emSituacao.situacaoId} situacoes={situacoes} voltar={sem} />}
+      {emSituacao && <FormSituacao id={emSituacao.id} numero={emSituacao.numero} atual={emSituacao.situacaoId} situacoes={situacoes} voltar={sem} gerados={{ venda: !!emSituacao.vendaId, os: !!emSituacao.osId }} />}
 
       {modo === "situacoes" ? (
         <FormSelecao acao={situacaoEmMassaAcao} titulo="Alterar situação" botao="Aplicar nos marcados" voltar={sem}

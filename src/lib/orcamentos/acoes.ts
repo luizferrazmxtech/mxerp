@@ -32,11 +32,31 @@ export async function salvarOrcamentoForm(_: Resultado, form: FormData): Promise
   redirect(destino);
 }
 
+const VENDE: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"];
+
+/**
+ * Alterar situação. Na situação de concretizado o valor vem como "id|venda" ou "id|os":
+ * troca a situação e já gera a venda/OS com o conteúdo do orçamento (abre a venda/OS gerada).
+ */
 export async function alterarSituacaoAcao(_: Resultado, form: FormData): Promise<Resultado> {
   const u = await exigirUsuario(EDITA);
+  const [situacaoId, gerar] = String(form.get("situacaoId") ?? "").split("|");
+  const id = String(form.get("id"));
+  const observacao = String(form.get("observacao") ?? "").trim();
+  if (gerar === "venda" || gerar === "os") {
+    let destino: string;
+    try {
+      if (gerar === "venda" && u.papel && !VENDE.includes(u.papel)) throw new Error("Seu grupo não pode gerar venda");
+      const atual = await prisma.orcamento.findUniqueOrThrow({ where: { id }, include: { situacao: true } });
+      if (u.papel && atual.situacao.bloqueados.includes(u.papel)) throw new Error(`Seu grupo não pode trocar a situação "${atual.situacao.nome}"`);
+      destino = gerar === "venda" ? `/vendas/${(await gerarVendaDoOrcamento(id, u, situacaoId)).vendaId}` : `/os/${(await gerarOsDoOrcamento(id, u, situacaoId)).osId}`;
+      if (observacao) await prisma.orcamentoHistorico.create({ data: { orcamentoId: id, descricao: observacao, usuarioNome: u.nome } });
+    } catch (e) { return erro(e); }
+    revalidatePath("/orcamentos", "layout");
+    redirect(destino);
+  }
   try {
-    const id = String(form.get("id"));
-    const r = await alterarSituacaoOrcamento(id, String(form.get("situacaoId")), u, String(form.get("observacao") ?? ""));
+    const r = await alterarSituacaoOrcamento(id, situacaoId, u, observacao);
     revalidatePath("/orcamentos", "layout");
     return { ok: true, mensagem: `Situação alterada para ${r.situacao.nome}.`, sugerirVenda: r.sugerirVenda };
   } catch (e) { return erro(e); }
@@ -76,7 +96,7 @@ export async function excluirOrcamentosAcao(_: Resultado, form: FormData): Promi
 }
 
 export async function gerarVendaAcao(id: string) {
-  const u = await exigirUsuario(["ADMIN", "GERENTE", "OPERADOR", "CAIXA"]);
+  const u = await exigirUsuario(VENDE);
   let destino: string;
   try { const r = await gerarVendaDoOrcamento(id, u); destino = `/vendas/${r.vendaId}`; } catch (e) { return erro(e); }
   revalidatePath("/orcamentos", "layout");

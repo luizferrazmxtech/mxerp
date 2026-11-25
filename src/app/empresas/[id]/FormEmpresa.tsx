@@ -8,6 +8,7 @@ import { buscarCep } from "@/components/cadastros/Endereco";
 import { Bloco, Campo } from "@/components/ui/Pagina";
 import { cnpjValido } from "@/lib/cadastros/documentos";
 import type { DadosCnpj } from "@/lib/cadastros/tipos";
+import { APURACOES_NFSE, IMUNIDADES_NFSE, NATUREZAS_NFSE, SUSPENSOES_NFSE, lerConfigNfse, type ConfigNfse } from "@/lib/fiscal/configNfse";
 import { consultarCnpjEmpresa, salvarEmpresa, testarSefaz, type Res } from "../actions";
 
 type Dados = {
@@ -16,6 +17,7 @@ type Dados = {
   uf: string | null; cep: string | null; telefone: string | null; email: string | null; ativa: boolean;
   ambiente: string; ambienteNfse: string; serieNfe: number; serieNfce: number; serieDps: number; regimeEspecialNfse: number;
   cscId: string | null; temCsc: boolean; infCplNfe: string | null; infCplNfse: string | null;
+  configNfse: ConfigNfse;
   certificado: { titular: string | null; validade: string } | null;
   temLogo: boolean;
 };
@@ -43,6 +45,15 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
       <select name={name} defaultValue={v} className="campo">
         <option value="HOMOLOGACAO">Homologação (testes, sem valor fiscal)</option>
         <option value="PRODUCAO">Produção (valor fiscal)</option>
+      </select>
+    </Campo>
+  );
+  const cfg = e?.configNfse ?? lerConfigNfse({});
+  const sel = (name: string, rotulo: string, ops: [number, string][], v: number | null, vazio = false) => (
+    <Campo rotulo={rotulo}>
+      <select name={name} defaultValue={v ?? ""} className="campo">
+        {vazio && <option value="">Nenhum</option>}
+        {ops.map(([k, r]) => <option key={k} value={k}>{r}</option>)}
       </select>
     </Campo>
   );
@@ -203,7 +214,7 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
       </Bloco>
 
       <Bloco icone="servicos" titulo={<>Configure a <b>NFS-e</b> (serviços, padrão nacional)</>}
-        subtitulo="Emitida na NFS-e Nacional (São Carlos usa o padrão nacional). Precisa da inscrição municipal e do código de tributação nacional em cada serviço.">
+        subtitulo="Emitida na NFS-e Nacional (São Carlos usa o padrão nacional). Precisa do código de tributação nacional em cada serviço.">
         <div className="grid gap-3 md:grid-cols-4">
           {ambiente("ambienteNfse", e?.ambienteNfse ?? "HOMOLOGACAO")}
           {t("serieDps", "Série da DPS (RPS)", e?.serieDps ?? 1, "", { type: "number", min: 1 })}
@@ -214,6 +225,26 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
             </select>
           </Campo>
           {t("infCplNfse", "Texto acrescentado na descrição de toda NFS-e", e?.infCplNfse, "md:col-span-4")}
+        </div>
+        <div className="mt-4 border-t pt-3 text-[12px] font-semibold uppercase text-slate-500">Tributação</div>
+        <div className="mt-2 grid gap-3 md:grid-cols-3">
+          {sel("nfseNatureza", "Natureza de operação", NATUREZAS_NFSE, cfg.natureza)}
+          {sel("nfseApuracao", "Apuração dos tributos (Simples Nacional)", APURACOES_NFSE, cfg.apuracao)}
+          {sel("nfseImunidade", "Tipo imunidade (natureza Imunidade)", IMUNIDADES_NFSE, cfg.tpImunidade, true)}
+          {t("nfsePTotTribSN", "% aproximado dos tributos do Simples", cfg.pTotTribSN == null ? "" : String(cfg.pTotTribSN).replace(".", ","), "", { inputMode: "decimal", placeholder: "6,00" })}
+          <p className="self-end text-[11px] text-slate-500 md:col-span-2">Vai na NFS-e de ME/EPP do Simples (a alíquota efetiva do DAS). Em branco, sai 6,00%.</p>
+          <label className="flex items-start gap-2 text-[13px] md:col-span-3">
+            <input type="checkbox" name="nfseEnviarIm" defaultChecked={cfg.enviarIm} className="mt-1" />
+            <span>Enviar a inscrição municipal na NFS-e <span className="block text-[11px] text-slate-500">Desmarque se a NFS-e for recusada com E0120 (&quot;IM do prestador não deve ser informada&quot;): o município não tem o cadastro complementar no CNC NFS-e. A inscrição fica guardada no cadastro.</span></span>
+          </label>
+        </div>
+        <div className="mt-4 border-t pt-3 text-[12px] font-semibold uppercase text-slate-500">Acesso à prefeitura</div>
+        <div className="mt-2 grid gap-3 md:grid-cols-3">
+          {t("nfseTipoOperacao", "Tipo operação", cfg.tipoOperacao)}
+          {sel("nfseSuspensao", "Tipo suspensão", SUSPENSOES_NFSE, cfg.tpSusp, true)}
+          {t("nfseProcesso", "Número processo (suspensão)", cfg.nProcesso)}
+          {t("nfseIndicador", "Código indicador da operação", cfg.indicadorOperacao)}
+          <p className="self-end text-[11px] text-slate-500 md:col-span-2">Natureza, apuração, imunidade e suspensão vão na DPS. Tipo operação e código indicador ficam guardados como no Gestão Click: a DPS do padrão nacional (versão 1.00) não tem campo para eles.</p>
         </div>
       </Bloco>
 

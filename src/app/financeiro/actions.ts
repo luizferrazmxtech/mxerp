@@ -2,6 +2,8 @@
 
 import { exigirAcao } from "@/lib/auth/atual";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { agruparContas, desagruparConta } from "@/lib/financeiro/agrupar";
 import { prisma } from "@/lib/db";
 import { baixarLancamento, criarLancamentos, estornarLancamento } from "@/lib/financeiro/lancamentos";
 import { parseDia } from "@/lib/datas";
@@ -159,4 +161,30 @@ export async function excluirVariasAcao(_: Resultado | null, form: FormData): Pr
   }, "");
   if (r?.ok) r.mensagem = n === ids.length ? `${n} conta(s) excluída(s)` : `${n} de ${ids.length} excluída(s). As baixadas ou de venda/OS/compra ficaram.`;
   return r;
+}
+
+/** Mais ações › Agrupar contas: as contas a receber marcadas (mesmo cliente) viram um título só; abre o título. */
+export async function agruparContasAcao(_: Resultado | null, form: FormData): Promise<Resultado> {
+  const ids = form.getAll("ids").map(String);
+  if (ids.length < 2) return { ok: false, mensagem: "Marque ao menos duas contas a receber do mesmo cliente" };
+  let destino: string;
+  try {
+    const u = await exigirAcao("financeiro.agrupar");
+    const venc = str(form.get("vencimento"));
+    const r = await agruparContas(ids, u, { vencimento: venc ? parseDia(venc) : null, formaPagamentoId: str(form.get("formaPagamentoId")) || null });
+    await boletosDoDocumento({ lancamentoIds: [r.titulo.id] }); // forma boleto: registra o boleto do título no Inter
+    atualizar();
+    destino = `/financeiro/lancamentos/${r.titulo.id}`;
+  } catch (e) { return { ok: false, mensagem: msg(e) }; }
+  redirect(destino);
+}
+
+/** Tela do título agrupado › Desagrupar: as contas voltam como eram, cada uma ligada à sua venda/OS. */
+export async function desagruparContaAcao(id: string): Promise<{ ok: boolean; mensagem: string }> {
+  try {
+    await exigirAcao("financeiro.agrupar");
+    await desagruparConta(id);
+  } catch (e) { return { ok: false, mensagem: msg(e) }; }
+  atualizar();
+  redirect("/financeiro?tipo=RECEBER");
 }

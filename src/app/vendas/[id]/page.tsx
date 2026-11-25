@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AvisoJuncao from "@/components/documentos/AvisoJuncao";
 import DicaSaldo from "@/components/estoque/DicaSaldo";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -20,7 +21,8 @@ import VoltarConta from "@/components/financeiro/VoltarConta";
 import NotasDoDocumento from "@/components/NotasDoDocumento";
 import { FormAnexo } from "@/components/cadastros/FormsVer";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
-import CancelarBalcao from "@/components/vendas/CancelarBalcao";
+import CancelarVenda from "@/components/vendas/CancelarVenda";
+import { previaCancelamento } from "@/lib/vendas/pedidos";
 import { usuarioAtual } from "@/lib/auth/atual";
 import { podeAcessar } from "@/lib/auth/permissoes";
 import { pode } from "@/lib/auth/permissoesAcao";
@@ -105,12 +107,12 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
   const podeEditar = !balcao && (v.situacaoCfg?.permiteEdicao ?? true);
   const eu = await usuarioAtual();
   const verFinanceiro = !!eu && podeAcessar(eu.papel, "/financeiro");
-  const podeCancelar = balcao && concluida && !!eu && (await pode(eu.papel, "pdv.cancelar"));
-  const recebido = lancamentos.filter((l) => l.pagoEm).reduce((s, l) => s + Number(l.valor), 0);
+  const podeCancelar = v.situacao !== "CANCELADA" && !!eu && (await pode(eu.papel, balcao && concluida ? "pdv.cancelar" : "venda.situacao"));
 
   return (
     <Pagina voltar={baseVendas(tl)} titulo="Visualizar venda" trilha={[{ rotulo: tituloVendas(tl), href: baseVendas(tl) }, { rotulo: "Visualizar" }]}>
       <VoltarConta contaId={sp.conta} />
+      <AvisoJuncao tipo="VENDA" id={id} />
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome={balcao ? "balcao" : "carrinho"} size={18} /> Venda #{v.numero}
@@ -144,8 +146,8 @@ export default async function VerVenda({ params, searchParams }: { params: Promi
         </Link>
       )}
 
-      {sp.cancelar && (podeCancelar || (balcao && v.situacao === "CANCELADA")) && <CancelarBalcao id={id} numero={v.numero} recebido={brl(recebido)} formas={[...new Set(v.pagamentos.map((p) => p.formaPagamento.nome))].join(", ")} voltar={base} />}
-      {sp.situacao && <FormSituacao id={id} numero={v.numero} atual={v.situacaoId ?? ""} situacoes={situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacao(s) }))} voltar={base} acao={alterarSituacaoVendaAcao} rotulo="da venda" />}
+      {sp.cancelar && (podeCancelar || v.situacao === "CANCELADA") && <CancelarVenda id={id} previa={await previaCancelamento(id)} voltar={base} />}
+      {sp.situacao && <FormSituacao id={id} numero={v.numero} atual={v.situacaoId ?? ""} situacoes={situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacao(s), cancela: s.estoque === "NAO" }))} voltar={base} acao={alterarSituacaoVendaAcao} rotulo="da venda" cancelarHref={`${base}?cancelar=1`} />}
 
       <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
         <aside className="space-y-3">

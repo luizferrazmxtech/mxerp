@@ -40,6 +40,8 @@ export type DadosDps = {
     /** só para ME/EPP: 1 = todos os tributos pelo Simples */
     regApTribSN?: 1 | 2 | 3;
     regEspTrib?: number; // 0 nenhum
+    /** % aproximado dos tributos do Simples (pTotTribSN): ME/EPP não pode mandar indTotTrib (rejeição E0712) */
+    pTotTribSN?: number | null;
   };
   tomador?: {
     documento: string;
@@ -57,6 +59,12 @@ export type DadosDps = {
     valor: number;
     aliquotaIss?: number | null;
     issRetido?: boolean;
+    /** tribISSQN: 1 operação tributável (padrão), 2 imunidade, 4 não incidência */
+    tribISSQN?: 1 | 2 | 4;
+    /** tpImunidade (só com tribISSQN = 2) */
+    tpImunidade?: number | null;
+    /** exigibilidade do ISS suspensa: 1 decisão judicial, 2 processo administrativo */
+    suspensao?: { tpSusp: 1 | 2; nProcesso: string } | null;
   };
 };
 
@@ -69,12 +77,16 @@ export function idDps(d: Pick<DadosDps, "prestador" | "serie" | "numero">) {
 
 const dia = (d: Date) => new Date(d.getTime() - 3 * 3600000).toISOString().slice(0, 10);
 
+/** % aproximado dos tributos do Simples quando a empresa não informou (1ª faixa do Anexo III, serviços). */
+export const PERCENTUAL_SIMPLES_PADRAO = 6;
+
 export function montarDps(d: DadosDps): { id: string; xml: string } {
   if (!/^\d{6}$/.test(d.servico.cTribNac)) throw new Error("Código de tributação nacional do serviço deve ter 6 dígitos");
   if (!(d.servico.valor > 0)) throw new Error("Valor do serviço deve ser maior que zero");
   const id = idDps(d);
   const p = d.prestador;
   const tom = d.tomador;
+  const trib = d.servico.tribISSQN ?? 1;
   const docTag = (doc: string) => (so(doc).length === 11 ? t("CPF", so(doc)) : t("CNPJ", so(doc)));
   const infDPS = g("infDPS", [
     t("tpAmb", d.tpAmb),
@@ -114,13 +126,17 @@ export function montarDps(d: DadosDps): { id: string; xml: string } {
     g("valores", [
       g("vServPrest", t("vServ", dec(d.servico.valor))),
       g("trib", [
+        // ordem do leiaute (DPS 1.00): tribISSQN, cPaisResult, BM, exigSusp, tpImunidade, pAliq, tpRetISSQN
         g("tribMun", [
-          t("tribISSQN", 1), // operação tributável
-          // ME/EPP do Simples que recolhe ISS no DAS não informa alíquota, salvo retenção
-          (p.opSimpNac !== 3 || d.servico.issRetido) && d.servico.aliquotaIss != null && t("pAliq", dec(d.servico.aliquotaIss)),
+          t("tribISSQN", trib), // 1 operação tributável, 2 imunidade, 4 não incidência
+          trib === 1 && d.servico.suspensao && g("exigSusp", [t("tpSusp", d.servico.suspensao.tpSusp), t("nProcesso", so(d.servico.suspensao.nProcesso).slice(-30).padStart(30, "0")) /* 30 dígitos */]),
+          trib === 2 && t("tpImunidade", d.servico.tpImunidade ?? 0),
+          // ME/EPP do Simples que recolhe ISS no DAS (apuração 1) não informa alíquota, salvo retenção
+          trib === 1 && (p.opSimpNac !== 3 || (p.regApTribSN ?? 1) !== 1 || d.servico.issRetido) && d.servico.aliquotaIss != null && t("pAliq", dec(d.servico.aliquotaIss)),
           t("tpRetISSQN", d.servico.issRetido ? 2 : 1),
         ]),
-        g("totTrib", t("indTotTrib", 0)),
+        // ME/EPP do Simples: a Sefin recusa o indTotTrib (E0712) e pede o percentual aproximado do Simples
+        g("totTrib", p.opSimpNac === 3 ? t("pTotTribSN", dec(Math.min(99.99, Math.max(0, p.pTotTribSN ?? PERCENTUAL_SIMPLES_PADRAO)))) : t("indTotTrib", 0)),
       ]),
     ]),
   ], { Id: id });
@@ -131,7 +147,12 @@ export function assinarDps(xml: string, cert: Certificado) {
   return assinarXml(xml, cert, { tag: "infDPS", pai: "DPS", sha256: process.env.NFSE_ASSINATURA_SHA256 === "1" });
 }
 
-export const gzipB64 = (xml: string) => gzipSync(Buffer.from(xml, "utf8")).toString("base64");
+/**
+ * A Sefin Nacional recusa o XML sem a declaração de codificação (E1229 "Xml não está utilizando codificação UTF-8"):
+ * o documento vai sempre com <?xml version="1.0" encoding="UTF-8"?> na frente, em UTF-8 sem BOM.
+ */
+export const comDeclaracao = (xml: string) => `<?xml version="1.0" encoding="UTF-8"?>${xml.replace(/^\uFEFF/, "").replace(/^\s*<\?xml[^>]*\?>\s*/, "")}`;
+export const gzipB64 = (xml: string) => gzipSync(Buffer.from(comDeclaracao(xml), "utf8")).toString("base64");
 export const gunzipB64 = (b64: string) => gunzipSync(Buffer.from(b64, "base64")).toString("utf8");
 
 /** Pedido de cancelamento (evento 101101). cMotivo: 1 erro na emissão, 2 serviço não prestado, 9 outros. */

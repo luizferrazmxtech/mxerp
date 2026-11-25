@@ -6,7 +6,7 @@ import { pode } from "@/lib/auth/permissoesAcao";
 import { cor } from "@/lib/orcamentos/tipos";
 import { conteudo } from "@/components/orcamentos/ListaOrcamentos";
 import { ordemVendas, whereVendas, type ParamsVendas } from "@/lib/vendas/pedidos";
-import { clonarVendaAcao, emitirNotaVendaAcao, excluirVendaAcao, excluirVendasAcao, alterarSituacaoVendaAcao, situacaoVendasEmMassaAcao } from "@/lib/vendas/acoes";
+import { clonarVendaAcao, emitirNotaVendaAcao, excluirVendaAcao, excluirVendasAcao, alterarSituacaoVendaAcao, juntarVendasAcao, situacaoVendasEmMassaAcao } from "@/lib/vendas/acoes";
 import { colunasVisiveis } from "@/lib/ui/colunas";
 import { num2 } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
@@ -24,6 +24,7 @@ import FormSituacao from "@/components/orcamentos/FormSituacao";
 import Resumo from "@/components/ui/Resumo";
 import { brl } from "@/lib/ui/format";
 import { caixaAberto } from "@/lib/pdv/caixa";
+import AvisoCaixa from "@/components/vendas/AvisoCaixa";
 
 export type TipoLista = "PEDIDO" | "SERVICO" | "BALCAO";
 const COLUNAS = [
@@ -45,8 +46,9 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   const balcao = tipo === "BALCAO";
   const u = await usuarioAtual();
   const verFinanceiro = !!u && podeAcessar(u.papel, "/financeiro");
-  const podeCancelar = balcao && !!u && (await pode(u.papel, "pdv.cancelar"));
+  const podeCancelar = !!u && (await pode(u.papel, balcao ? "pdv.cancelar" : "venda.situacao"));
   const meuCaixa = balcao && u ? await caixaAberto(u.id) : null;
+  const podeJuntar = !balcao && !!u && (await pode(u.papel, "venda.juntar"));
   const podeSangria = balcao && !!u && (await pode(u.papel, "pdv.sangria"));
   const where = await whereVendas(tipo, sp);
   const { pagina, porPagina, skip, take } = lerPagina(sp);
@@ -63,7 +65,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "VENDA", origemId: { in: lista.map((v) => v.id) }, modelo: { in: ["NFE", "NFCE"] }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true } });
   const notaDe = new Map(notas.map((n) => [n.origemId, n]));
   // cartões de resumo do período, por situação (sem o filtro de situação)
-  const porSituacao = await prisma.venda.groupBy({ by: ["situacao"], where: await whereVendas(tipo, { ...sp, s: undefined }), _sum: { total: true }, _count: true });
+  const porSituacao = await prisma.venda.groupBy({ by: ["situacao"], where: await whereVendas(tipo, { ...sp, s: undefined }, { todasSituacoes: true }), _sum: { total: true }, _count: true });
   const grupo = (sits: string[]) => porSituacao.filter((g) => sits.includes(g.situacao)).reduce((a, g) => ({ n: a.n + g._count, v: a.v + Number(g._sum.total ?? 0) }), { n: 0, v: 0 });
   const tudo = grupo(["ORCAMENTO", "ABERTA", "CONCLUIDA", "CANCELADA"]);
   const abertas = grupo(["ORCAMENTO", "ABERTA"]), feitas = grupo(["CONCLUIDA"]), canceladas = grupo(["CANCELADA"]);
@@ -75,11 +77,11 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
   const tem = (c: string) => vis.includes(c);
   const loja = () => { const e = empresas[0]; return e ? e.nomeFantasia || e.razaoSocial : ""; };
   const modo = sp.acao;
-  const selecao = modo === "situacoes" || modo === "excluir" || modo === "imprimir";
+  const selecao = modo === "situacoes" || modo === "excluir" || modo === "imprimir" || (modo === "juntar" && podeJuntar);
   const filtros = Object.fromEntries(Object.entries(sp).filter(([k, v]) => v && !["p", "pp", "acao", "busca", "o", "situacao"].includes(k)));
   const sem = urlCom(base, sp, { acao: undefined, situacao: undefined });
   const emSituacao = sp.situacao ? await prisma.venda.findUnique({ where: { id: sp.situacao }, select: { id: true, numero: true, situacaoId: true } }) : null;
-  const opcoesSit = situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacao(s) }));
+  const opcoesSit = situacoes.map((s) => ({ id: s.id, nome: s.nome, aviso: avisoSituacao(s), cancela: s.estoque === "NAO" }));
 
   const tabela = (
     <div className="cartao overflow-x-auto">
@@ -104,7 +106,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
             return (
               <tr key={v.id}>
                 {selecao && <td><input type="checkbox" name="ids" value={v.id} /></td>}
-                {tem("numero") && <td>{v.numero}</td>}
+                {tem("numero") && <td>{v.numero}{v.juntadaEmId && <span className="block text-[10px] text-slate-500" title="Venda juntada com outras numa venda nova">juntada</span>}</td>}
                 {tem("nfe") && <td>{nf ? <Link href={`/fiscal/${nf.id}`} className="text-marca hover:underline">#{nf.numero}</Link> : <span className="text-slate-400">—</span>}</td>}
                 {tem("cliente") && <td>{v.cliente ? <><Link href={`/clientes/${v.cliente.id}`} className="sublinhado">{v.cliente.nome}</Link>{v.cliente.fantasia && <i className="block text-[11px] text-slate-500">{v.cliente.fantasia}</i>}</> : "Consumidor"}</td>}
                 {tem("data") && <td>{dataBr(v.data)}</td>}
@@ -126,7 +128,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
                       {v.situacao === "CONCLUIDA" && Number(v.totalServicos) > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, v.id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da venda nº ${v.numero}?`}>Emitir NFS-e</BotaoAcao>}
                       {!balcao && <BotaoAcao acao={clonarVendaAcao.bind(null, v.id)} icone="copiar">Gerar cópia</BotaoAcao>}
                       {verFinanceiro && <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&doc=${v.id}`} icone="financeiro">Ver no financeiro</LinkSuspenso>}
-                      {podeCancelar && v.situacao === "CONCLUIDA" && <LinkSuspenso href={`/vendas/${v.id}?cancelar=1`} icone="fechar">Cancelar venda</LinkSuspenso>}
+                      {podeCancelar && (balcao ? v.situacao === "CONCLUIDA" : v.situacao !== "CANCELADA") && <LinkSuspenso href={`/vendas/${v.id}?cancelar=1`} icone="fechar">Cancelar venda</LinkSuspenso>}
                       <BotaoExcluir acao={excluirVendaAcao.bind(null, v.id)} pergunta={`Excluir a venda nº ${v.numero}? O estoque volta e as contas a receber em aberto são apagadas.`} rotulo="Excluir" />
                     </Suspenso>
                   </div>
@@ -162,6 +164,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
           <a href={urlCom("/api/vendas/exportar", { ...filtros, tipo }, {})} className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="exportar" size={15} /> Exportar</a>
           <LinkSuspenso href={urlCom(base, sp, { acao: "imprimir" })} icone="imprimir">Imprimir</LinkSuspenso>
           <LinkSuspenso href={urlCom(base, sp, { acao: "situacoes" })} icone="atualizar">Alterar situação</LinkSuspenso>
+          {podeJuntar && <LinkSuspenso href={urlCom(base, sp, { acao: "juntar" })} icone="copiar">Juntar vendas</LinkSuspenso>}
           <LinkSuspenso href={urlCom(base, sp, { acao: "excluir" })} icone="excluir">Excluir</LinkSuspenso>
         </Suspenso>
         <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
@@ -194,6 +197,8 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
         </form>
       )}
 
+      {balcao && <AvisoCaixa />}
+
       <Resumo cartoes={[
         { rotulo: "Total do período", valor: brl(tudo.v), legenda: `${qtdV(tudo.n)} no período`, icone: "vendas", cor: "tinta", pct: tudo.v > 0 ? 100 : 0 },
         { rotulo: "Em aberto", valor: brl(abertas.v), legenda: `${qtdV(abertas.n)} em aberto ou orçamento`, icone: "hoje", cor: "azul", pct: pctV(abertas.v) },
@@ -202,11 +207,15 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
         { rotulo: "Ticket médio", valor: brl(feitas.n ? feitas.v / feitas.n : 0), legenda: "das concretizadas", icone: "valor", cor: "cinza" },
       ]} />
 
-      {emSituacao && <FormSituacao id={emSituacao.id} numero={emSituacao.numero} atual={emSituacao.situacaoId ?? ""} situacoes={opcoesSit} voltar={sem} acao={alterarSituacaoVendaAcao} rotulo="da venda" />}
+      {emSituacao && <FormSituacao id={emSituacao.id} numero={emSituacao.numero} atual={emSituacao.situacaoId ?? ""} situacoes={opcoesSit} voltar={sem} acao={alterarSituacaoVendaAcao} rotulo="da venda" cancelarHref={`/vendas/${emSituacao.id}?cancelar=1`} />}
 
       {modo === "situacoes" ? (
         <FormSelecao acao={situacaoVendasEmMassaAcao} titulo="Alterar situação" botao="Aplicar nos marcados" voltar={sem}
           campos={<select name="situacaoId" className="campo"><option value="">Escolha a situação</option>{opcoesSit.map((s) => <option key={s.id} value={s.id}>{s.nome} ({s.aviso})</option>)}</select>}>{tabela}</FormSelecao>
+      ) : modo === "juntar" && podeJuntar ? (
+        <FormSelecao acao={juntarVendasAcao} titulo="Juntar vendas" botao="Juntar marcadas" voltar={sem}
+          confirmar="Juntar as vendas marcadas numa venda nova? Os itens são somados, a nova fica na mesma situação (reservas e financeiro refeitos uma vez só) e as marcadas são canceladas apontando para a nova."
+          campos={<p className="col-span-full text-[12px] text-slate-600">Marque vendas do <b>mesmo cliente</b> e na <b>mesma situação</b>. Não dá para juntar venda com nota autorizada, conta recebida ou conciliada, boleto registrado ou troca/devolução. Use a busca pelo cliente para achar as vendas dele.</p>}>{tabela}</FormSelecao>
       ) : modo === "excluir" ? (
         <FormSelecao acao={excluirVendasAcao} perigo titulo="Excluir vendas" botao="Excluir marcadas" voltar={sem} confirmar="Excluir as vendas marcadas? O estoque volta e as contas a receber em aberto são apagadas.">{tabela}</FormSelecao>
       ) : modo === "imprimir" ? (

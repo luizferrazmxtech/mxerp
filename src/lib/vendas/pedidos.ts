@@ -2,14 +2,20 @@ import { centroPorNome } from "@/lib/financeiro/plano";
 import { Prisma, type EstoqueSituacao, type PapelUsuario, type SituacaoVenda, type SituacaoVendaConfig } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { entrada } from "@/lib/estoque/estoque";
+import { localDaLoja, localEhCarro } from "@/lib/estoque/entrada";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
-import { cancelarRecebimentos } from "@/lib/financeiro/lancamentos";
+import { cancelarRecebimentos, temContas } from "@/lib/financeiro/lancamentos";
+import { taxaDaParcela } from "@/lib/financeiro/taxas";
+import { cartao } from "@/lib/financeiro/taxasCartao";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
 import { proximoNumero } from "@/lib/sequencia";
 import { diaSP, parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, linhasProdutos, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento } from "@/lib/orcamentos/tipos";
 import { produtoAvulsoId } from "@/lib/itens/avulso";
 import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
+import { liberarOrcamentos, previaOrcamentos } from "@/lib/orcamentos/vinculos";
+import { ATIVOS as BOLETOS_ATIVOS } from "@/lib/financeiro/boletos";
+import { tituloAgrupado } from "@/lib/financeiro/agrupar";
 
 /**
  * Pedido de venda completo (padrão Gestão Click). A situação configurável decide o que acontece:
@@ -29,7 +35,7 @@ const dia = (s: string) => (t(s) ? parseDia(s) : null);
 export const estadoDe = (e: EstoqueSituacao): EstadoEstoque => (e === "LANCAR" ? "BAIXADO" : e === "RESERVAR" ? "RESERVADO" : "LIVRE");
 /** A coluna antiga `situacao` continua sendo o "estado" usado pelo PDV, caixa, notas e relatórios. */
 export const enumDe = (e: EstoqueSituacao): SituacaoVenda => (e === "LANCAR" ? "CONCLUIDA" : e === "RESERVAR" ? "ABERTA" : "CANCELADA");
-const estadoDoEnum = (s: SituacaoVenda): EstadoEstoque => (s === "CONCLUIDA" ? "BAIXADO" : s === "ABERTA" ? "RESERVADO" : "LIVRE");
+export const estadoDoEnum = (s: SituacaoVenda): EstadoEstoque => (s === "CONCLUIDA" ? "BAIXADO" : s === "ABERTA" ? "RESERVADO" : "LIVRE");
 
 export async function situacaoPadraoVenda(tx: Tx | typeof prisma = prisma) {
   const s = (await tx.situacaoVendaConfig.findFirst({ where: { padrao: true } })) ?? (await tx.situacaoVendaConfig.findFirst({ orderBy: { ordem: "asc" } }));
@@ -46,7 +52,7 @@ export async function situacaoDoEstado(tx: Tx, s: SituacaoVenda) {
   return tx.situacaoVendaConfig.findFirst({ where: { estoque, ...(s === "CONCLUIDA" ? { financeiro: true } : {}) }, orderBy: { ordem: "asc" } });
 }
 
-async function travar(tx: Tx, vendaId: string) {
+export async function travar(tx: Tx, vendaId: string) {
   const [v] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Venda" WHERE id = ${vendaId} FOR NO KEY UPDATE`;
   if (!v) throw new PedidoError("Venda não encontrada");
   return tx.venda.findUniqueOrThrow({ where: { id: vendaId }, include: { situacaoCfg: true } });
@@ -62,9 +68,9 @@ async function lancarFinanceiro(tx: Tx, vendaId: string) {
   await garantirPadroes(tx);
   const centro = await centroPorNome(tx, v.centroCusto);
   const rec = await receitaDocumento(tx, Number(v.totalProdutos), Number(v.totalServicos));
-  const parcelas = v.parcelas.length ? v.parcelas : [{ numero: 1, vencimento: v.data, valor: v.total, formaPagamentoId: v.formaPagamentoId }];
+  const parcelas = v.parcelas.length ? v.parcelas : [{ numero: 1, vencimento: v.data, valor: v.total, formaPagamentoId: v.formaPagamentoId, bandeira: null, vezes: null }];
   for (const p of parcelas) {
-    await tx.lancamento.create({
+    const l = await tx.lancamento.create({
       data: {
         tipo: "RECEBER", descricao: parcelas.length > 1 ? `Venda de nº ${v.numero} (${p.numero}/${parcelas.length})` : `Venda de nº ${v.numero}`,
         pessoaId: v.clienteId, categoriaId: rec.categoriaId, formaPagamentoId: p.formaPagamentoId ?? v.formaPagamentoId, valor: p.valor,
@@ -72,6 +78,7 @@ async function lancarFinanceiro(tx: Tx, vendaId: string) {
         rateio: { create: rec.rateio },
       },
     });
+    await taxaDaParcela(tx, l, p);
   }
 }
 
@@ -85,10 +92,9 @@ async function estadoEfetivo(tx: Tx, vendaId: string, estado: EstadoEstoque, usu
   const v = await tx.venda.findUniqueOrThrow({ where: { id: vendaId }, select: { idLegado: true, numero: true, itens: { select: { produtoId: true, quantidade: true, custoUnit: true, produto: { select: { controlaEstoque: true, localPadraoId: true } } } } } });
   if (!v.idLegado) return estado;
   if (await tx.movimentoEstoque.count({ where: { origemTipo: "VENDA", origemId: vendaId } })) return estado;
-  const local = (await tx.local.findFirst({ orderBy: { codigo: "asc" }, select: { id: true } }))?.id;
   for (const i of v.itens) {
-    const localId = i.produto.localPadraoId ?? local;
-    if (!i.produto.controlaEstoque || !localId) continue;
+    if (!i.produto.controlaEstoque) continue;
+    const localId = await localDaLoja(tx, i.produto.localPadraoId); // volta para a loja, nunca para o carro
     await entrada(tx, { produtoId: i.produtoId, localId, quantidade: Number(i.quantidade), custoUnit: Number(i.custoUnit), origemTipo: "AJUSTE", origemId: vendaId, observacao: `Venda ${v.numero} migrada do Gestão Click: peças voltam ao estoque`, usuarioId });
   }
   return "LIVRE";
@@ -98,9 +104,13 @@ async function estadoEfetivo(tx: Tx, vendaId: string, estado: EstadoEstoque, usu
  * Aplica a passagem de uma situação para outra: estoque (reserva/baixa/estorno) e financeiro.
  * `refazerItens` roda entre a liberação e a nova aplicação (edição dos produtos).
  */
-async function aplicar(tx: Tx, vendaId: string, de: { estado: EstadoEstoque; financeiro: boolean }, para: SituacaoVendaConfig,
-  opts: { refazerItens?: () => Promise<void>; refazerFinanceiro?: boolean; permitirNegativo?: boolean; forcar?: boolean; usuarioId?: string }) {
-  const temLanc = (await tx.lancamento.count({ where: { origemTipo: "VENDA", origemId: vendaId } })) > 0;
+export async function aplicar(tx: Tx, vendaId: string, de: { estado: EstadoEstoque; financeiro: boolean }, para: SituacaoVendaConfig,
+  opts: { refazerItens?: () => Promise<void>; refazerFinanceiro?: boolean; permitirNegativo?: boolean; forcar?: boolean; usuarioId?: string; usuarioNome?: string }) {
+  const cancelando = enumDe(para.estoque) === "CANCELADA";
+  const venda = await tx.venda.findUniqueOrThrow({ where: { id: vendaId }, select: { situacao: true, numero: true } });
+  // venda nova nasce com situacao CANCELADA provisória: só confere ao cancelar uma venda que existia ativa
+  if (cancelando && venda.situacao !== "CANCELADA") await conferirCancelamento(tx, vendaId, !!opts.forcar);
+  const temLanc = await temContas(tx, "VENDA", vendaId);
   if (temLanc && (!para.financeiro || opts.refazerFinanceiro)) await cancelarRecebimentos(tx, "VENDA", vendaId, opts.forcar);
   const novo = estadoDe(para.estoque);
   if (opts.refazerItens || novo !== de.estado) de = { ...de, estado: await estadoEfetivo(tx, vendaId, de.estado, opts.usuarioId) };
@@ -111,9 +121,24 @@ async function aplicar(tx: Tx, vendaId: string, de: { estado: EstadoEstoque; fin
   } else {
     await transicionarEstoque(tx, "VENDA", vendaId, de.estado, novo, itensDoc(tx, vendaId), opts);
   }
-  const aindaTem = (await tx.lancamento.count({ where: { origemTipo: "VENDA", origemId: vendaId } })) > 0;
+  const aindaTem = await temContas(tx, "VENDA", vendaId); // conta agrupada no financeiro também conta (não lança de novo)
   if (para.financeiro && !aindaTem) await lancarFinanceiro(tx, vendaId);
   await tx.venda.update({ where: { id: vendaId }, data: { situacaoId: para.id, situacao: enumDe(para.estoque) } });
+  // cancelada: o orçamento que gerou a venda fica livre para gerar venda ou OS de novo
+  if (cancelando) await liberarOrcamentos(tx, { vendaId }, `Venda nº ${venda.numero} cancelada`, opts.usuarioNome);
+}
+
+/** Impede cancelar o que não dá para desfazer pelo ERP (nota autorizada, troca/devolução, recebimento conciliado). */
+async function conferirCancelamento(tx: Tx, vendaId: string, estornarPagos: boolean) {
+  if (await tx.devolucao.count({ where: { vendaId } })) throw new PedidoError("A venda tem trocas ou devoluções: não dá para cancelar");
+  const notas = await tx.notaFiscal.count({ where: { origemTipo: "VENDA", origemId: vendaId, status: { in: ["AUTORIZADA", "ENVIADA"] } } });
+  if (notas) throw new PedidoError("A venda tem nota fiscal autorizada: cancele a nota antes (aba Notas fiscais)");
+  const lancs = await tx.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: vendaId }, select: { id: true, pagoEm: true, transacaoId: true } });
+  const ids = lancs.map((l) => l.id);
+  const conciliados = lancs.filter((l) => l.transacaoId).length + (ids.length ? await tx.transacaoPagSeguro.count({ where: { lancamentoId: { in: ids } } }) : 0);
+  if (conciliados) throw new PedidoError("O recebimento desta venda já foi conciliado com o extrato (banco ou PagSeguro): desfaça a conciliação antes de cancelar");
+  const pagos = lancs.filter((l) => l.pagoEm).length;
+  if (pagos && !estornarPagos) throw new PedidoError(`A venda tem ${pagos === 1 ? "uma conta já recebida" : `${pagos} contas já recebidas`}. Use Editar ▾ › Cancelar venda e marque "Estornar o que já foi recebido".`);
 }
 
 /** Cadastra ou altera o pedido inteiro (todos os blocos do formulário), numa transação. */
@@ -135,17 +160,17 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
   const tot = totais({ ...d, produtos, servicos });
   if (tot.total < 0) throw new PedidoError("O desconto é maior que o valor da venda");
 
-  let parcelas: { numero: number; vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; observacao: string | null }[];
+  let parcelas: { numero: number; vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; observacao: string | null; bandeira: string | null; vezes: number | null }[];
   if (d.condicao === "PARCELADO") {
     if (!d.parcelas.length) throw new PedidoError("Clique em Gerar parcelas");
     const soma = d.parcelas.reduce((s, p) => s + n(p.valor), 0);
     if (Math.abs(soma - tot.total) > 0.009) throw new PedidoError(`A soma das parcelas (${soma.toFixed(2)}) não fecha com o total (${tot.total.toFixed(2)}). Gere as parcelas de novo.`);
     parcelas = d.parcelas.map((p, i) => {
       if (!t(p.vencimento)) throw new PedidoError(`Informe o vencimento da parcela ${i + 1}`);
-      return { numero: i + 1, vencimento: parseDia(p.vencimento), valor: D(n(p.valor)), formaPagamentoId: t(p.formaPagamentoId) ?? t(d.formaPagamentoId), observacao: t(p.observacao) };
+      return { numero: i + 1, vencimento: parseDia(p.vencimento), valor: D(n(p.valor)), formaPagamentoId: t(p.formaPagamentoId) ?? t(d.formaPagamentoId), observacao: t(p.observacao), ...cartao(p.bandeira, p.vezes) };
     });
   } else {
-    parcelas = [{ numero: 1, vencimento: dia(d.vencimento) ?? parseDia(d.data), valor: D(tot.total), formaPagamentoId: t(d.formaPagamentoId), observacao: null }];
+    parcelas = [{ numero: 1, vencimento: dia(d.vencimento) ?? parseDia(d.data), valor: D(tot.total), formaPagamentoId: t(d.formaPagamentoId), observacao: null, ...cartao(d.bandeira, d.vezes) }];
   }
 
   const dados = {
@@ -160,8 +185,8 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
   const chave = (produtoId: string, descricao: string | null) => `${produtoId}~${descricao ?? ""}`;
   const assinaturaItens = (l: { produtoId: string; descricao: string | null; quantidade: number }[]) => l.map((x) => `${chave(x.produtoId, x.descricao)}:${x.quantidade}`).sort().join("|");
   const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, descricao: descr(l), quantidade: n(l.quantidade) }));
-  const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null }[]) =>
-    `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}`).join("|")}`;
+  const assinaturaFin = (total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; bandeira?: string | null; vezes?: number | null }[]) =>
+    `${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}:${p.bandeira ?? ""}:${p.vezes ?? ""}`).join("|")}`;
 
   return prisma.$transaction(async (tx) => {
     const custos = new Map((await tx.produto.findMany({ where: { id: { in: produtos.map((p) => p.produtoId) } }, select: { id: true, custo: true } })).map((p) => [p.id, p.custo]));
@@ -190,7 +215,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
       await tx.vendaParcela.deleteMany({ where: { vendaId: id } });
       await tx.vendaParcela.createMany({ data: parcelas.map((p) => ({ ...p, vendaId: id })) });
       const de = { estado: atual.situacaoCfg ? estadoDe(atual.situacaoCfg.estoque) : estadoDoEnum(atual.situacao), financeiro: !!atual.situacaoCfg?.financeiro };
-      if (mudouItens) await aplicar(tx, id, de, para, { ...opts, usuarioId: u.id || undefined, refazerFinanceiro: mudouFin, refazerItens: () => criarItens(id) });
+      if (mudouItens) await aplicar(tx, id, de, para, { ...opts, usuarioId: u.id || undefined, usuarioNome: u.nome, refazerFinanceiro: mudouFin, refazerItens: () => criarItens(id) });
       else {
         // mesmos produtos e quantidades: troca valores sem mexer nas reservas/baixas
         const porProduto = new Map(existentes.map((e) => [chave(e.produtoId, e.descricao), e]));
@@ -200,7 +225,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
         }
         await tx.vendaItemServico.deleteMany({ where: { vendaId: id } });
         await tx.vendaItemServico.createMany({ data: servicos.map((l, i) => ({ vendaId: id, ordem: i, servicoId: l.servicoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalServico(l)) })) });
-        await aplicar(tx, id, de, para, { ...opts, usuarioId: u.id || undefined, refazerFinanceiro: mudouFin });
+        await aplicar(tx, id, de, para, { ...opts, usuarioId: u.id || undefined, usuarioNome: u.nome, refazerFinanceiro: mudouFin });
       }
       await tx.vendaHistorico.create({ data: { vendaId: id, descricao: atual.situacaoId !== para.id ? `Venda alterada e levada para "${para.nome}"` : "Venda alterada", situacao: para.nome, usuarioNome: u.nome } });
       return tx.venda.findUniqueOrThrow({ where: { id } });
@@ -215,7 +240,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
     }
     const v = await tx.venda.create({ data: { ...dados, numero, situacao: "CANCELADA", situacaoId: para.id, criadoPorId: u.id || null, parcelas: { create: parcelas } } });
     await criarItens(v.id);
-    await aplicar(tx, v.id, { estado: "LIVRE", financeiro: false }, para, { ...opts, usuarioId: u.id || undefined });
+    await aplicar(tx, v.id, { estado: "LIVRE", financeiro: false }, para, { ...opts, usuarioId: u.id || undefined, usuarioNome: u.nome });
     await tx.vendaHistorico.create({ data: { vendaId: v.id, descricao: opts.orcamentoNumero ? `A venda foi gerada do orçamento nº ${opts.orcamentoNumero}` : "A venda foi cadastrada no sistema", situacao: para.nome, usuarioNome: u.nome } });
     return tx.venda.findUniqueOrThrow({ where: { id: v.id } });
   }, { timeout: 30000 });
@@ -233,7 +258,7 @@ export async function alterarSituacaoPedido(id: string, situacaoId: string, u: U
     if (u.papel && v.situacaoCfg?.bloqueados.includes(u.papel)) throw new PedidoError(`Seu grupo não pode trocar a situação "${v.situacaoCfg.nome}"`);
     const para = await tx.situacaoVendaConfig.findUniqueOrThrow({ where: { id: situacaoId } });
     if (v.situacaoId === para.id) return { para };
-    await aplicar(tx, id, { estado: v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao), financeiro: !!v.situacaoCfg?.financeiro }, para, { ...opts, usuarioId: u.id || undefined });
+    await aplicar(tx, id, { estado: v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao), financeiro: !!v.situacaoCfg?.financeiro }, para, { ...opts, usuarioId: u.id || undefined, usuarioNome: u.nome });
     await tx.vendaHistorico.create({ data: { vendaId: id, descricao: opts.observacao?.trim() || `Situação alterada para "${para.nome}"`, situacao: para.nome, usuarioNome: u.nome } });
     return { para };
   }, { timeout: 30000 });
@@ -260,12 +285,83 @@ export async function cancelarVendaBalcao(id: string, u: Usuario, opts: { motivo
     const para = await situacaoDoEstado(tx, "CANCELADA");
     if (!para) throw new PedidoError("Cadastre uma situação de venda que não lance estoque (ex.: Cancelada)");
     const estornado = lancs.filter((l) => l.pagoEm).reduce((s, l) => s + Number(l.valor), 0);
-    await aplicar(tx, id, { estado: v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao), financeiro: !!v.situacaoCfg?.financeiro }, para, { forcar: true, usuarioId: u.id || undefined });
+    await aplicar(tx, id, { estado: v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao), financeiro: !!v.situacaoCfg?.financeiro }, para, { forcar: true, usuarioId: u.id || undefined, usuarioNome: u.nome });
     const fmt = (x: number) => x.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     const motivo = opts.motivo?.trim();
     await tx.vendaHistorico.create({ data: {
       vendaId: id, situacao: para.nome, usuarioNome: u.nome,
       descricao: `Venda do PDV cancelada${estornado ? `; recebimento de ${fmt(estornado)} estornado` : ""}; produtos voltaram ao estoque${motivo ? `. Motivo: ${motivo}` : ""}`,
+    } });
+    return { numero: v.numero, estornado, situacao: para.nome };
+  }, { timeout: 30000 });
+}
+
+export type PreviaCancelamento = { numero: number; balcao: boolean; desfazer: string[]; avisos: string[]; bloqueios: string[]; recebido: number };
+
+/** Tudo o que o cancelamento desfaz, para mostrar na confirmação. */
+export async function previaCancelamento(id: string): Promise<PreviaCancelamento> {
+  const v = await prisma.venda.findUniqueOrThrow({
+    where: { id },
+    include: { situacaoCfg: true, itens: { select: { produto: { select: { controlaEstoque: true } } } }, envios: { select: { servicoNome: true, situacao: true } } },
+  });
+  const brl = (x: number) => x.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const balcao = v.tipo === "BALCAO";
+  const desfazer: string[] = [], avisos: string[] = [], bloqueios: string[] = [];
+  if (v.situacao === "CANCELADA") bloqueios.push(`A venda nº ${v.numero} já está cancelada`);
+  if (await prisma.devolucao.count({ where: { vendaId: id } })) bloqueios.push("A venda tem trocas ou devoluções: não dá para cancelar");
+  const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "VENDA", origemId: id, status: { in: ["AUTORIZADA", "ENVIADA"] } }, select: { numero: true } });
+  if (notas.length) bloqueios.push(`Nota fiscal ${notas.map((n) => `nº ${n.numero}`).join(", ")} autorizada: cancele a nota antes (aba Notas fiscais)`);
+
+  const lancs = await prisma.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: id }, select: { id: true, valor: true, pagoEm: true, transacaoId: true, boletos: { select: { situacao: true } } } });
+  const ids = lancs.map((l) => l.id);
+  if (lancs.some((l) => l.transacaoId) || (ids.length && (await prisma.transacaoPagSeguro.count({ where: { lancamentoId: { in: ids } } }))))
+    bloqueios.push("O recebimento já foi conciliado com o extrato (banco ou PagSeguro): desfaça a conciliação antes de cancelar");
+  const agrupada = await tituloAgrupado("VENDA", id);
+  if (agrupada) bloqueios.push(agrupada);
+  const abertos = lancs.filter((l) => !l.pagoEm), pagos = lancs.filter((l) => l.pagoEm);
+  const soma = (ls: typeof lancs) => ls.reduce((s, l) => s + Number(l.valor), 0);
+  if (abertos.length) desfazer.push(`Exclui ${abertos.length === 1 ? "a conta a receber em aberto" : `as ${abertos.length} contas a receber em aberto`} (${brl(soma(abertos))}) do financeiro`);
+  const boletos = lancs.flatMap((l) => l.boletos).filter((b) => BOLETOS_ATIVOS.includes(b.situacao)).length;
+  if (boletos) desfazer.push(`Cancela ${boletos === 1 ? "o boleto" : `os ${boletos} boletos`} no Banco Inter`);
+  if (pagos.length) desfazer.push(`Estorna ${pagos.length === 1 ? "o recebimento" : `os ${pagos.length} recebimentos`} de ${brl(soma(pagos))}${balcao ? " do financeiro e do caixa" : " do financeiro"}: devolva o valor ao cliente`);
+
+  const estado = v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao);
+  const comEstoque = v.itens.filter((i) => i.produto.controlaEstoque).length;
+  if (estado === "RESERVADO") {
+    const reservas = await prisma.reserva.count({ where: { origemTipo: "VENDA", origemId: id, status: "ATIVA" } });
+    if (reservas) desfazer.push(`Libera a reserva de ${comEstoque || reservas} produto(s) no estoque`);
+  } else if (estado === "BAIXADO" && comEstoque) desfazer.push(`Devolve ao estoque ${comEstoque === 1 ? "o produto que saiu" : `os ${comEstoque} produtos que saíram`}`);
+  desfazer.push(...(await previaOrcamentos({ vendaId: id })));
+
+  const etiquetas = v.envios.filter((e) => !["CARRINHO", "CANCELADA", "ERRO"].includes(e.situacao));
+  if (etiquetas.length) avisos.push(`Etiqueta de frete comprada (${etiquetas.map((e) => e.servicoNome).join(", ")}): cancele no Melhor Envio pela aba Entrega`);
+  const contrato = await prisma.contratoCobranca.findUnique({ where: { vendaId: id }, select: { referencia: true, contrato: { select: { numero: true } } } });
+  if (contrato) avisos.push(`A venda é a cobrança ${contrato.referencia} do contrato nº ${contrato.contrato.numero}: ela não é gerada de novo sozinha`);
+  const mkt = await prisma.pedidoMarketplace.findUnique({ where: { vendaId: id }, select: { externoId: true } });
+  if (mkt) avisos.push(`Pedido ${mkt.externoId} do marketplace: cancele também lá`);
+  return { numero: v.numero, balcao, desfazer, avisos, bloqueios, recebido: soma(pagos) };
+}
+
+/**
+ * Cancela a venda desfazendo os vínculos: contas a receber (e boletos), estoque (reservas ou baixa), orçamento de origem.
+ * Recebimento já baixado só é estornado com `estornarPagos` (o PDV sempre estorna o que o caixa recebeu).
+ */
+export async function cancelarVenda(id: string, u: Usuario, opts: { motivo?: string; estornarPagos?: boolean } = {}) {
+  const atual = await prisma.venda.findUniqueOrThrow({ where: { id }, select: { tipo: true, situacao: true } });
+  if (atual.tipo === "BALCAO" && atual.situacao === "CONCLUIDA") return cancelarVendaBalcao(id, u, opts);
+  return prisma.$transaction(async (tx) => {
+    const v = await travar(tx, id);
+    if (v.situacao === "CANCELADA") throw new PedidoError(`A venda nº ${v.numero} já está cancelada`);
+    if (u.papel && v.situacaoCfg?.bloqueados.includes(u.papel)) throw new PedidoError(`Seu grupo não pode trocar a situação "${v.situacaoCfg.nome}"`);
+    const para = await situacaoDoEstado(tx, "CANCELADA");
+    if (!para) throw new PedidoError("Cadastre uma situação de venda que não lance estoque (ex.: Cancelada)");
+    const estornado = (await tx.lancamento.findMany({ where: { origemTipo: "VENDA", origemId: id, pagoEm: { not: null } }, select: { valor: true } })).reduce((s, l) => s + Number(l.valor), 0);
+    await aplicar(tx, id, { estado: v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao), financeiro: !!v.situacaoCfg?.financeiro }, para, { forcar: !!opts.estornarPagos, permitirNegativo: true, usuarioId: u.id || undefined, usuarioNome: u.nome });
+    const fmt = (x: number) => x.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const motivo = opts.motivo?.trim();
+    await tx.vendaHistorico.create({ data: {
+      vendaId: id, situacao: para.nome, usuarioNome: u.nome,
+      descricao: `Venda cancelada; vínculos desfeitos (financeiro, estoque e orçamento)${estornado ? `; recebimento de ${fmt(estornado)} estornado` : ""}${motivo ? `. Motivo: ${motivo}` : ""}`,
     } });
     return { numero: v.numero, estornado, situacao: para.nome };
   }, { timeout: 30000 });
@@ -282,7 +378,7 @@ export async function excluirPedido(id: string, opts: { forcar?: boolean } = {})
     await transicionarEstoque(tx, "VENDA", id, await estadoEfetivo(tx, id, v.situacaoCfg ? estadoDe(v.situacaoCfg.estoque) : estadoDoEnum(v.situacao)), "LIVRE", itensDoc(tx, id));
     await tx.anexo.deleteMany({ where: { entidade: "VENDA", entidadeId: id } });
     await tx.anotacao.deleteMany({ where: { entidade: "VENDA", entidadeId: id } });
-    await tx.orcamento.updateMany({ where: { vendaId: id }, data: { vendaId: null } });
+    await liberarOrcamentos(tx, { vendaId: id }, `Venda nº ${v.numero} excluída`);
     await tx.venda.delete({ where: { id } });
     return v.numero;
   }, { timeout: 30000 });
@@ -349,8 +445,9 @@ export async function registrarDevolucao(args: { vendaId: string; tipo: "DEVOLUC
     for (const l of linhas) {
       const saida = await tx.movimentoEstoque.findFirst({ where: { origemTipo: "VENDA", origemId: v.id, produtoId: l.it.produtoId }, orderBy: { createdAt: "desc" } });
       const prod = await tx.produto.findUniqueOrThrow({ where: { id: l.it.produtoId }, select: { localPadraoId: true, controlaEstoque: true } });
-      const localId = saida?.localId ?? prod.localPadraoId ?? (await tx.local.findFirst({ orderBy: { codigo: "asc" } }))?.id;
-      if (!prod.controlaEstoque || !localId) continue;
+      if (!prod.controlaEstoque) continue;
+      // volta para onde saiu; se saiu de um carro (venda não usa carro), volta para a loja
+      const localId = saida && !(await localEhCarro(tx, saida.localId)) ? saida.localId : await localDaLoja(tx, prod.localPadraoId);
       await entrada(tx, { produtoId: l.it.produtoId, localId, quantidade: l.quantidade, custoUnit: Number(l.it.custoUnit), origemTipo: "DEVOLUCAO", origemId: dev.id, observacao: `${args.tipo === "TROCA" ? "Troca" : "Devolução"} nº ${numero} da venda ${v.numero}`, usuarioId: u.id });
     }
     if (args.tipo === "TROCA") {
@@ -371,7 +468,8 @@ export async function registrarDevolucao(args: { vendaId: string; tipo: "DEVOLUC
 export type ParamsVendas = Record<string, string | undefined>;
 
 /** Filtros da lista: período (pela data), busca simples e busca avançada. */
-export async function whereVendas(tipo: "PEDIDO" | "SERVICO" | "BALCAO", sp: ParamsVendas): Promise<Prisma.VendaWhereInput> {
+/** `todasSituacoes`: ignora o "exibir na listagem" das situações (cartões de resumo, que contam as canceladas). */
+export async function whereVendas(tipo: "PEDIDO" | "SERVICO" | "BALCAO", sp: ParamsVendas, opts: { todasSituacoes?: boolean } = {}): Promise<Prisma.VendaWhereInput> {
   const w: Prisma.VendaWhereInput[] = [tipo === "BALCAO" ? { tipo } : { tipo: { in: ["PEDIDO", "SERVICO"] } }];
   const buscando = !!(sp.q || sp.codigo || sp.de || sp.ate || sp.cli);
   const per = buscando && !sp.periodo ? null : periodoDia(sp.periodo, sp.pde, sp.pate);
@@ -393,7 +491,9 @@ export async function whereVendas(tipo: "PEDIDO" | "SERVICO" | "BALCAO", sp: Par
   if (sp.serv) w.push({ servicos: { some: { servicoId: sp.serv } } });
   if (sp.cc) w.push({ centroCusto: sp.cc });
   if (sp.s) w.push({ situacaoId: sp.s });
-  else w.push({ OR: [{ situacaoId: null }, { situacaoCfg: { exibir: true } }] });
+  // situação marcada para não aparecer na lista fica escondida; no balcão, a venda cancelada do PDV sempre aparece
+  // (senão ela some da lista e do cartão "Canceladas" e só se vê dentro do caixa)
+  else if (!opts.todasSituacoes) w.push({ OR: [{ situacaoId: null }, { situacaoCfg: { exibir: true } }, ...(tipo === "BALCAO" ? [{ situacao: "CANCELADA" as const }] : [])] });
   return { AND: w };
 }
 

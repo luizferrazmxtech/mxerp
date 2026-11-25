@@ -20,6 +20,8 @@ export type DadosOs = DadosOrcamento & {
   agendaDuracao?: string;
   equipamentos: EquipamentoForm[];
   outros: string;
+  /** empresa que fatura os serviços (NFS-e e conta a receber dela); vazio = a própria empresa da OS */
+  empresaServicosId?: string;
 };
 
 /** Durações do agendamento da OS (minutos). */

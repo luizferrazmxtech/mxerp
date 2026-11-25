@@ -8,9 +8,11 @@ import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { avisoBoletos, boletosDoDocumento } from "@/lib/financeiro/boletos";
 import { emitirNfseOs, emitirNotaOs } from "@/lib/fiscal/emissao";
 import { configOs } from "./config";
+import { juntarOrdens } from "./juntar";
 import { alterarSituacaoOrdem, clonarOrdem, excluirOrdem, salvarOrdem } from "./ordens";
 import type { DadosOs } from "./tipos";
 import { definirOrigemItens } from "./itensCarro";
+import { corrigirTrabalho, duracao } from "./trabalho";
 import { avisoAutomaticoOs } from "@/lib/whatsapp/os";
 
 const situacaoAtual = async (id: string | undefined) => (id ? (await prisma.ordemServico.findUnique({ where: { id }, select: { situacaoId: true } }))?.situacaoId ?? null : null);
@@ -262,5 +264,36 @@ export async function itensCarroOsAcao(_: Resultado, form: FormData): Promise<Re
     const n = await definirOrigemItens(osId, origens, u);
     revalidatePath(`/os/${osId}`); revalidatePath(`/tecnico/${osId}`);
     return { ok: true, mensagem: n ? `${n} item(ns) atualizado(s): as reservas foram refeitas no estoque escolhido.` : "Nada mudou." };
+  } catch (e) { return erro(e); }
+}
+
+/** Mais ações › Juntar OS: as marcadas (mesmo cliente e situação) viram uma OS nova; abre a nova. */
+export async function juntarOsAcao(_: Resultado, form: FormData): Promise<Resultado> {
+  const u = await exigirAcao("os.juntar");
+  const ids = form.getAll("ids").map(String);
+  if (ids.length < 2) return { ok: false, mensagem: "Marque ao menos duas OS do mesmo cliente, na mesma situação" };
+  let destino: string;
+  try {
+    const r = await juntarOrdens(ids, u, { permitirNegativo: (await configOs()).estoqueNegativo });
+    await boletosDoDocumento({ origemTipo: "OS", origemId: r.os.id });
+    revalidatePath("/os", "layout");
+    revalidatePath("/orcamentos", "layout");
+    revalidatePath("/financeiro");
+    destino = `/os/${r.os.id}`;
+  } catch (e) { return erro(e); }
+  redirect(destino);
+}
+
+/** Correção do tempo de mão de obra (padrão: só administrador). Datas chegam como "AAAA-MM-DDTHH:MM" no horário de Brasília. */
+export async function corrigirTempoOsAcao(_: Resultado, form: FormData): Promise<Resultado> {
+  const u = await exigirAcao("os.editarTempo");
+  try {
+    const id = String(form.get("id"));
+    const sp = (v: unknown) => (v ? new Date(`${String(v)}:00-03:00`) : null);
+    const trechos = (JSON.parse(String(form.get("trechos") ?? "[]")) as { id?: string; inicio: string; fim: string; motivo?: string }[])
+      .map((t) => ({ id: t.id || null, inicio: sp(t.inicio) ?? new Date(NaN), fim: sp(t.fim), motivo: t.motivo ?? null }));
+    const r = await corrigirTrabalho(u, id, trechos, String(form.get("observacao") ?? ""));
+    revalidatePath(`/os/${id}`);
+    return { ok: true, mensagem: `Tempo corrigido. Mão de obra: ${duracao(r.fechadoMs)}.` };
   } catch (e) { return erro(e); }
 }

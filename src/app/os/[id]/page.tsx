@@ -1,6 +1,7 @@
 import { usuarioAtual } from "@/lib/auth/atual";
 import { podeAcessar } from "@/lib/auth/permissoes";
 import Link from "next/link";
+import AvisoJuncao from "@/components/documentos/AvisoJuncao";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -26,16 +27,20 @@ import FormItensCarro from "@/components/os/FormItensCarro";
 import DicaSaldo from "@/components/estoque/DicaSaldo";
 import { carrosDasEquipes, livreNosCarros } from "@/lib/estoque/carro";
 import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
+import { pode } from "@/lib/auth/permissoesAcao";
+import EditarTempoOs from "@/components/os/EditarTempoOs";
 import { fotosDoHistorico } from "@/lib/os/historicoFotos";
 import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import BoletoParcela from "@/components/BoletoParcela";
 import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
+import { divisaoOs, empresaDosServicos, servicosPorParcela } from "@/lib/os/faturamento";
 import { foneBonito, whatsappAtivo } from "@/lib/whatsapp/mxchat";
 import { mensagemOs } from "@/lib/whatsapp/os";
 import EnviarWhatsappOs from "@/components/whatsapp/EnviarWhatsappOs";
 import ListaMensagens from "@/components/whatsapp/ListaMensagens";
 import { atrasada, dataPrevisao, prazoOs, textoPrazo } from "@/lib/os/prazo";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar OS" };
@@ -51,6 +56,8 @@ function Vazio({ icone, titulo, texto }: { icone: string; titulo: string; texto?
 export default async function VerOs({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ aba?: string; situacao?: string; carro?: string; q?: string; conta?: string; whatsapp?: string }> }) {
   const eu = await usuarioAtual();
   const verFinanceiro = !!eu && podeAcessar(eu.papel, "/financeiro");
+  const corrigeTempo = !!eu && (await pode(eu.papel, "os.editarTempo"));
+  const imprimeAdmin = !!eu && (await pode(eu.papel, "os.imprimirAdministrativa"));
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const o = await prisma.ordemServico.findUnique({
     where: { id },
@@ -87,6 +94,14 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
     prisma.mensagemWhatsapp.findMany({ where: { entidade: "OS", entidadeId: id }, orderBy: { createdAt: "desc" }, take: 50 }),
   ]);
   const zapOs = sp.whatsapp && zapAtivo ? await mensagemOs(id) : null;
+  // serviços faturados por outra empresa do grupo (ex.: VFX): cada conta mostra de qual empresa é
+  const servicosFora = empresaDosServicos(o);
+  const nomesEmpresas = new Map((servicosFora ? await prisma.empresa.findMany({ where: { id: { in: [servicosFora, ...(o.empresaId ? [o.empresaId] : [])] } }, select: { id: true, nomeFantasia: true, razaoSocial: true } }) : []).map((e) => [e.id, e.id === servicosFora ? e.razaoSocial : e.nomeFantasia || e.razaoSocial]));
+  // a empresa dos serviços aparece pela razão social (o nome que vai na NFS-e)
+  const empresaServicos = servicosFora ? nomesEmpresas.get(servicosFora) ?? "outra empresa" : null;
+  // antes de lançar o financeiro: como cada parcela vai ser dividida entre peças e serviços (um boleto para cada)
+  const partesServicos = servicosFora ? servicosPorParcela(o.parcelas, divisaoOs(o).servicos, Number(o.total)) : [];
+  const notasOs = await prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: id }, orderBy: { createdAt: "asc" }, select: { id: true, modelo: true, serie: true, numero: true, numeroNfse: true, status: true, valorTotal: true, empresaId: true } });
   const errosBoleto = lancamentos.filter((l) => !l.pagoEm && l.boletos[0]?.situacao === "ERRO").length;
   const link = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}/cobranca/os/${o.token}`;
   const nomeEmpresa = empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH";
@@ -128,6 +143,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   return (
     <Pagina voltar="/os" titulo="Visualizar OS" trilha={[{ rotulo: "Ordens de serviços", href: "/os" }, { rotulo: "Visualizar" }]}>
       <VoltarConta contaId={sp.conta} />
+      <AvisoJuncao tipo="OS" id={id} />
       <div className="mb-3 flex flex-wrap items-start gap-3">
         <div>
           <h2 className="flex items-center gap-2 text-[18px]"><Icone nome="os" size={18} /> OS #{o.numero}
@@ -140,7 +156,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             {podeEditar && <LinkSuspenso href={`${base}/editar`} icone="editar">Editar OS</LinkSuspenso>}
             <LinkSuspenso href={`${base}?situacao=1`} icone="atualizar">Alterar situação</LinkSuspenso>
             <BotaoAcao acao={clonarOsAcao.bind(null, id)} icone="copiar">Gerar cópia</BotaoAcao>
-            {concluida && o.servicos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da OS nº ${o.numero}?`}>Emitir NFS-e</BotaoAcao>}
+            {concluida && o.servicos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da OS nº ${o.numero}${empresaServicos ? ` pela ${empresaServicos}` : ""}?`}>Emitir NFS-e{empresaServicos ? ` (${empresaServicos})` : ""}</BotaoAcao>}
             {concluida && o.produtos.length > 0 && <BotaoAcao acao={emitirNotaOsAcao.bind(null, id, "NFE")} icone="notas" confirmar={`Emitir a NF-e das peças da OS nº ${o.numero}?`}>Emitir NF-e</BotaoAcao>}
             <LinkSuspenso href={`${base}/separacao`} icone="locais">Lista de separação</LinkSuspenso>
             {o.produtos.length > 0 && <LinkSuspenso href={`${base}?carro=1`} icone="frete">Itens no carro</LinkSuspenso>}
@@ -153,9 +169,12 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             {zapAtivo && <LinkSuspenso href={`${base}?whatsapp=1`} icone="whatsapp">WhatsApp (MXChat)</LinkSuspenso>}
             <CopiarLink url={link} menu />
             <div className="mt-1 border-t px-3 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase text-slate-400">Imprimir</div>
-            <a href={`${base}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS</a>
-            <a href={`${base}/imprimir?modo=completa`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS completa</a>
-            <a href={`${base}/imprimir?modo=historico`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS completa com histórico</a>
+            <a href={`${base}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS do cliente (fotos e tempo)</a>
+            {imprimeAdmin && <>
+              <div className="mt-1 border-t px-3 pt-1.5 pb-0.5 text-[11px] font-semibold uppercase text-slate-400">Administrativa (uso interno)</div>
+              <a href={`${base}/imprimir?modo=completa`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS administrativa</a>
+              <a href={`${base}/imprimir?modo=historico`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> OS administrativa com histórico</a>
+            </>}
           </Suspenso>
         </div>
       </div>
@@ -197,7 +216,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             </dl>
             <div className="mt-2 border-t pt-2 text-[11px] text-slate-500">Atualizado em {dataSP(o.updatedAt)} {horaSP(o.updatedAt)}</div>
           </div>
-          {trabalho.estado !== "NAO_INICIADO" && (
+          {(trabalho.estado !== "NAO_INICIADO" || corrigeTempo) && (
             <div className="cartao p-4 text-[13px]">
               <div className="mb-1 flex items-center font-semibold">Mão de obra
                 <span className={`ml-auto text-[12px] ${{ TRABALHANDO: "text-emerald-700", PAUSADO: "text-amber-700", FINALIZADO: "text-sky-700", NAO_INICIADO: "" }[trabalho.estado]}`}>
@@ -213,6 +232,43 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                   </li>
                 ))}
               </ul>
+              {corrigeTempo && <EditarTempoOs key={trabalho.trechos.map((t) => `${t.id}${t.inicio}${t.fim}`).join()} osId={id} trechos={trabalho.trechos} />}
+            </div>
+          )}
+          {(notasOs.length > 0 || lancamentos.length > 0) && (
+            <div className="cartao p-4 text-[13px]">
+              <div className="mb-1 font-semibold">Notas fiscais e pagamentos</div>
+              {notasOs.length > 0 && (
+                <ul className="space-y-1 border-b pb-2">
+                  {notasOs.map((n) => (
+                    <li key={n.id} className="flex items-center gap-2">
+                      <Link href={`/fiscal/${n.id}`} className="text-marca hover:underline">{n.modelo === "NFSE" ? `NFS-e nº ${numeroDaNota(n)}` : `${n.modelo === "NFCE" ? "NFC-e" : "NF-e"} ${n.serie}/${n.numero}`}</Link>
+                      <span className={`text-[11px] ${n.status === "AUTORIZADA" ? "text-emerald-700" : n.status === "REJEITADA" || n.status === "CANCELADA" ? "text-red-700" : "text-slate-500"}`}>{n.status.toLowerCase()}</span>
+                      <span className="ml-auto text-[12px] text-slate-600">{brl(n.valorTotal)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {lancamentos.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {lancamentos.map((l) => {
+                    const sit = l.pagoEm ? `pago ${dia(l.pagoEm)}` : l.vencimento < diaSP() ? "atrasado" : "em aberto";
+                    return (
+                      <li key={l.id} className="text-[12px]">
+                        <div className="flex gap-2">
+                          {verFinanceiro ? <Link href={`/financeiro/lancamentos/${l.id}`} className="text-marca hover:underline">{l.totalParcelas > 1 ? `Parcela ${l.parcela}/${l.totalParcelas}` : "Parcela única"}</Link> : <span>{l.totalParcelas > 1 ? `Parcela ${l.parcela}/${l.totalParcelas}` : "Parcela única"}</span>}
+                          <b className="ml-auto">{brl(l.valor)}</b>
+                        </div>
+                        <div className="flex gap-2 text-slate-500">
+                          <span>{servicosFora ? `${l.empresaId === servicosFora ? "Serviços" : "Peças"} · ` : ""}vence {dia(l.vencimento)}</span>
+                          <span className={`ml-auto ${l.pagoEm ? "text-emerald-700" : sit === "atrasado" ? "text-red-700" : ""}`}>{sit}</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {servicosFora && <p className="mt-2 text-[11px] text-slate-500">Peças: {nomeEmpresa}. Serviços: {empresaServicos}.</p>}
             </div>
           )}
           {o.situacaoCfg?.exibirCobranca !== false && (
@@ -297,6 +353,12 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
               <div className="cartao grid gap-3 p-4 text-[13px] sm:grid-cols-6">
                 {([["Mão de obra", o.totalServicos], ["Produtos", o.totalProdutos], ["Frete", o.frete], ["Outros", o.outros], ["Desconto", o.desconto], ["Total", o.total]] as [string, unknown][]).map(([k, x]) => <div key={k}><div className="text-slate-500">{k}</div><div className={`font-semibold ${k === "Total" ? "text-[18px] text-marca" : "text-[15px]"}`}>{brl(Number(x))}</div></div>)}
               </div>
+              {empresaServicos && (
+                <div className="flex items-start gap-2 rounded border border-sky-200 bg-sky-50 px-3 py-2 text-[13px] text-sky-900">
+                  <Icone nome="lojas" size={15} className="mt-0.5 shrink-0" />
+                  <span>Os serviços (<b>{brl(divisaoOs(o).servicos)}</b>) são faturados pela <b>{empresaServicos}</b>: NFS-e e conta a receber/boleto dela. As peças, frete e outros (<b>{brl(divisaoOs(o).pecas)}</b>) seguem pela {nomeEmpresa}.</span>
+                </div>
+              )}
               <div className="px-1 text-[13px]"><b>Condição:</b> {o.condicao === "PARCELADO" ? `Parcelado em ${o.parcelas.length}x` : "À vista"}{o.formaPagamento ? ` · ${o.formaPagamento.nome}` : ""}</div>
               {lancamentos.length ? (
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -305,6 +367,8 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                     const atrasada = !recebida && l.vencimento < diaSP();
                     return (
                       <div key={l.id} className="cartao p-3 text-[13px]">
+                        {servicosFora && <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase text-slate-500"><span>{nomesEmpresas.get(l.empresaId ?? "") ?? nomeEmpresa} · {l.empresaId === servicosFora ? "serviços" : "peças"}</span>
+                          {verFinanceiro && <Link href={`/financeiro/lancamentos/${l.id}`} className="ml-auto font-normal normal-case text-marca hover:underline">Abrir conta</Link>}</div>}
                         <div className="flex items-center gap-2"><b>{l.formaPagamento?.nome ?? "A combinar"}</b>
                           <span className={`pilula ml-auto ${recebida ? "border-emerald-300 bg-emerald-50 text-emerald-700" : atrasada ? "border-red-300 bg-red-50 text-red-700" : "border-orange-300 bg-orange-50 text-orange-700"}`}>{recebida ? "Recebida" : atrasada ? "Atrasada" : "A receber"}</span></div>
                         <div className="mt-1 flex text-slate-600"><span>{l.totalParcelas > 1 ? `Parcela ${l.parcela}/${l.totalParcelas}` : "Parcela única"} · vence {dia(l.vencimento)} · {l.categoria.nome}</span><b className="ml-auto text-slate-800">{brl(l.valor)}</b></div>
@@ -315,9 +379,21 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                 </div>
               ) : o.parcelas.length ? (
                 <div className="cartao overflow-x-auto">
-                  <p className="px-4 pt-3 text-[12px] text-slate-500">Esta situação não lança o financeiro: as parcelas viram contas a receber quando a OS for para uma situação que lança.</p>
-                  <table className="tabela"><thead><tr><th>Parcela</th><th>Vencimento</th><th className="text-right">Valor</th><th>Forma</th><th>Observação</th></tr></thead>
-                    <tbody>{o.parcelas.map((p) => <tr key={p.id}><td>{p.numero}</td><td>{dia(p.vencimento)}</td><td className="text-right">{num2(p.valor)}</td><td>{p.formaPagamento?.nome ?? o.formaPagamento?.nome ?? "A combinar"}</td><td>{p.observacao}</td></tr>)}</tbody></table>
+                  <p className="px-4 pt-3 text-[12px] text-slate-500">Esta situação não lança o financeiro: as parcelas viram contas a receber quando a OS for para uma situação que lança{servicosFora ? ", uma para as peças e outra para os serviços, cada uma com o seu boleto" : ""}.</p>
+                  {servicosFora ? (
+                    <table className="tabela"><thead><tr><th>Parcela</th><th>Empresa</th><th>Vencimento</th><th className="text-right">Valor</th><th>Forma</th><th>Observação</th></tr></thead>
+                      <tbody>{o.parcelas.flatMap((p, i) => {
+                        const forma = p.formaPagamento?.nome ?? o.formaPagamento?.nome ?? "A combinar";
+                        const pecas = Math.round((Number(p.valor) - partesServicos[i]) * 100) / 100;
+                        return [
+                          pecas > 0 && <tr key={`${p.id}-p`}><td>{p.numero}/{o.parcelas.length}</td><td>{nomeEmpresa} · peças</td><td>{dia(p.vencimento)}</td><td className="text-right">{num2(pecas)}</td><td>{forma}</td><td>{p.observacao}</td></tr>,
+                          partesServicos[i] > 0 && <tr key={`${p.id}-s`}><td>{p.numero}/{o.parcelas.length}</td><td>{empresaServicos} · serviços</td><td>{dia(p.vencimento)}</td><td className="text-right">{num2(partesServicos[i])}</td><td>{forma}</td><td>{p.observacao}</td></tr>,
+                        ].filter(Boolean);
+                      })}</tbody></table>
+                  ) : (
+                    <table className="tabela"><thead><tr><th>Parcela</th><th>Vencimento</th><th className="text-right">Valor</th><th>Forma</th><th>Observação</th></tr></thead>
+                      <tbody>{o.parcelas.map((p) => <tr key={p.id}><td>{p.numero}</td><td>{dia(p.vencimento)}</td><td className="text-right">{num2(p.valor)}</td><td>{p.formaPagamento?.nome ?? o.formaPagamento?.nome ?? "A combinar"}</td><td>{p.observacao}</td></tr>)}</tbody></table>
+                  )}
                 </div>
               ) : <Vazio icone="dinheiro" titulo="Nenhuma forma de pagamento foi definida" />}
             </div>
@@ -337,7 +413,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             </div>
           ) : <Vazio icone="percentual" titulo="Sem comissão" texto="Nenhum dado de comissão foi encontrado para este registro." />)}
 
-          {aba === "notas" && <NotasDoDocumento origemTipo="OS" origemId={id} podeEmitir={concluida} temProdutos={o.produtos.length > 0} temServicos={o.servicos.length > 0} />}
+          {aba === "notas" && <NotasDoDocumento origemTipo="OS" origemId={id} podeEmitir={concluida} temProdutos={o.produtos.length > 0} temServicos={o.servicos.length > 0} empresaServicos={empresaServicos} />}
 
           {aba === "campos" && <div className="cartao p-4 text-[13px]">{campos.map((x) => <div key={x.id}><b>{x.nome}:</b> {ce[x.id] || "—"}</div>)}</div>}
 

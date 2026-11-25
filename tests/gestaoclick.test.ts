@@ -10,6 +10,8 @@ process.env.DATABASE_URL = URL;
 const { prisma } = await import("@/lib/db");
 const est = await import("@/lib/estoque/estoque");
 const gc = await import("@/lib/migracao/gestaoclick");
+const { garantirPadroes: garantirPadroesFin } = await import("@/lib/financeiro/padroes");
+const { ligarContasPelaDescricao } = await import("@/lib/financeiro/origem");
 
 beforeAll(() => {
   execSync("npx prisma migrate deploy", { env: { ...process.env, DATABASE_URL: URL }, stdio: "ignore" });
@@ -339,6 +341,7 @@ describe("importar tudo: histórico das contas e notas do Gestão Click", () => 
 
     const notas = await prisma.notaFiscal.findMany({ orderBy: { numero: "asc" } });
     expect(notas.map((n) => [n.modelo, n.numero, n.status])).toEqual([["NFSE", 109, "AUTORIZADA"], ["NFE", 6900, "CANCELADA"], ["NFE", 6901, "AUTORIZADA"]]);
+    expect(notas[0].numeroNfse).toBe(1111); // a DPS/RPS 109 controla a numeração; a tela mostra a nota 1111
     expect(notas[2]).toMatchObject({ empresaId: emp.id, destinatarioNome: "FOLK COMERCIO LTDA", chave: "35251112965283000195550010000069011208477675" });
     expect((await prisma.sequencia.findUniqueOrThrow({ where: { chave: "NF-12965283000195-55-1-P" } })).valor).toBe(6901);
     expect((await prisma.sequencia.findUniqueOrThrow({ where: { chave: "DPS-12965283000195-900-P" } })).valor).toBe(109);
@@ -366,6 +369,105 @@ describe("origem das notas do Gestão Click", () => {
     expect(await prisma.notaFiscal.findFirstOrThrow({ where: { numero: 6950 } })).toMatchObject({ origemTipo: "VENDA", origemId: venda.id });
     expect((await prisma.notaFiscal.findFirstOrThrow({ where: { numero: 6951 } })).origemId).toBeNull();
     await prisma.pessoa.delete({ where: { id: cli.id } }).catch(() => null);
+  });
+});
+
+describe("ligar notas do Gestão Click às OS", () => {
+  it("usa entrada e saída da OS, liga duas notas a duas OS iguais e não repete documento já ligado", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Empresa", "Venda", "OrdemServico" CASCADE`);
+    await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", nomeFantasia: "MXTECH", cnpj: "12965283000195" } });
+    const cli = await prisma.pessoa.create({ data: { nome: "T-POSTO BANDEIRA", documento: "50488238000186", cliente: true } });
+    const d = (s: string) => new Date(`${s}T12:00:00Z`);
+    // nota emitida 20 dias antes de a OS ser fechada (mas depois da entrada): antes ficava sem ligar
+    const longa = await prisma.ordemServico.create({ data: { numero: 990801, clienteId: cli.id, entrada: d("2025-11-01"), saida: d("2025-11-28"), total: 808, totalServicos: 808 } });
+    // duas OS do mesmo cliente, mesmo valor, mesmo dia: antes era "empate" e nenhuma ganhava nota
+    const a = await prisma.ordemServico.create({ data: { numero: 990802, clienteId: cli.id, entrada: d("2026-03-10"), saida: d("2026-03-10"), total: 220, totalServicos: 220 } });
+    const b = await prisma.ordemServico.create({ data: { numero: 990803, clienteId: cli.id, entrada: d("2026-03-10"), saida: d("2026-03-10"), total: 220, totalServicos: 220 } });
+    // OS que já tem a NFS-e dela: não recebe outra
+    const jaTem = await prisma.ordemServico.create({ data: { numero: 990804, clienteId: cli.id, entrada: d("2026-08-13"), saida: d("2026-08-13"), total: 60, totalServicos: 60 } });
+    await prisma.notaFiscal.create({ data: { modelo: "NFSE", serie: 1, numero: 86, ambiente: "PRODUCAO", status: "AUTORIZADA", valorTotal: 60, origemTipo: "OS", origemId: jaTem.id } });
+    const nota = (numero: number, valor: number, dia: string) => prisma.notaFiscal.create({ data: {
+      modelo: "NFSE", serie: 900, numero, ambiente: "PRODUCAO", status: "AUTORIZADA", valorTotal: valor, emitidaEm: d(dia), destinatarioNome: "T-POSTO BANDEIRA", idLegado: `nota:NFSE:900:${numero}:PRODUCAO`,
+    } });
+    const n1 = await nota(501, 808, "2025-11-08");
+    const n2 = await nota(502, 220, "2026-03-10");
+    const n3 = await nota(503, 220, "2026-03-11");
+    const n4 = await nota(504, 60, "2026-08-14");
+
+    expect(await gc.ligarNotasDoGestaoClick(true)).toEqual({ semOrigem: 4, ligadas: 3 });
+    expect((await prisma.notaFiscal.findUniqueOrThrow({ where: { id: n1.id } })).origemId).toBeNull(); // simulação não grava
+    expect(await gc.ligarNotasDoGestaoClick(false)).toEqual({ semOrigem: 4, ligadas: 3 });
+    const origem = async (id: string) => (await prisma.notaFiscal.findUniqueOrThrow({ where: { id } })).origemId;
+    expect(await origem(n1.id)).toBe(longa.id);
+    expect(new Set([await origem(n2.id), await origem(n3.id)])).toEqual(new Set([a.id, b.id]));
+    expect(await origem(n4.id)).toBeNull();
+    // de novo: nada muda
+    expect(await gc.ligarNotasDoGestaoClick(false)).toEqual({ semOrigem: 1, ligadas: 0 });
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "OrdemServico" CASCADE`);
+    await prisma.pessoa.delete({ where: { id: cli.id } }).catch(() => null);
+  });
+});
+
+describe("vínculo exato das contas e notas do Gestão Click", () => {
+  it("grava a venda da descrição nas contas, numera as parcelas e liga a nota citada pela venda", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Empresa", "Venda", "Lancamento" CASCADE`);
+    await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", nomeFantasia: "MXTECH", cnpj: "12965283000195" } });
+    await prisma.$transaction((tx) => garantirPadroesFin(tx));
+    const cat = await prisma.categoriaFinanceira.findFirstOrThrow({ where: { nome: "Venda de produtos" } });
+    const cli = await prisma.pessoa.create({ data: { nome: "T-POSTO 7066", documento: "50488238000186", cliente: true } });
+    // venda com valor que nenhum palpite acharia (nota de outro valor), mas o GC cita a nota na venda
+    const venda = await prisma.venda.create({ data: { numero: 7066, idLegado: "venda:7066", clienteId: cli.id, data: new Date("2026-01-29T12:00:00Z"), total: 4323.9, totalProdutos: 4323.9 } });
+    const parc = (v: number, venc: string, n: number) => prisma.lancamento.create({ data: {
+      tipo: "RECEBER", descricao: "Venda de nº 7066", valor: v, vencimento: new Date(`${venc}T00:00:00Z`), competencia: new Date(`${venc}T00:00:00Z`), categoriaId: cat.id,
+      pessoaId: cli.id, origemTipo: "IMPLANTACAO", idLegado: `receber:t7066-${n}`,
+    } });
+    const ps = [await parc(1080.96, "2026-11-14", 4), await parc(1080.98, "2026-08-14", 1), await parc(1080.98, "2026-10-14", 3), await parc(1080.98, "2026-09-14", 2)];
+
+    expect(await ligarContasPelaDescricao(true)).toEqual({ soltas: 4, ligadas: 4, numeradas: 4 });
+    expect(await prisma.lancamento.count({ where: { origemId: venda.id } })).toBe(0); // simulação
+    expect(await ligarContasPelaDescricao(false)).toEqual({ soltas: 4, ligadas: 4, numeradas: 4 });
+    const contas = await prisma.lancamento.findMany({ where: { origemId: venda.id }, orderBy: { vencimento: "asc" } });
+    expect(contas.map((c) => [c.origemTipo, c.parcela, c.totalParcelas])).toEqual([["VENDA", 1, 4], ["VENDA", 2, 4], ["VENDA", 3, 4], ["VENDA", 4, 4]]);
+    expect(contas[3].id).toBe(ps[0].id);
+    expect(await ligarContasPelaDescricao(false)).toEqual({ soltas: 0, ligadas: 0, numeradas: 0 });
+
+    const t = await gc.lerBackupGestaoClick(await backup());
+    t.vendas = [{ "n do pedido": "7066", cliente: "T-POSTO 7066", "nf e": "#6756" }];
+    t.notas_fiscais = [{ loja: "MXTECH", numero: "6756", situacao: "Aprovada", serie: "1", chave: "", ambiente: "Produção", "data de emissao": "30/01/2026", "hora de emissao": "10:00:00", "valor total": "4.000,00", "nome do destinatario": "OUTRO NOME" }];
+    await gc.importarBackupGestaoClick(t, { simular: false, etapas: { notas: true } });
+    expect(await prisma.notaFiscal.findFirstOrThrow({ where: { numero: 6756 } })).toMatchObject({ origemTipo: "VENDA", origemId: venda.id });
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Venda", "Lancamento" CASCADE`);
+    await prisma.pessoa.delete({ where: { id: cli.id } }).catch(() => null);
+  });
+
+  it("liga a NF-e pelas duplicatas iguais às parcelas, mesmo emitida meses depois, e corrige palpite antigo", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Empresa", "Venda" CASCADE`);
+    await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", nomeFantasia: "MXTECH", cnpj: "12965283000195" } });
+    const cli = await prisma.pessoa.create({ data: { nome: "T-DUP POSTO", documento: "50488238000186", cliente: true } });
+    const dia = new Date("2026-01-29T12:00:00Z");
+    const certa = await prisma.venda.create({ data: { numero: 8001, idLegado: "venda:8001", clienteId: cli.id, data: dia, total: 300, totalProdutos: 300, situacao: "CONCLUIDA" } });
+    // cancelada com as mesmas parcelas: não conta
+    await prisma.venda.create({ data: { numero: 8002, idLegado: "venda:8002", clienteId: cli.id, data: dia, total: 300, totalProdutos: 300, situacao: "CANCELADA" } });
+    // venda do mesmo valor e data, que o palpite antigo escolheu
+    const errada = await prisma.venda.create({ data: { numero: 8003, idLegado: "venda:8003", clienteId: cli.id, data: new Date("2026-07-28T12:00:00Z"), total: 300, totalProdutos: 300, situacao: "CONCLUIDA" } });
+    const t = await gc.lerBackupGestaoClick(await backup());
+    t.vendas = [];
+    t.vendas_pagamentos = ["8001", "8002"].flatMap((n) => [
+      { "n do pedido": n, vencimento: "28/02/2026", "valor da parcela": "150,00" }, { "n do pedido": n, vencimento: "28/03/2026", "valor da parcela": "150,00" },
+    ]);
+    t.notas_fiscais = [{ loja: "MXTECH", numero: "6901", situacao: "Aprovada", serie: "1", chave: "", ambiente: "Produção", "data de emissao": "30/07/2026", "hora de emissao": "10:00:00", "valor total": "300,00", "nome do destinatario": "T-DUP POSTO" }];
+    t.notas_fiscais_pagamentos = [{ "nota fiscal n": "6901", "data de vencimento": "28/03/2026", valor: "150,00" }, { "nota fiscal n": "6901", "data de vencimento": "28/02/2026", valor: "150,00" }];
+    await prisma.notaFiscal.create({ data: { modelo: "NFE", serie: 1, numero: 6901, ambiente: "PRODUCAO", status: "AUTORIZADA", emitidaEm: new Date("2026-07-30T13:00:00Z"), valorTotal: 300, origemTipo: "VENDA", origemId: errada.id, idLegado: "nota:NFE:1:6901:PRODUCAO" } });
+    const res = await gc.importarBackupGestaoClick(t, { simular: false, etapas: { notas: true } });
+    expect(await prisma.notaFiscal.findFirstOrThrow({ where: { numero: 6901 } })).toMatchObject({ origemTipo: "VENDA", origemId: certa.id });
+    expect(res.find((r) => r.tipo === "notas")!.avisos.join(" ")).toMatch(/1 trocaram de documento/);
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Venda" CASCADE`);
+    await prisma.pessoa.delete({ where: { id: cli.id } }).catch(() => null);
+  });
+
+  it("lê a coluna de nota em vários formatos", () => {
+    expect(gc.notasDaLinha({ "nf e": "#6756", "n da nfs e": "98", valor: "10", nota: "" })).toEqual([{ grupo: "PROD", numero: 6756 }, { grupo: "SERV", numero: 98 }]);
+    expect(gc.notasDaLinha({ "nota fiscal": "6756, 6757" }).map((n) => n.numero)).toEqual([6756, 6757]);
   });
 });
 
@@ -487,5 +589,67 @@ describe("serviços recorrentes do Gestão Click", () => {
 
     await gc.importarBackupGestaoClick(t, { simular: false, etapas });
     expect(await prisma.contrato.count()).toBe(4);
+  });
+});
+
+describe("forma de pagamento e documento das contas do Gestão Click", () => {
+  it("traz formas sem equivalente (Mercado Livre, transferência) e liga a conta à OS/compra; reimportar completa as já trazidas", async () => {
+    const t = await gc.lerBackupGestaoClick(await backup());
+    const cab = Object.keys(t.contas_receber[0]);
+    const linha = (o: Record<string, string>) => Object.fromEntries(cab.map((k) => [k, o[k] ?? t.contas_receber[0][k]]));
+    t.contas_receber.push(linha({ "descricao do recebimento": "Ordem de serviço de nº 7001", situacao: "Não Pago", valor: "250", "valor total": "250", "data do vencimento": "30/12/2026", "forma de pagamento": "MERCADO LIVRE - MXTECH" }));
+    t.contas_receber.push(linha({ "descricao do recebimento": "Venda de nº 99999", situacao: "Não Pago", valor: "10", "valor total": "10", "data do vencimento": "30/12/2026", "forma de pagamento": "A Combinar" }));
+    t.contas_pagar = [linha({ "descricao do recebimento": "Compra de nº 990", situacao: "Não Pago", "plano de contas": "Compras de mercadorias", "entidade nome": "FOLK COMERCIO E DISTRIBUICAO LTDA", valor: "85", "valor total": "85", "data do vencimento": "30/12/2026", "forma de pagamento": "Transferência Bancária" })];
+    await gc.importarBackupGestaoClick(t, { simular: false });
+
+    const os = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 } });
+    const lo = await prisma.lancamento.findFirstOrThrow({ where: { descricao: "Ordem de serviço de nº 7001" }, include: { formaPagamento: true } });
+    expect(lo).toMatchObject({ origemTipo: "OS", origemId: os.id });
+    expect(lo.formaPagamento?.nome).toBe("Mercado Livre");
+    const compra = await prisma.compra.findUniqueOrThrow({ where: { numero: 990 } });
+    const lc = await prisma.lancamento.findFirstOrThrow({ where: { descricao: { startsWith: "Compra de nº 990" } }, include: { formaPagamento: true } });
+    expect(lc).toMatchObject({ tipo: "PAGAR", origemTipo: "COMPRA", origemId: compra.id });
+    expect(lc.formaPagamento).toMatchObject({ nome: "Transferência bancária", tPag: "18" });
+    // venda que não veio do backup: fica sem documento, mas com a forma de lá
+    const lv = await prisma.lancamento.findFirstOrThrow({ where: { descricao: "Venda de nº 99999" }, include: { formaPagamento: true } });
+    expect(lv).toMatchObject({ origemTipo: "IMPLANTACAO", origemId: null });
+    expect(lv.formaPagamento?.nome).toBe("A Combinar");
+    expect((await prisma.lancamento.findFirstOrThrow({ where: { descricao: "Venda de nº 8002" }, include: { formaPagamento: true } })).formaPagamento?.nome).toBe("Cartão de crédito");
+
+    // como em produção: contas trazidas antes desta correção, sem forma e sem documento
+    await prisma.lancamento.updateMany({ where: { id: { in: [lo.id, lc.id] } }, data: { formaPagamentoId: null, origemTipo: "IMPLANTACAO", origemId: null } });
+    // só completar: a conta excluída no MXERP não volta
+    await prisma.lancamento.delete({ where: { id: lv.id } });
+    // a lista do financeiro já acha o documento pelo número da descrição, antes de completar
+    const { origemPelaDescricao } = await import("@/lib/financeiro/origem");
+    const soltas = await prisma.lancamento.findMany({ where: { id: { in: [lo.id, lc.id] } } });
+    const achadas = await origemPelaDescricao(soltas);
+    expect(achadas.get(lo.id)).toEqual({ origemTipo: "OS", origemId: os.id });
+    expect(achadas.get(lc.id)).toEqual({ origemTipo: "COMPRA", origemId: compra.id });
+    expect((await origemPelaDescricao([{ id: "x", descricao: "Venda de nº 99999", origemTipo: "IMPLANTACAO", origemId: null }])).size).toBe(0);
+    const sim = await gc.importarBackupGestaoClick(t, { simular: true, etapas: { completarContas: true } });
+    expect(sim.find((r) => r.tipo === "receber")!.avisos.join(" ")).toMatch(/1 contas trazidas antes vão ganhar a forma/);
+    expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: lo.id } })).origemId).toBeNull();
+    const res = await gc.importarBackupGestaoClick(t, { simular: false, etapas: { completarContas: true } });
+    expect(res.find((r) => r.tipo === "pagar")!.avisos.join(" ")).toMatch(/1 contas trazidas antes ganharam/);
+    expect(await prisma.lancamento.findUniqueOrThrow({ where: { id: lo.id } })).toMatchObject({ origemTipo: "OS", origemId: os.id, formaPagamentoId: lo.formaPagamentoId });
+    expect(await prisma.lancamento.findUniqueOrThrow({ where: { id: lc.id } })).toMatchObject({ origemTipo: "COMPRA", origemId: compra.id, formaPagamentoId: lc.formaPagamentoId });
+    expect(await prisma.lancamento.count()).toBe(4);
+    // com a etapa de contas marcada, a reimportação também completa
+    await prisma.lancamento.update({ where: { id: lo.id }, data: { formaPagamentoId: null } });
+    await gc.importarBackupGestaoClick(t, { simular: false, etapas: { receber: true } });
+    expect((await prisma.lancamento.findUniqueOrThrow({ where: { id: lo.id } })).formaPagamentoId).toBe(lo.formaPagamentoId);
+  });
+});
+
+describe("documento citado na descrição da conta", () => {
+  it("reconhece venda, OS e compra", () => {
+    expect(gc.documentoDaConta("Venda de nº 8558")).toEqual({ tipo: "VENDA", numero: 8558 });
+    expect(gc.documentoDaConta("Ordem de serviço de nº 6946")).toEqual({ tipo: "OS", numero: 6946 });
+    expect(gc.documentoDaConta("Compra de nº 947 (JABU ELETRICA)")).toEqual({ tipo: "COMPRA", numero: 947 });
+    expect(gc.documentoDaConta("Aluguel")).toBeNull();
+    expect(gc.formaPara("MERCADO LIVRE - MXTECH")).toBe("Mercado Livre");
+    expect(gc.formaPara("Dinheiro Parcelado")).toBe("Crediário / a prazo");
+    expect(gc.formaPara("")).toBeNull();
   });
 });

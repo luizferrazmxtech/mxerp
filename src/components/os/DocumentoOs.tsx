@@ -1,20 +1,30 @@
 import { prisma } from "@/lib/db";
+import { empresaDosServicos } from "@/lib/os/faturamento";
+import { ATIVOS } from "@/lib/financeiro/boletos";
 import { empresaDoDocumento } from "@/lib/empresa/atual";
-import { brl, dataSP, horaSP, qtd } from "@/lib/ui/format";
+import { brl, dataSP, docFmt, horaSP, qtd } from "@/lib/ui/format";
 import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
 import { fotosDoHistorico } from "@/lib/os/historicoFotos";
 import { rotuloPrioridade } from "@/lib/os/tipos";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
-/** simples = a OS de sempre; completa = todas as abas; historico = completa + histórico datado com as fotos. */
+/**
+ * simples = a OS do cliente (link de cobrança, Área do Cliente, impressão comum): dados da OS, observações,
+ * tempo total de execução e fotos da instalação. Nada administrativo (histórico, trechos de mão de obra,
+ * observação interna, anotações) entra nela.
+ * completa / historico = impressão administrativa (uso interno, só com a permissão os.imprimirAdministrativa).
+ */
 export type ModoImpressao = "simples" | "completa" | "historico";
 const quando = (d: Date | string | null | undefined) => (d ? `${dataSP(d)} ${horaSP(d)}` : "—");
+/** Só fotos (SVG fica de fora: pode carregar script). */
+const IMAGENS = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const titulo = "mb-1 mt-4 border-b border-slate-400 pb-0.5 text-[11px] font-semibold uppercase text-slate-600";
 
-const docFmt = (d: string | null | undefined) =>
-  !d ? "" : d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
 
 /** OS impressa / link de cobrança da OS (A4, com a marca MXTECH). */
-export default async function DocumentoOs({ id, token, cobranca, modo = "simples" }: { id?: string; token?: string; cobranca?: boolean; modo?: ModoImpressao }) {
+export default async function DocumentoOs({ id, token, cobranca, modo: modoPedido = "simples" }: { id?: string; token?: string; cobranca?: boolean; modo?: ModoImpressao }) {
+  // o link público (token) é sempre a versão do cliente, qualquer que seja o modo pedido
+  const modo: ModoImpressao = token || cobranca ? "simples" : modoPedido;
   const [os] = await Promise.all([
     prisma.ordemServico.findFirst({
       where: id ? { id } : { token },
@@ -32,32 +42,49 @@ export default async function DocumentoOs({ id, token, cobranca, modo = "simples
   const emp = os ? await empresaDoDocumento(os.empresaId) : null;
   if (!os || (cobranca && os.situacaoCfg?.exibirCobranca === false)) return <p className="p-8 text-center">Ordem de serviço não encontrada.</p>;
   const [lanc, tecs] = await Promise.all([
-    prisma.lancamento.findMany({ where: { origemTipo: "OS", origemId: os.id }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }], include: { formaPagamento: true } }),
+    prisma.lancamento.findMany({ where: { origemTipo: "OS", origemId: os.id, tipo: "RECEBER" }, orderBy: [{ vencimento: "asc" }, { parcela: "asc" }], include: { formaPagamento: true, boletos: { where: { situacao: { in: ATIVOS } }, select: { token: true }, take: 1 } } }),
     prisma.usuario.findMany({ where: { id: { in: os.tecnicoIds } }, select: { nome: true } }),
   ]);
   const completa = modo !== "simples";
-  const [trabalho, fotos, notas, anotacoes, campos, instaladores] = completa ? await Promise.all([
+  const [trabalho, fotos] = await Promise.all([
     resumoTrabalho(os.id),
-    prisma.anexo.findMany({ where: { entidade: "OS_FOTO", entidadeId: os.id }, select: { id: true, nome: true, createdAt: true, referencia: true }, orderBy: { createdAt: "asc" } }),
-    prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: os.id }, orderBy: { createdAt: "asc" } }),
+    prisma.anexo.findMany({ where: { entidade: "OS_FOTO", entidadeId: os.id, ...(completa ? {} : { tipo: { in: IMAGENS } }) }, select: { id: true, nome: true, createdAt: true, referencia: true }, orderBy: { createdAt: "asc" } }),
+  ]);
+  // notas da OS (a do cliente só vê as autorizadas), com a empresa que emitiu cada uma
+  const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: os.id, ...(completa ? {} : { status: "AUTORIZADA" }) }, orderBy: { createdAt: "asc" }, select: { id: true, modelo: true, serie: true, numero: true, numeroNfse: true, status: true, valorTotal: true, emitidaEm: true, chave: true, empresaId: true } });
+  const emissoras = new Map((await prisma.empresa.findMany({ where: { id: { in: [...new Set(notas.map((n) => n.empresaId).filter((x): x is string => !!x))] } }, select: { id: true, razaoSocial: true, cnpj: true } })).map((e) => [e.id, e]));
+  const [anotacoes, campos, instaladores] = completa ? await Promise.all([
     prisma.anotacao.findMany({ where: { entidade: "OS", entidadeId: os.id }, orderBy: { createdAt: "asc" } }),
     prisma.campoExtra.findMany({ where: { entidade: "OS" }, orderBy: [{ ordem: "asc" }, { nome: "asc" }] }),
     prisma.usuario.findMany({ where: { id: { in: [...os.produtos, ...os.servicos].map((i) => i.instaladoPorId).filter((x): x is string => !!x) } }, select: { id: true, nome: true } }),
-  ]) : [null, [], [], [], [], []] as const;
+  ]) : [[], [], []] as const;
   const nomeUsu = new Map(instaladores.map((u) => [u.id, u.nome]));
   const autoresAnot = completa ? new Map((await prisma.usuario.findMany({ where: { id: { in: anotacoes.map((a) => a.usuarioId).filter((x): x is string => !!x) } }, select: { id: true, nome: true } })).map((u) => [u.id, u.nome])) : new Map<string, string>();
   const tecnicos = (tecs.length ? tecs.map((t) => t.nome) : [os.tecnico?.nome]).filter(Boolean).join(", ")
-    || (trabalho ? [...new Set(trabalho.trechos.map((t) => t.iniciadoPor))].join(", ") : "");
+    || (completa ? [...new Set(trabalho.trechos.map((t) => t.iniciadoPor))].join(", ") : "");
   const fotosItem = (itemId: string) => fotos.filter((f) => f.referencia === itemId);
   const fotoDaLinha = modo === "historico" ? fotosDoHistorico(os.historico, fotos) : new Map<string, string>();
-  const totalTrabalho = trabalho ? trabalho.fechadoMs + (trabalho.abertoDesde ? Date.now() - new Date(trabalho.abertoDesde).getTime() : 0) : 0;
+  const totalTrabalho = trabalho.fechadoMs + (trabalho.abertoDesde ? Date.now() - new Date(trabalho.abertoDesde).getTime() : 0);
+  // a foto sai pela rota do link público (token) ou pela do ERP (logado)
+  const urlFoto = (fotoId: string) => (token ? `/cobranca/os/${token}/foto/${fotoId}` : `/api/cadastros/anexo/${fotoId}`);
+  const nomeItem = new Map<string, string>([...os.produtos.map((p) => [p.id, p.produto.nome] as const), ...os.servicos.map((s) => [s.id, s.servico.nome] as const)]);
   const ce = (os.camposExtras ?? {}) as Record<string, string>;
   const statusItem = (i: { instalado: boolean; instaladoEm: Date | null; instaladoPorId: string | null }, servico?: boolean) =>
     i.instalado ? `${servico ? "Feito" : "Instalado"}${i.instaladoEm ? ` ${quando(i.instaladoEm)}` : ""}${i.instaladoPorId && nomeUsu.get(i.instaladoPorId) ? ` · ${nomeUsu.get(i.instaladoPorId)}` : ""}` : "Pendente";
   const c = os.cliente;
+  // serviços faturados por outra empresa (ex.: VFX): cada parcela diz quem cobra (peças e serviços em boletos separados)
+  const fora = empresaDosServicos(os);
+  const empresasCobranca = fora ? new Map((await prisma.empresa.findMany({ where: { id: { in: [...new Set(lanc.map((l) => l.empresaId).filter((x): x is string => !!x))] } }, select: { id: true, nomeFantasia: true, razaoSocial: true } })).map((e) => [e.id, e.id === fora ? e.razaoSocial : e.nomeFantasia || e.razaoSocial])) : new Map<string, string>();
   const parcelas = lanc.length
-    ? lanc.map((l) => ({ id: l.id, n: l.parcela, venc: l.vencimento, valor: l.valor, forma: l.formaPagamento?.nome, pago: !!l.pagoEm }))
-    : os.parcelas.map((p) => ({ id: p.id, n: p.numero, venc: p.vencimento, valor: p.valor, forma: p.formaPagamento?.nome ?? os.formaPagamento?.nome, pago: false }));
+    ? lanc.map((l) => ({ id: l.id, n: l.parcela, de: l.totalParcelas, venc: l.vencimento, valor: l.valor, forma: l.formaPagamento?.nome, pago: !!l.pagoEm,
+      pagoEm: l.pagoEm, boleto: l.boletos[0]?.token ?? null,
+      quem: fora ? `${l.empresaId === fora ? "Serviços" : "Peças"} · ${empresasCobranca.get(l.empresaId ?? "") ?? emp?.nomeFantasia ?? emp?.razaoSocial ?? ""}` : "" }))
+    : os.parcelas.map((p) => ({ id: p.id, n: p.numero, de: os.parcelas.length, venc: p.vencimento, valor: p.valor, forma: p.formaPagamento?.nome ?? os.formaPagamento?.nome, pago: false, pagoEm: null as Date | null, boleto: null as string | null, quem: "" }));
+  // tarja de atenção quando peças e serviços saem por empresas diferentes do grupo (notas e cobranças separadas)
+  const empServ = fora ? await prisma.empresa.findUnique({ where: { id: fora }, select: { razaoSocial: true, cnpj: true } }) : null;
+  const grupo = emp?.nomeFantasia || emp?.razaoSocial || "MXTECH";
+  const hojeUtc = new Date(new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }) + "T00:00:00Z");
+  const situacaoParcela = (p: { pagoEm: Date | null; venc: Date }) => (!lanc.length ? "" : p.pagoEm ? `Paga em ${p.pagoEm.toLocaleDateString("pt-BR", { timeZone: "UTC" })}` : p.venc < hojeUtc ? "Atrasada" : "Em aberto");
   return (
     <div className="mx-auto max-w-[820px] bg-white p-6 text-[12px] text-black print:p-0">
       <header className="flex items-center gap-4 border-b-2 border-marca pb-3">
@@ -71,10 +98,20 @@ export default async function DocumentoOs({ id, token, cobranca, modo = "simples
         </div>
       </header>
 
+      {completa && <div className="mt-2 rounded border border-amber-400 bg-amber-50 px-2 py-1 text-[11px] font-semibold uppercase text-amber-800">Uso interno · informação administrativa, não enviar ao cliente</div>}
+
       <div className="mt-3 flex items-end justify-between">
-        <h1 className="text-[18px] font-semibold">Ordem de serviço nº {os.numero}{modo === "completa" && <span className="ml-2 text-[12px] font-normal text-slate-500">(completa)</span>}{modo === "historico" && <span className="ml-2 text-[12px] font-normal text-slate-500">(completa com histórico)</span>}</h1>
+        <h1 className="text-[18px] font-semibold">Ordem de serviço nº {os.numero}{modo === "completa" && <span className="ml-2 text-[12px] font-normal text-slate-500">(administrativa)</span>}{modo === "historico" && <span className="ml-2 text-[12px] font-normal text-slate-500">(administrativa com histórico)</span>}</h1>
         <div className="text-right">Situação: <b>{os.situacaoCfg?.nome ?? os.situacao}</b><br />Entrada: {dataSP(os.entrada)} {horaSP(os.entrada)}{os.saida && <> · Saída: {dataSP(os.saida)}</>}</div>
       </div>
+
+      {empServ && (
+        <div className="mt-3 rounded border-2 border-amber-500 bg-amber-50 px-3 py-2 text-[11.5px] [print-color-adjust:exact]" style={{ breakInside: "avoid" }}>
+          <div className="text-[12.5px] font-bold uppercase text-amber-900">Atenção: nota de peças e serviços emitida pelo grupo {grupo}</div>
+          <div className="mt-0.5">Peças: <b>{emp?.razaoSocial}</b>{emp && ` (CNPJ ${docFmt(emp.cnpj)})`} · Serviços: <b>{empServ.razaoSocial}</b> (CNPJ {docFmt(empServ.cnpj)})</div>
+          <div className="text-[10.5px] text-slate-700">As notas fiscais e as cobranças (boletos) saem separadas, uma de cada empresa.</div>
+        </div>
+      )}
 
       <section className="mt-3 rounded border border-slate-300 p-2.5">
         <div className="mb-1 text-[10px] font-semibold uppercase text-slate-500">Cliente</div>
@@ -157,17 +194,36 @@ export default async function DocumentoOs({ id, token, cobranca, modo = "simples
 
       {parcelas.length > 0 && (
         <table className="mt-3 w-full border-collapse">
-          <thead><tr className="border-b border-slate-400 text-left"><th className="py-1">Pagamento</th><th className="w-28">Vencimento</th><th className="w-40">Forma</th><th className="w-24 text-right">Valor</th></tr></thead>
-          <tbody>{parcelas.map((p) => <tr key={p.id} className="border-b border-slate-200"><td className="py-1">Parcela {p.n}/{parcelas.length}{p.pago ? " · paga" : ""}</td><td>{p.venc.toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td><td>{p.forma ?? "A combinar"}</td><td className="text-right">{brl(p.valor)}</td></tr>)}</tbody>
+          <thead><tr className="border-b border-slate-400 text-left"><th className="py-1">Pagamento</th><th className="w-24">Vencimento</th><th className="w-32">Forma</th><th className="w-28">Situação</th><th className="w-24 text-right">Valor</th></tr></thead>
+          <tbody>{parcelas.map((p) => (
+            <tr key={p.id} className="border-b border-slate-200">
+              <td className="py-1">Parcela {p.n}/{p.de}{p.quem ? ` · ${p.quem}` : ""}</td><td>{p.venc.toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td>
+              <td>{p.forma ?? "A combinar"}{p.boleto && !p.pago && <> · <a href={`/cobranca/boleto/${p.boleto}`} target="_blank" className="text-marca underline">boleto</a></>}</td>
+              <td>{situacaoParcela(p)}</td><td className="text-right">{brl(p.valor)}</td>
+            </tr>
+          ))}</tbody>
         </table>
       )}
 
       {os.observacoes && <section className="mt-3 whitespace-pre-line"><b>Observações:</b> {os.observacoes}</section>}
       {!completa && <div className="mt-2 text-[11px]">Técnico: {tecnicos || "—"} · Vendedor: {os.vendedor?.nome ?? "—"}</div>}
+      {!completa && trabalho.estado !== "NAO_INICIADO" && <div className="mt-1 text-[12px]"><b>Tempo de execução:</b> {duracao(totalTrabalho)}{trabalho.estado === "FINALIZADO" ? "" : " (em andamento)"}</div>}
+      {!completa && fotos.length > 0 && (
+        <>
+          <div className={titulo}>Fotos da instalação</div>
+          <div className="flex flex-wrap gap-2">{fotos.map((f) => (
+            <figure key={f.id} style={{ breakInside: "avoid" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={urlFoto(f.id)} alt={f.nome} className="h-40 w-auto max-w-[260px] rounded border object-contain" />
+              <figcaption className="max-w-[260px] text-[10px] text-slate-500">{[f.referencia ? nomeItem.get(f.referencia) : null, quando(f.createdAt)].filter(Boolean).join(" · ")}</figcaption>
+            </figure>
+          ))}</div>
+        </>
+      )}
 
       {completa && os.observacaoInterna && <section className="mt-2 whitespace-pre-line"><b>Observação interna:</b> {os.observacaoInterna}</section>}
 
-      {completa && trabalho && trabalho.estado !== "NAO_INICIADO" && (
+      {completa && trabalho.estado !== "NAO_INICIADO" && (
         <>
           <div className={titulo}>Mão de obra · {duracao(totalTrabalho)}{{ TRABALHANDO: " · trabalhando agora", PAUSADO: " · pausado", FINALIZADO: " · finalizado", NAO_INICIADO: "" }[trabalho.estado]}</div>
           <table className="w-full border-collapse">
@@ -189,10 +245,20 @@ export default async function DocumentoOs({ id, token, cobranca, modo = "simples
         </>
       )}
 
-      {completa && notas.length > 0 && (
+      {notas.length > 0 && (
         <>
           <div className={titulo}>Notas fiscais</div>
-          {notas.map((n) => <div key={n.id}>{n.modelo === "NFSE" ? "NFS-e" : n.modelo === "NFCE" ? "NFC-e" : "NF-e"} nº {n.numero} · {n.status.toLowerCase()} · {brl(n.valorTotal)}{n.emitidaEm ? ` · ${quando(n.emitidaEm)}` : ""}</div>)}
+          {notas.map((n) => {
+            const e = n.empresaId ? emissoras.get(n.empresaId) : null;
+            return (
+              <div key={n.id} className="mb-1" style={{ breakInside: "avoid" }}>
+                <b>{n.modelo === "NFSE" ? "NFS-e" : n.modelo === "NFCE" ? "NFC-e" : "NF-e"} nº {numeroDaNota(n)}</b>{n.modelo !== "NFSE" ? ` série ${n.serie}` : ""}
+                {completa ? ` · ${n.status.toLowerCase()}` : ""} · {brl(n.valorTotal)}{n.emitidaEm ? ` · emitida em ${quando(n.emitidaEm)}` : ""}
+                {e && <span> · {e.razaoSocial} (CNPJ {docFmt(e.cnpj)})</span>}
+                {n.chave && n.status === "AUTORIZADA" && <div className="break-all text-[10px] text-slate-600">Chave de acesso: {n.chave}</div>}
+              </div>
+            );
+          })}
         </>
       )}
 

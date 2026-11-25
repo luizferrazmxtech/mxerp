@@ -6,6 +6,7 @@ import path from "node:path";
 import { lerCertificado } from "@/lib/fiscal/certificado";
 import { verificarAssinatura, assinarXml } from "@/lib/fiscal/assinatura";
 import { ClienteNfse, assinarDps, gunzipB64, gzipB64, idDps, montarDps, montarPedidoCancelamento, type DadosDps, type TransporteRest } from "@/lib/fiscal/nfse";
+import { lerConfigNfse } from "@/lib/fiscal/configNfse";
 import { pfxDeTeste } from "./helpers/certificado-teste";
 
 const { pfx, senha } = pfxDeTeste();
@@ -52,6 +53,48 @@ describe("NFS-e nacional", () => {
     expect(xsd(assinarDps(xml, cert), "DPS_v1.00.xsd")).toBe("ok");
   });
 
+  it("ME/EPP do Simples manda o % aproximado do Simples, não o indTotTrib (E0712)", () => {
+    const me = montarDps({ ...dados, prestador: { ...dados.prestador, pTotTribSN: 11.2 } }).xml;
+    expect(me).toContain("<totTrib><pTotTribSN>11.20</pTotTribSN></totTrib>");
+    expect(me).not.toContain("indTotTrib");
+    expect(xsd(assinarDps(me, cert), "DPS_v1.00.xsd")).toBe("ok");
+    expect(montarDps(dados).xml).toContain("<pTotTribSN>6.00</pTotTribSN>");
+    const normal = montarDps({ ...dados, prestador: { ...dados.prestador, opSimpNac: 1 }, servico: { ...dados.servico, aliquotaIss: 2 } }).xml;
+    expect(normal).toContain("<indTotTrib>0</indTotTrib>");
+    expect(lerConfigNfse({ pTotTribSN: "11,20" }).pTotTribSN).toBe(11.2);
+    expect(lerConfigNfse({ pTotTribSN: "6.5" }).pTotTribSN).toBe(6.5);
+    expect(lerConfigNfse({ pTotTribSN: "" }).pTotTribSN).toBeNull();
+  });
+
+  it("sem inscrição municipal a DPS sai sem <IM> e valida (E0120)", () => {
+    const { xml } = montarDps({ ...dados, prestador: { ...dados.prestador, im: null } });
+    expect(xml).not.toContain("<IM>");
+    expect(xsd(assinarDps(xml, cert), "DPS_v1.00.xsd")).toBe("ok");
+  });
+
+  it("natureza, apuração, imunidade e suspensão da empresa vão na DPS e validam no schema", () => {
+    const sus = montarDps({
+      ...dados,
+      prestador: { ...dados.prestador, regApTribSN: 2 },
+      servico: { ...dados.servico, aliquotaIss: 3, suspensao: { tpSusp: 2, nProcesso: "123456/2026" } },
+    }).xml;
+    expect(sus).toContain("<regApTribSN>2</regApTribSN>");
+    expect(sus).toContain(`<exigSusp><tpSusp>2</tpSusp><nProcesso>${"1234562026".padStart(30, "0")}</nProcesso></exigSusp>`);
+    expect(sus).toContain("<pAliq>3.00</pAliq>"); // ISS por fora do Simples: informa a alíquota
+    expect(xsd(assinarDps(sus, cert), "DPS_v1.00.xsd")).toBe("ok");
+    const imune = montarDps({ ...dados, servico: { ...dados.servico, tribISSQN: 2, tpImunidade: 3 } }).xml;
+    expect(imune).toContain("<tribISSQN>2</tribISSQN><tpImunidade>3</tpImunidade>");
+    expect(xsd(assinarDps(imune, cert), "DPS_v1.00.xsd")).toBe("ok");
+    const naoInc = montarDps({ ...dados, servico: { ...dados.servico, tribISSQN: 4 } }).xml;
+    expect(xsd(assinarDps(naoInc, cert), "DPS_v1.00.xsd")).toBe("ok");
+  });
+
+  it("a DPS vai para a Sefin com a declaração UTF-8 (E1229) e sem duplicar", () => {
+    const xml = gunzipB64(gzipB64(montarDps(dados).xml));
+    expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?><DPS')).toBe(true);
+    expect(gunzipB64(gzipB64('\uFEFF<?xml version="1.0"?><a/>'))).toBe('<?xml version="1.0" encoding="UTF-8"?><a/>');
+  });
+
   it("pedido de cancelamento é válido no schema", () => {
     const chave = "3548906212345678000195000000000004227011234567890".padEnd(50, "0");
     const xml = montarPedidoCancelamento({ tpAmb: 2, cnpj: "12345678000195", chave, cMotivo: 1, motivo: "Erro no valor do serviço informado" });
@@ -67,7 +110,8 @@ describe("NFS-e nacional", () => {
       return { status: 201, corpo: JSON.stringify({ chaveAcesso: "3".repeat(50), nfseXmlGZipB64: gzipB64("<NFSe/>") }) };
     };
     const r = await new ClienteNfse(cert, 2, fake).emitir(assinarDps(montarDps(dados).xml, cert));
-    expect(r).toMatchObject({ ok: true, chave: "3".repeat(50), xmlNfse: "<NFSe/>" });
+    expect(r).toMatchObject({ ok: true, chave: "3".repeat(50) });
+    expect(r.xmlNfse).toContain("<NFSe/>");
     expect(gunzipB64(enviado!.dpsXmlGZipB64)).toContain("<infDPS");
   });
 

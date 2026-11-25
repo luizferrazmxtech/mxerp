@@ -280,6 +280,46 @@ describe("boletos do Inter", () => {
     await expect(avisos.baixarContaDoAviso(lista[2].id, nova.id, "Luiz")).rejects.toThrow(/já foi resolvido/);
   });
 
+  it("boleto de fora (Gestão Click) cujo recebimento já está lançado não fica como aviso pendente", async () => {
+    const f = interFalso();
+    const pago = somarDias(hoje, -2);
+    // a conta veio da migração já recebida (vence um dia antes, recebida um dia depois do pagamento no Inter)
+    const conta = await parcela({ valor: 1080.96, vencimento: somarDias(pago, -1), idLegado: "gc:receber:1" });
+    await prisma.lancamento.update({ where: { id: conta.id }, data: { pagoEm: somarDias(pago, 1), valorPago: 1080.96 } });
+    // parcela anterior do mesmo cliente, quase o mesmo valor, longe da data: não pode ser a escolhida
+    const antiga = await parcela({ valor: 1080.98, vencimento: somarDias(pago, -92), idLegado: "gc:receber:2", parcela: 2 });
+    await prisma.lancamento.update({ where: { id: antiga.id }, data: { pagoEm: somarDias(pago, -92), valorPago: 1080.98 } });
+    f.cobrancas.set("gc-1", {
+      cobranca: { codigoSolicitacao: "gc-1", seuNumero: "4736", situacao: "RECEBIDO", valorNominal: 1080.96, valorTotalRecebido: 1080.96, dataSituacao: iso(pago), origemRecebimento: "BOLETO", pagador: { nome: "FOLK COMERCIO LTDA", cpfCnpj: "12.345.678/0001-95" } },
+      boleto: { nossoNumero: "90802908999" }, pix: {},
+    });
+    // outro boleto de fora, sem nada lançado: continua pendente
+    f.cobrancas.set("gc-2", {
+      cobranca: { codigoSolicitacao: "gc-2", seuNumero: "4740", situacao: "RECEBIDO", valorNominal: 333, valorTotalRecebido: 333, dataSituacao: iso(pago), pagador: { nome: "FOLK COMERCIO LTDA", cpfCnpj: "12.345.678/0001-95" } },
+      boleto: { nossoNumero: "90802909000" }, pix: {},
+    });
+    const r = await bol.sincronizarBoletos({ cliente: f.cliente() });
+    expect(r).toMatchObject({ avisos: 1, erros: [] });
+    const a = await prisma.avisoBoleto.findUniqueOrThrow({ where: { codigoSolicitacao: "gc-1" } });
+    expect(a).toMatchObject({ lancamentoId: conta.id, resolvidoPor: "MXERP (automático)" });
+    expect(a.resolucao).toMatch(/Já estava lançado: "Venda de nº 77"/);
+    expect(await avisos.avisosPendentes()).toBe(1);
+
+    // aviso antigo, criado antes de o recebimento ser lançado: encerra quando a conta aparece
+    const nova = await parcela({ valor: 333, vencimento: pago, idLegado: "gc:receber:3", parcela: 3 });
+    await prisma.lancamento.update({ where: { id: nova.id }, data: { pagoEm: pago, valorPago: 333 } });
+    expect(await avisos.avisosPendentes()).toBe(0);
+    expect((await prisma.avisoBoleto.findUniqueOrThrow({ where: { codigoSolicitacao: "gc-2" } })).lancamentoId).toBe(nova.id);
+  });
+
+  it("contas em aberto do aviso: a do mesmo pagador e valor vem primeiro", async () => {
+    const outro = await prisma.pessoa.create({ data: { nome: "OUTRO", documento: "99999999000191" } });
+    const longe = await parcela({ valor: 50, pessoaId: outro.id, vencimento: somarDias(hoje, -1) });
+    const certa = await parcela({ valor: 50, vencimento: somarDias(hoje, 20), parcela: 2 });
+    const lista = await avisos.candidatasDoAviso({ pagadorDocumento: "12345678000195", valor: null, valorRecebido: new (await import("@prisma/client")).Prisma.Decimal(50), pagoEm: hoje });
+    expect(lista.map((l) => l.id).slice(0, 2)).toEqual([certa.id, longe.id]);
+  });
+
   it("webhook de boleto que não é nosso: consulta e avisa só se foi pago", async () => {
     const f = interFalso();
     f.cobrancas.set("ext-2", { cobranca: { codigoSolicitacao: "ext-2", situacao: "A_RECEBER", valorNominal: 50 }, boleto: {}, pix: {} });

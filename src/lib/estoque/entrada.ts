@@ -49,3 +49,26 @@ export async function resolvedorDeLocal(tx: Tx, depositoId: string | null) {
     return locais[0].id;
   };
 }
+
+/**
+ * Local da loja quando o documento não diz de onde sai ou para onde volta (venda com falta baixada no negativo,
+ * devolução, estorno de venda/OS migrada, ajuste sem prateleira): o local padrão do produto, se for desta loja e não
+ * for carro; senão o primeiro local do estoque padrão de entrada. Nunca o carro de uma equipe: só OS de equipe e
+ * transferência mexem no carro. Antes caía no primeiro local pelo código, que podia ser o carro (CARRO-… < LOJA…).
+ */
+export async function localDaLoja(tx: Tx | typeof prisma, localPadraoProduto?: string | null): Promise<string> {
+  if (localPadraoProduto) {
+    const deposito = (await estoquesDeEntrada(tx)).filter((d) => !d.carro).map((d) => d.id);
+    const ok = await tx.local.findFirst({ where: { id: localPadraoProduto, ativo: true, depositoId: { in: deposito } }, select: { id: true } });
+    if (ok) return ok.id;
+  }
+  const dep = await estoquePadraoEntrada(tx);
+  const l = dep ? await tx.local.findFirst({ where: { depositoId: dep, ativo: true }, orderBy: { codigo: "asc" }, select: { id: true } }) : null;
+  if (!l) throw new Error("Cadastre um estoque da loja (Estoque › Locais) com ao menos um local ativo");
+  return l.id;
+}
+
+/** true se o local é de um carro (depósito de equipe). */
+export async function localEhCarro(tx: Tx | typeof prisma, localId: string) {
+  return (await tx.local.count({ where: { id: localId, deposito: { equipeId: { not: null } } } })) > 0;
+}

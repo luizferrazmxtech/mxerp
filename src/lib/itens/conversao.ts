@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { entrada, saida } from "@/lib/estoque/estoque";
+import { localDaLoja } from "@/lib/estoque/entrada";
 import { mesmaUnidade, textoConversao } from "./unidades";
 import { lerNumero } from "./tipos";
 
@@ -85,12 +86,12 @@ export async function alterarConversao(produtoId: string, d: DadosConversao, u: 
     // 1) compras já lançadas: a linha passa a valer o novo fator; se a compra deu entrada no estoque, entra/sai a diferença
     let corrigidas = 0;
     if (d.corrigirCompras) {
-      const localPadrao = p.localPadraoId ?? (await tx.local.findFirst({ orderBy: { codigo: "asc" }, select: { id: true } }))?.id;
+      let localPadrao: string | undefined;
       for (const l of linhas.filter((x) => x.naCompra && Math.abs(Number(x.fator) - fn) > 1e-9)) {
         const delta = Math.round(Number(l.quantidade) * (fn - Number(l.fator)) * 10000) / 10000;
         const lancou = await tx.movimentoEstoque.count({ where: { origemTipo: "COMPRA", origemId: l.compraId, produtoId, tipo: "ENTRADA" } });
         if (lancou && delta && p.controlaEstoque) {
-          const localId = l.localId ?? localPadrao;
+          const localId = l.localId ?? (localPadrao ??= await localDaLoja(tx, p.localPadraoId));
           if (!localId) throw new ConversaoError("Cadastre um local de estoque");
           const obs = `Conversão corrigida (${sem ? `1 ${p.unidade}` : textoConversao(un, fn, p.unidade)}) na compra nº ${l.compra.numero}`;
           const custoNovo = Number(l.subtotal) > 0 ? Number(l.subtotal) / (Number(l.quantidade) * fn) : undefined;

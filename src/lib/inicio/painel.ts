@@ -2,8 +2,10 @@
  * Números da tela inicial (dashboard). Cada bloco só é calculado se a pessoa pode ver a área:
  * financeiro e vendas ficam com quem tem acesso a essas telas.
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { sqlDaLoja } from "@/lib/empresa/loja";
+import { lojaAtualId, sqlDaLoja } from "@/lib/empresa/loja";
+import { sqlServicosFora } from "@/lib/os/faturamento";
 import { diaSP, mesesRecentes, rotuloMesCurto, somarDias } from "@/lib/datas";
 import { saldosContas } from "@/lib/financeiro/lancamentos";
 
@@ -69,14 +71,22 @@ async function financeiro(meses: Mes[], hoje: Date) {
 
 async function vendas(meses: Mes[]) {
   const ini = new Date(`${meses[0].chave}-01T00:00:00-03:00`);
-  const fl = await sqlDaLoja(`"empresaId"`);
+  const fl = await sqlDaLoja(`"empresaId"`), flo = await sqlDaLoja(`o."empresaId"`);
+  const loja = await lojaAtualId();
+  const daLojaServ = loja ? Prisma.sql` AND o."empresaServicosId" = ${loja}` : Prisma.empty;
   const [v, o] = await Promise.all([
     prisma.$queryRaw<{ m: string; total: number; n: number }[]>`
       SELECT to_char(data AT TIME ZONE 'UTC' AT TIME ZONE ${FUSO}, 'YYYY-MM') m, SUM(total)::float total, COUNT(*)::int n
         FROM "Venda" WHERE situacao = 'CONCLUIDA' AND data >= ${ini} ${fl} GROUP BY 1`,
+    // serviços faturados por outra empresa (ex.: VFX): saem do total da empresa da OS e entram no da empresa dos serviços
     prisma.$queryRaw<{ m: string; total: number; n: number }[]>`
-      SELECT to_char(COALESCE(saida, entrada) AT TIME ZONE 'UTC' AT TIME ZONE ${FUSO}, 'YYYY-MM') m, SUM(total)::float total, COUNT(*)::int n
-        FROM "OrdemServico" WHERE situacao IN ('CONCLUIDA', 'FATURADA') AND COALESCE(saida, entrada) >= ${ini} ${fl} GROUP BY 1`,
+      SELECT m, SUM(v)::float total, COUNT(*)::int n FROM (
+        SELECT to_char(COALESCE(o.saida, o.entrada) AT TIME ZONE 'UTC' AT TIME ZONE ${FUSO}, 'YYYY-MM') m, o.total - ${sqlServicosFora()} v
+          FROM "OrdemServico" o WHERE o.situacao IN ('CONCLUIDA', 'FATURADA') AND COALESCE(o.saida, o.entrada) >= ${ini} ${flo}
+        UNION ALL
+        SELECT to_char(COALESCE(o.saida, o.entrada) AT TIME ZONE 'UTC' AT TIME ZONE ${FUSO}, 'YYYY-MM'), ${sqlServicosFora()}
+          FROM "OrdemServico" o WHERE o.situacao IN ('CONCLUIDA', 'FATURADA') AND COALESCE(o.saida, o.entrada) >= ${ini} AND ${sqlServicosFora()} > 0 ${daLojaServ}
+      ) x GROUP BY 1`,
   ]);
   const pv = porChave(v), po = porChave(o);
   return meses.map((m) => {

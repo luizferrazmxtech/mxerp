@@ -1,4 +1,7 @@
 import type { Prisma, Empresa, ModeloNota, OrigemDocumento, Pessoa, RegimeTributario } from "@prisma/client";
+import { dividirDesconto } from "./desconto";
+import { lerConfigNfse } from "./configNfse";
+import { empresaDosServicos } from "@/lib/os/faturamento";
 import { prisma } from "@/lib/db";
 import { proximoNumero } from "@/lib/sequencia";
 import { assinarXml } from "./assinatura";
@@ -9,6 +12,7 @@ import { codigoNumerico } from "./chave";
 import { incluirInfNFeSupl, montarNfe, qrCodeNfce, type DadosNota, type Destinatario, type ItemNota, type PagamentoNota } from "./nfe";
 import { ClienteSefaz, montarProc, type Transporte } from "./sefaz";
 import { ClienteNfse, assinarDps, montarDps, type TransporteRest } from "./nfse";
+import { numeroNfseDoXml } from "./numeroNota";
 
 export class FiscalError extends Error {}
 
@@ -103,17 +107,7 @@ function itensDe(itens: ItemOrigem[], interestadual: boolean): ItemNota[] {
 
 export type Dependencias = { cert?: Certificado; transporte?: Transporte; agora?: Date };
 
-/**
- * Desconto geral de um documento com peças e serviços: cada nota leva a sua parte, na proporção dos valores.
- * (Antes a NF-e levava o desconto todo e a NFS-e nenhum: a soma das notas não batia com o cobrado por nota
- * e, com peças baratas e serviço caro, a NF-e ficava negativa.)
- */
-export function dividirDesconto(produtos: number, servicos: number, desconto: number) {
-  const base = Math.max(0, produtos) + Math.max(0, servicos);
-  if (!(desconto > 0) || !(base > 0)) return { produtos: 0, servicos: 0 };
-  const dp = Math.round(desconto * (Math.max(0, produtos) / base) * 100) / 100;
-  return { produtos: dp, servicos: Math.round((desconto - dp) * 100) / 100 };
-}
+export { dividirDesconto };
 
 /** Numeração: um contador por CNPJ, modelo, série e ambiente. */
 export const chaveSeq = (cnpj: string, modelo: 55 | 65, serie: number, amb: 1 | 2) => `NF-${cnpj}-${modelo}-${serie}-${amb === 1 ? "P" : "H"}`;
@@ -282,7 +276,9 @@ export async function emitirNotaOs(osId: string, deps: Dependencias = {}) {
   });
   if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a nota");
   if (!os.produtos.length) throw new FiscalError("OS sem peças: emita só a NFS-e dos serviços");
-  const lanc = await prisma.lancamento.findFirst({ where: { origemTipo: "OS", origemId: osId }, include: { formaPagamento: true } });
+  // serviços por outra empresa: a forma de pagamento da nota é a da conta das peças (a da empresa da OS)
+  const servicosFora = empresaDosServicos(os);
+  const lanc = await prisma.lancamento.findFirst({ where: { origemTipo: "OS", origemId: osId, ...(servicosFora ? { NOT: { empresaId: servicosFora } } : {}) }, include: { formaPagamento: true } });
   const brutoProd = os.produtos.reduce((s, i) => s + Number(i.subtotal), 0);
   const desc = dividirDesconto(brutoProd, os.servicos.reduce((s, i) => s + Number(i.subtotal), 0), Number(os.desconto)).produtos;
   const vNF = brutoProd - desc;
@@ -328,7 +324,8 @@ export async function emitirNfseOs(osId: string, deps: DependenciasNfse = {}) {
   });
   if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a NFS-e");
   return emitirNfse({
-    origemTipo: "OS", origemId: osId, empresaId: os.empresaId, rotulo: "OS", referencia: `OS ${os.numero}`, cliente: os.cliente, servicos: os.servicos,
+    // os serviços podem ser faturados por outra empresa do grupo (ex.: VFX): a NFS-e sai pelo CNPJ/certificado dela
+    origemTipo: "OS", origemId: osId, empresaId: empresaDosServicos(os) ?? os.empresaId, rotulo: "OS", referencia: `OS ${os.numero}`, cliente: os.cliente, servicos: os.servicos,
     extras: os.equipamentos.map((q) => `Equipamento: ${[q.equipamento, q.marca, q.modelo, q.serie].filter(Boolean).join(" ")}`),
     competencia: os.saida ?? undefined,
     desconto: dividirDesconto(os.produtos.reduce((s, i) => s + Number(i.subtotal), 0), os.servicos.reduce((s, i) => s + Number(i.subtotal), 0), Number(os.desconto)).servicos,
@@ -349,7 +346,7 @@ type ServicoNota = { quantidade: Prisma.Decimal; subtotal: Prisma.Decimal; servi
 
 async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; empresaId?: string | null; rotulo: string; referencia: string; cliente: Tomador; servicos: ServicoNota[]; extras: string[]; competencia?: Date; desconto?: number }, deps: DependenciasNfse) {
   const e = await empresa(a.empresaId);
-  if (!e.inscricaoMunicipal) throw new FiscalError("Informe a inscrição municipal da empresa");
+  // inscrição municipal é opcional: municípios sem cadastro complementar no CNC NFS-e recusam a IM (E0120)
   if (!a.servicos.length) throw new FiscalError(`A ${a.rotulo === "OS" ? "OS" : "venda"} não tem serviços`);
   const ja = await prisma.notaFiscal.findFirst({ where: { origemTipo: a.origemTipo, origemId: a.origemId, modelo: "NFSE", status: "AUTORIZADA" } });
   if (ja) throw new FiscalError(`Já existe NFS-e autorizada para esta ${a.rotulo} (DPS ${ja.numero})`);
@@ -359,6 +356,8 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
 
   const cert = deps.cert ?? certificadoDaEmpresa(e);
   const amb: 1 | 2 = e.ambienteNfse === "PRODUCAO" ? 1 : 2;
+  // natureza de operação, apuração dos tributos, imunidade e suspensão configuradas na empresa (Configurações › Empresas)
+  const cfgNfse = lerConfigNfse(e.configNfse);
   const agora = deps.agora ?? new Date();
   // valor do serviço já com a parte do desconto geral (o que foi cobrado do cliente)
   const valor = Math.round((a.servicos.reduce((s, i) => s + Number(i.subtotal), 0) - (a.desconto ?? 0)) * 100) / 100;
@@ -369,16 +368,22 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
   const chave = chaveDps(e.cnpj, e.serieDps, amb);
   let enviou = false;
   const nota = await prisma.$transaction(async (tx) => {
+    const dados = { empresaId: e.id, cnae: a.servicos[0]?.servico.cnae?.replace(/\D/g, "") || e.cnae, modelo: "NFSE" as const, serie: e.serieDps, ambiente: amb === 1 ? "PRODUCAO" as const : "HOMOLOGACAO" as const, origemTipo: a.origemTipo, origemId: a.origemId, valorTotal: valor };
+    // DPS recusada pela Sefin (não foi registrada) e nada emitido depois dela: a nova tentativa usa o mesmo número
+    const atual = (await tx.sequencia.findUnique({ where: { chave } }))?.valor;
+    const recusada = atual ? await tx.notaFiscal.findFirst({
+      where: { origemTipo: a.origemTipo, origemId: a.origemId, modelo: "NFSE", status: "REJEITADA", chave: null, empresaId: e.id, serie: e.serieDps, ambiente: dados.ambiente, numero: atual },
+    }) : null;
+    if (recusada && !DPS_REGISTRADA.test(recusada.motivo ?? ""))
+      return tx.notaFiscal.update({ where: { id: recusada.id }, data: { ...dados, status: "RASCUNHO", xml: null, motivo: null } });
     const numero = await proximoNumero(tx, chave);
-    return tx.notaFiscal.create({
-      data: { empresaId: e.id, cnae: a.servicos[0]?.servico.cnae?.replace(/\D/g, "") || e.cnae, modelo: "NFSE", serie: e.serieDps, numero, ambiente: amb === 1 ? "PRODUCAO" : "HOMOLOGACAO", origemTipo: a.origemTipo, origemId: a.origemId, valorTotal: valor },
-    });
+    return tx.notaFiscal.create({ data: { ...dados, numero } });
   });
   try {
     const descricao = [...a.servicos.map((s) => `${Number(s.quantidade)} x ${s.servico.nome}`), ...a.extras, a.referencia, e.infCplNfse].filter(Boolean).join(" | ");
     const { xml } = montarDps({
       tpAmb: amb, emissao: agora, competencia: a.competencia ?? agora, serie, numero: nota.numero,
-      prestador: { cnpj: e.cnpj, im: e.inscricaoMunicipal, codigoMunicipio: e.codigoMunicipio!, fone: e.telefone, email: e.email, opSimpNac: OP_SIMPLES[e.regimeTributario], regEspTrib: e.regimeEspecialNfse },
+      prestador: { cnpj: e.cnpj, im: cfgNfse.enviarIm ? e.inscricaoMunicipal : null, codigoMunicipio: e.codigoMunicipio!, fone: e.telefone, email: e.email, opSimpNac: OP_SIMPLES[e.regimeTributario], regApTribSN: cfgNfse.apuracao, regEspTrib: e.regimeEspecialNfse, pTotTribSN: cfgNfse.pTotTribSN },
       tomador: c.documento ? {
         documento: c.documento, nome: c.nome, email: c.email, fone: c.telefone,
         endereco: c.codigoMunicipio && c.cep && c.logradouro && c.bairro
@@ -387,6 +392,7 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
       servico: {
         codigoMunicipioPrestacao: e.codigoMunicipio!, cTribNac: codigos[0]!, cNBS: a.servicos[0].servico.codigoNbs,
         descricao, valor, aliquotaIss: a.servicos[0].servico.aliquotaIss == null ? null : Number(a.servicos[0].servico.aliquotaIss),
+        tribISSQN: cfgNfse.natureza, tpImunidade: cfgNfse.tpImunidade, suspensao: cfgNfse.tpSusp && cfgNfse.nProcesso ? { tpSusp: cfgNfse.tpSusp, nProcesso: cfgNfse.nProcesso } : null,
       },
     });
     const assinada = assinarDps(xml, cert);
@@ -396,7 +402,7 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
     if (r.ok) {
       return prisma.notaFiscal.update({
         where: { id: nota.id },
-        data: { status: "AUTORIZADA", chave: r.chave, xml: r.xmlNfse ?? assinada, motivo: r.mensagem, emitidaEm: agora },
+        data: { status: "AUTORIZADA", chave: r.chave, xml: r.xmlNfse ?? assinada, numeroNfse: numeroNfseDoXml(r.xmlNfse), motivo: r.mensagem, emitidaEm: agora },
       });
     }
     return prisma.notaFiscal.update({ where: { id: nota.id }, data: { status: "REJEITADA", motivo: r.mensagem.slice(0, 1000) } });
@@ -407,6 +413,9 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
     throw err;
   }
 }
+
+/** Recusa que indica que a DPS chegou a ser registrada (número já usado): aí a nova tentativa leva outro número. */
+const DPS_REGISTRADA = /E0014|j[áa] (existe|foi)|duplicad/i;
 
 export async function cancelarNfse(notaId: string, cMotivo: 1 | 2 | 9, motivo: string, deps: DependenciasNfse = {}) {
   const n = await prisma.notaFiscal.findUniqueOrThrow({ where: { id: notaId } });

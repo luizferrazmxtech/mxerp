@@ -89,9 +89,9 @@ export default async function VerOrcamento({ params, searchParams }: { params: P
             <LinkSuspenso href={`${base}?situacao=1`} icone="atualizar">Alterar situação</LinkSuspenso>
             <BotaoAcao acao={clonarOrcamentoAcao.bind(null, id)} icone="copiar">Gerar cópia</BotaoAcao>
             {venda ? <LinkSuspenso href={`/vendas/${venda.id}`} icone="carrinho">Ver venda nº {venda.numero}</LinkSuspenso>
-              : <BotaoAcao acao={gerarVendaAcao.bind(null, id)} icone="carrinho" confirmar="Gerar a venda deste orçamento? Os produtos ficam reservados no estoque.">Gerar venda</BotaoAcao>}
+              : <BotaoAcao acao={gerarVendaAcao.bind(null, id)} icone="carrinho" confirmar="Gerar a venda deste orçamento? O orçamento passa para concretizado e os produtos ficam reservados no estoque.">Gerar venda</BotaoAcao>}
             {os ? <LinkSuspenso href={`/os/${os.id}`} icone="os">Ver OS nº {os.numero}</LinkSuspenso>
-              : <BotaoAcao acao={gerarOsAcao.bind(null, id)} icone="os" confirmar="Gerar uma ordem de serviço com os itens deste orçamento?">Gerar OS</BotaoAcao>}
+              : <BotaoAcao acao={gerarOsAcao.bind(null, id)} icone="os" confirmar="Gerar uma ordem de serviço com os itens deste orçamento? O orçamento passa para concretizado.">Gerar OS</BotaoAcao>}
             <BotaoExcluir acao={excluirOrcamentoAcao.bind(null, id)} pergunta={`Excluir o orçamento nº ${o.numero}?`} depois="/orcamentos" rotulo="Excluir orçamento" />
           </Suspenso>
           <Suspenso direita classe="btn bg-emerald-600 hover:bg-emerald-700" botao={<><Icone nome="compartilhar" size={15} /> Compartilhar <Icone nome="abaixo" size={13} /></>}>
@@ -103,7 +103,7 @@ export default async function VerOrcamento({ params, searchParams }: { params: P
         </div>
       </div>
 
-      {sp.situacao && <FormSituacao id={id} numero={o.numero} atual={o.situacaoId} situacoes={situacoes} voltar={base} />}
+      {sp.situacao && <FormSituacao id={id} numero={o.numero} atual={o.situacaoId} situacoes={situacoes} voltar={base} gerados={{ venda: !!venda, os: !!os }} />}
 
       <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
         <aside className="space-y-3">

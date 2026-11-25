@@ -6,7 +6,9 @@ import { brl } from "@/lib/ui/format";
 import { baseLinks, boletosDisponiveis } from "@/lib/financeiro/boletos";
 import { boletoAbrivel, contaAvulsa, iconeForma, origemConta, situacaoConta } from "@/lib/financeiro/lista";
 import { ATIVOS } from "@/lib/financeiro/boletos";
-import { baixarContaAcao, estornarContaAcao, excluirContaAcao } from "../../actions";
+import { origemPelaDescricao } from "@/lib/financeiro/origem";
+import { baixarContaAcao, desagruparContaAcao, estornarContaAcao, excluirContaAcao } from "../../actions";
+import { rotulosDocumentos } from "@/lib/financeiro/agrupar";
 import { Bloco, Campo, Pagina } from "@/components/ui/Pagina";
 import FormAcao from "@/components/financeiro/FormAcao";
 import BoletoParcela from "@/components/BoletoParcela";
@@ -37,6 +39,7 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
     include: {
       pessoa: true, categoria: true, centroCusto: true, contaBancaria: true, formaPagamento: true,
       boletos: { orderBy: { createdAt: "desc" } }, transacao: { select: { id: true, data: true, descricao: true } },
+      agrupados: { orderBy: [{ vencimento: "asc" }, { createdAt: "asc" }] },
     },
   });
   if (!l) notFound();
@@ -44,7 +47,9 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
   const titulo = pagar ? "Contas a pagar" : "Contas a receber";
   const hoje = diaSP();
   const s = situacaoConta(l, hoje);
-  const orig = origemConta(l);
+  // conta do Gestão Click sem o documento ligado: acha pelo número da descrição
+  const d = (await origemPelaDescricao([l])).get(l.id) ?? l;
+  const orig = origemConta({ id: l.id, ...d });
   const pdf = boletoAbrivel(l.boletos.find((b) => ATIVOS.includes(b.situacao)));
   const ic = iconeForma(l.formaPagamento);
   const [contas, interAtivo, base] = await Promise.all([
@@ -52,6 +57,9 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
     boletosDisponiveis(), baseLinks(),
   ]);
   const lista = `/financeiro?tipo=${l.tipo}`;
+  // título agrupado: as contas que ele juntou, com a venda/OS de cada uma
+  const rotulos = l.agrupados.length ? await rotulosDocumentos(l.agrupados) : [];
+  const podeDesagrupar = l.agrupados.length > 0 && !l.pagoEm && !l.transacaoId && !l.boletos.some((b) => ATIVOS.includes(b.situacao));
 
   return (
     <Pagina voltar={lista} titulo={titulo} icone={pagar ? "pagar" : "receber"} trilha={[{ rotulo: titulo, href: lista }, { rotulo: "Visualizar" }]}>
@@ -62,6 +70,9 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
         {!pagar && pdf && <a href={pdf} target="_blank" rel="noreferrer" className="btn-sec"><Icone nome="boleto" size={14} /> Abrir boleto</a>}
         {l.pagoEm && !l.transferenciaId && (
           <BotaoAcao acao={estornarContaAcao.bind(null, l.id)} icone="atualizar" className="btn-sec" confirmar="Estornar esta baixa? A conta volta a ficar em aberto.">Estornar baixa</BotaoAcao>
+        )}
+        {podeDesagrupar && (
+          <BotaoAcao acao={desagruparContaAcao.bind(null, l.id)} icone="atualizar" className="btn-sec" confirmar={`Desagrupar? As ${l.agrupados.length} contas voltam como eram (cada uma ligada à sua venda/OS) e este título sai do financeiro.`}>Desagrupar</BotaoAcao>
         )}
         {!l.pagoEm && contaAvulsa(l) && (
           <span className="ml-auto"><BotaoExcluir acao={excluirContaAcao.bind(null, l.id)} pergunta={`Excluir "${l.descricao}" (${brl(l.valor)})?`} depois={lista} /></span>
@@ -84,7 +95,32 @@ export default async function VerConta({ params }: { params: Promise<{ id: strin
           <Linha rotulo="Cadastrada em">{l.createdAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" })}</Linha>
         </Bloco>
 
-          <ResumoOrigem origemTipo={l.origemTipo} origemId={l.origemId} contaId={l.id} />
+          {l.agrupados.length > 0 && (
+            <Bloco icone="lista" titulo={<>Contas <b>agrupadas</b> neste título</>} subtitulo="Documentos que geraram cada conta (as referências também saem no boleto)">
+              <div className="overflow-x-auto">
+                <table className="tabela">
+                  <thead><tr><th>Referência</th><th>Conta original</th><th className="w-28">Vencimento</th><th className="w-28 text-right">Valor</th></tr></thead>
+                  <tbody>
+                    {l.agrupados.map((a, i) => {
+                      const o = origemConta({ origemTipo: a.origemTipo, origemId: a.origemId });
+                      return (
+                        <tr key={a.id}>
+                          <td>{o ? <Link href={o.href} className="sublinhado">{rotulos[i]}</Link> : rotulos[i]}</td>
+                          <td className="text-[12px] text-slate-600">{a.descricao}</td>
+                          <td>{dia(a.vencimento)}</td>
+                          <td className="text-right">{brl(a.valor)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot><tr><td colSpan={3} className="text-right text-[12px] text-slate-600">Total</td><td className="text-right font-semibold">{brl(l.agrupados.reduce((s, a) => s + Number(a.valor), 0))}</td></tr></tfoot>
+                </table>
+              </div>
+              {!podeDesagrupar && <p className="mt-2 text-[12px] text-slate-500">Para desagrupar, a conta precisa estar em aberto, sem conciliação e sem boleto registrado (cancele o boleto antes).</p>}
+            </Bloco>
+          )}
+
+          <ResumoOrigem origemTipo={d.origemTipo} origemId={d.origemId} contaId={l.id} />
         </div>
 
         <div>

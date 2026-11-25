@@ -6,6 +6,7 @@ import { baixarLancamento } from "@/lib/financeiro/lancamentos";
 import { enumDe } from "@/lib/os/ordens";
 import { lancaEstoque, lancaFinanceiro } from "@/lib/compras/tipos";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
+import { documentoDaDescricao } from "@/lib/financeiro/origem";
 import { proximoNumero } from "@/lib/sequencia";
 import { lerPlanilha, normalizar, numeroBr, type Linha } from "./planilha";
 import { importarPessoas, importarProdutos, importarServicos, type Resultado } from "./importar";
@@ -34,7 +35,9 @@ export async function lerBackupGestaoClick(zip: Buffer): Promise<Tabelas> {
   return t;
 }
 
-export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; vendas?: boolean; compras?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean; historico?: boolean; pagas?: boolean; notas?: boolean; contratos?: boolean };
+export type Etapas = { cadastros?: boolean; estoque?: boolean; os?: boolean; orcamentos?: boolean; vendas?: boolean; compras?: boolean; receber?: boolean; pagar?: boolean; pagarVencidas?: boolean; historico?: boolean; pagas?: boolean; notas?: boolean; contratos?: boolean;
+  /** só completa as contas já trazidas (forma de pagamento e documento de origem), sem criar nem baixar nenhuma */
+  completarContas?: boolean };
 /** Segunda empresa (outro Gestão Click): tudo entra nesta loja, sem misturar números nem estoque com a primeira. */
 export type Destino = { empresaId: string };
 
@@ -169,7 +172,7 @@ async function importarOs(t: Tabelas, simular: boolean, historico = true): Promi
   const situacoes = await prisma.situacaoOsConfig.findMany({ orderBy: { ordem: "asc" } });
   const sitPorNome = new Map(situacoes.map((s) => [chaveNome(s.nome), s]));
   const padrao = situacoes.find((s) => s.padrao) ?? situacoes[0];
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   const ultimaData = (hs: Linha[]) => hs.reduce<Date | null>((m, h) => { const d = dataHoraBr(h.data); return d && (!m || d >= m) ? d : m; }, null);
   const situacaoDe = (hs: Linha[]) => {
     // a última pela data; empate fica com a ordem do arquivo
@@ -319,13 +322,17 @@ async function importarOs(t: Tabelas, simular: boolean, historico = true): Promi
 
 // ---------- apoio comum a orçamentos e vendas (o histórico comercial)
 
-async function contextoComercial(t: Tabelas) {
+async function contextoComercial(t: Tabelas, simular: boolean) {
   const codProduto = new Map<string, string>();
   for (const p of t.produtos ?? []) if (!codProduto.has(chaveNome(p.produto))) codProduto.set(chaveNome(p.produto), p.codigo);
   const codServico = new Map<string, string>();
   for (const s of t.servicos ?? []) codServico.set(chaveNome(s.servico), s["codigo interno"] || s.servico.slice(0, 20).toUpperCase());
   const codCliente = new Map<string, string>();
   for (const c of t.clientes ?? []) for (const n of [c.nome, c["razao social"]]) if (n && !codCliente.has(chaveNome(n))) codCliente.set(chaveNome(n), c.codigo);
+  if (!simular) {
+    const pagamentos = ["orcamentos_pagamentos", "vendas_pagamentos", "ordens_servicos_pagamentos", "compras_pagamentos", "contratos"];
+    await garantirFormas(pagamentos.flatMap((k) => (t[k] ?? []).map((l) => l["forma de pagamento"])));
+  }
   const formas = await prisma.formaPagamento.findMany({ select: { id: true, nome: true } });
   const formaPorNome = (n: string | undefined) => {
     if (!n) return null;
@@ -380,7 +387,7 @@ async function importarVendas(t: Tabelas, simular: boolean, historico = true): P
   const situacoes = await prisma.situacaoVendaConfig.findMany({ orderBy: { ordem: "asc" } });
   const sitPorNome = new Map(situacoes.map((s) => [chaveNome(s.nome), s]));
   const padrao = situacoes.find((s) => s.padrao) ?? situacoes[0];
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   const ENUM = { RESERVAR: "ABERTA", LANCAR: "CONCLUIDA", NAO: "CANCELADA" } as const;
 
   const semProduto = new Set<string>(), semCliente = new Set<string>(), semSituacao = new Set<string>();
@@ -478,7 +485,7 @@ async function importarOrcamentos(t: Tabelas, simular: boolean): Promise<Resulta
 
   const situacoes = await prisma.situacaoOrcamento.findMany({ orderBy: { ordem: "asc" } });
   const sitPorNome = new Map(situacoes.map((s) => [chaveNome(s.nome), s.id]));
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   const { codProduto, codCliente, formaPorNome, usuarioPorNome } = ctx;
 
   const semProduto = new Set<string>(), semCliente = new Set<string>(), semSituacao = new Set<string>(), totalDiferente: number[] = [];
@@ -558,13 +565,45 @@ function categoriaPara(plano: string, tipo: "RECEBER" | "PAGAR") {
   if (tipo === "RECEBER") return /servic/.test(p) ? "Prestação de serviços" : /venda/.test(p) ? "Venda de produtos" : "Outras receitas";
   return /compra/.test(p) ? "Compra de mercadorias (estoque)" : "Outras despesas";
 }
-function formaPara(f: string) {
+/**
+ * Forma de pagamento do MXERP para a do Gestão Click. As que não têm equivalente nas formas padrão (Mercado Livre,
+ * Transferência, Cheque, A Combinar, carteiras…) entram com o nome de lá, para o título não ficar sem forma.
+ */
+export function formaPara(f: string) {
   const p = chaveNome(f);
+  if (!p) return null;
   return /pix/.test(p) ? "PIX" : /boleto/.test(p) ? "Boleto" : /debito/.test(p) ? "Cartão de débito" : /credito/.test(p) ? "Cartão de crédito"
-    : /dinheiro/.test(p) ? "Dinheiro" : null;
+    : /dinheiro parcelado|crediario/.test(p) ? "Crediário / a prazo" : /dinheiro/.test(p) ? "Dinheiro"
+    : /mercado ?livre|mercado ?pago/.test(p) ? "Mercado Livre" : /transferencia/.test(p) ? "Transferência bancária" : /cheque/.test(p) ? "Cheque"
+    : f.trim().slice(0, 60);
+}
+/** Código do meio de pagamento na NF-e para as formas criadas pela migração. */
+const tPagDe = (nome: string) => (nome === "Transferência bancária" ? "18" : nome === "Cheque" ? "02" : "99");
+
+/** Cadastra na empresa atual as formas do backup que ainda não existem (idempotente). */
+async function garantirFormas(nomesGc: Iterable<string | undefined>) {
+  const nomes = new Set<string>();
+  for (const n of nomesGc) { const f = formaPara(n ?? ""); if (f) nomes.add(f); }
+  for (const nome of nomes)
+    await prisma.formaPagamento.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome } }, create: { nome, tPag: tPagDe(nome), diasPrazo: 0 }, update: {} });
 }
 
-async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PAGAR", simular: boolean, soAVencer = false, incluirPagas = false): Promise<Resultado> {
+/**
+ * Documento que gerou a conta, pela descrição do Gestão Click ("Venda de nº 8558", "Ordem de serviço de nº 6946",
+ * "Compra de nº 934"). Só liga a documentos trazidos do backup (pelo idLegado), nunca a um do MXERP com o mesmo número.
+ */
+export const documentoDaConta = (descricao: string | undefined) => documentoDaDescricao(descricao);
+async function origemDaConta(descricao: string | undefined): Promise<{ origemTipo: "VENDA" | "OS" | "COMPRA"; origemId: string } | null> {
+  const doc = documentoDaConta(descricao);
+  if (!doc) return null;
+  const where = { idLegado: leg(`${doc.tipo === "VENDA" ? "venda" : doc.tipo === "OS" ? "os" : "compra"}:${doc.numero}`) };
+  const achado = doc.tipo === "VENDA" ? await prisma.venda.findFirst({ where, select: { id: true } })
+    : doc.tipo === "OS" ? await prisma.ordemServico.findFirst({ where, select: { id: true } })
+    : await prisma.compra.findFirst({ where, select: { id: true } });
+  return achado ? { origemTipo: doc.tipo, origemId: achado.id } : null;
+}
+
+async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PAGAR", simular: boolean, soAVencer = false, incluirPagas = false, soCompletar = false): Promise<Resultado> {
   const todas = linhas ?? [];
   const hoje = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
   let abertas = todas.filter((l) => !/confirmad/i.test(l.situacao));
@@ -581,6 +620,43 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     // contas bancárias do Gestão Click (Inter, PagSeguro, Mercado Pago…) para a conciliação do extrato
     for (const nome of new Set(todas.map((l) => (l["conta bancaria"] ?? "").trim()).filter(Boolean)))
       await prisma.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: nome } }, create: { nome }, update: {} });
+    await garantirFormas(todas.map((l) => l["forma de pagamento"]));
+  }
+  // conta trazida antes sem forma de pagamento ou sem o documento de origem: completa (não mexe no que já foi preenchido)
+  let completadas = 0;
+  const completar = async (id: string, l: Linha) => {
+    const atual = await prisma.lancamento.findUnique({ where: { id }, select: { formaPagamentoId: true, origemTipo: true, origemId: true } });
+    if (!atual) return;
+    const formaNome = formaPara(l["forma de pagamento"] ?? "");
+    const forma = !atual.formaPagamentoId && formaNome ? await prisma.formaPagamento.findUnique({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: formaNome } }, select: { id: true } }) : null;
+    const origem = !atual.origemId && (!atual.origemTipo || atual.origemTipo === "IMPLANTACAO") ? await origemDaConta(l["descricao do recebimento"]) : null;
+    if (!forma && !origem && !(simular && !atual.formaPagamentoId && formaNome)) return;
+    completadas++;
+    if (simular) return;
+    await prisma.lancamento.update({ where: { id }, data: { ...(forma ? { formaPagamentoId: forma.id } : {}), ...(origem ?? {}) } });
+  };
+  const avisoCompletadas = () => {
+    if (!completadas) return;
+    r.atualizados += completadas;
+    r.avisos.push(`${completadas} contas trazidas antes ${simular ? "vão ganhar" : "ganharam"} a forma de pagamento e/ou o link para a venda, OS ou compra que as gerou.`);
+  };
+  // só completar: não cria, não baixa e não traz de volta conta excluída no MXERP
+  if (soCompletar) {
+    r.avisos = [];
+    for (const grupo of [todas.filter((l) => !/confirmad/i.test(l.situacao)), todas.filter((l) => /confirmad/i.test(l.situacao))]) {
+      const vistos = new Map<string, number>();
+      for (const l of grupo) {
+        const base = [tipo, l["descricao do recebimento"], l["entidade nome"], l["data do vencimento"], l.valor, l["cadastrado em"]].join("|");
+        const n = (vistos.get(base) ?? 0) + 1;
+        vistos.set(base, n);
+        const idLegado = leg(`${tipo.toLowerCase()}:${createHash("sha1").update(`${base}|${n}`).digest("hex").slice(0, 20)}`);
+        const ja = await prisma.lancamento.findUnique({ where: { idLegado }, select: { id: true } });
+        if (ja) await completar(ja.id, l);
+      }
+    }
+    avisoCompletadas();
+    if (!completadas) r.avisos.push("Nenhuma conta trazida antes precisava de forma de pagamento ou do link para o documento.");
+    return r;
   }
   const ocorr = new Map<string, number>();
   for (const [i, l] of abertas.entries()) {
@@ -592,7 +668,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     ocorr.set(base, n);
     const idLegado = leg(`${tipo.toLowerCase()}:${createHash("sha1").update(`${base}|${n}`).digest("hex").slice(0, 20)}`);
     const existe = await prisma.lancamento.findUnique({ where: { idLegado } });
-    if (existe) { r.ignorados.push({ linha: i + 2, motivo: "já importada" }); continue; }
+    if (existe) { await completar(existe.id, l); r.ignorados.push({ linha: i + 2, motivo: "já importada" }); continue; }
     if (simular) { r.criados++; continue; }
     const nomeEnt = l["entidade nome"];
     const pessoa = nomeEnt
@@ -606,7 +682,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
         tipo, descricao: [l["descricao do recebimento"], !pessoa && nomeEnt ? `(${nomeEnt})` : ""].filter(Boolean).join(" ").slice(0, 300),
         pessoaId: pessoa?.id, categoriaId: cat.id, formaPagamentoId: forma?.id,
         valor: valor.toFixed(2), vencimento: venc, competencia: dataBr(l["data de competencia"]) ?? venc,
-        origemTipo: "IMPLANTACAO", idLegado, empresaId: lojaDe(l.loja),
+        origemTipo: "IMPLANTACAO", ...(await origemDaConta(l["descricao do recebimento"])), idLegado, empresaId: lojaDe(l.loja),
       },
     });
     r.criados++;
@@ -644,7 +720,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
         pessoaId: pessoa?.id, categoriaId: cat.id, formaPagamentoId: forma?.id, contaBancariaId: conta.id,
         valor: valor.toFixed(2), vencimento: venc, competencia: dataBr(l["data de competencia"]) ?? venc,
         pagoEm, valorPago: valorPago.toFixed(2), juros: juros.toFixed(2), desconto: desconto.toFixed(2),
-        origemTipo: "IMPLANTACAO", idLegado, empresaId: lojaDe(l.loja), observacao: "Baixada no Gestão Click (histórico importado)",
+        origemTipo: "IMPLANTACAO", ...(await origemDaConta(l["descricao do recebimento"])), idLegado, empresaId: lojaDe(l.loja), observacao: "Baixada no Gestão Click (histórico importado)",
       },
     });
   };
@@ -659,6 +735,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
       if (incluirPagas) await historicoPaga(l, idLegado, juros, desconto);
       continue;
     }
+    await completar(ja.id, l);
     if (ja.pagoEm || ja.transacaoId) continue;
     const aberta = ja;
     const valorPago = numeroBr(l["valor total"] ?? "") || Number(aberta.valor) + juros - desconto;
@@ -676,6 +753,7 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     r.criados += historicas;
     r.avisos.push(`${historicas} contas já ${tipo === "RECEBER" ? "recebidas" : "pagas"} no Gestão Click (${totalHistorico.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}) ${simular ? "vão entrar" : "entraram"} baixadas, como histórico.`);
   }
+  avisoCompletadas();
   if (jaNoExtrato) r.avisos.push(`${jaNoExtrato} contas já ${tipo === "RECEBER" ? "recebidas" : "pagas"} no Gestão Click ficaram de fora porque o mesmo valor, na mesma data, já foi lançado pela conciliação do extrato.`);
   if (baixadas) {
     r.atualizados += baixadas;
@@ -701,7 +779,7 @@ async function importarCompras(t: Tabelas, simular: boolean): Promise<Resultado>
   const situacoes = await prisma.situacaoCompraConfig.findMany({ orderBy: { ordem: "asc" } });
   const sitPorNome = new Map(situacoes.map((s) => [chaveNome(s.nome), s]));
   const padrao = situacoes.find((s) => s.padrao) ?? situacoes[0];
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   const transportadoras = new Map<string, string | null>();
   const situacaoDe = (hs: Linha[]) => {
     let ult: Linha | undefined, q = -Infinity;
@@ -786,7 +864,7 @@ async function importarAjustes(t: Tabelas, simular: boolean): Promise<Resultado>
   const todos = t.ajustes_estoques ?? [];
   const r: Resultado = { tipo: "ajustes", simulado: simular, lidas: todos.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
   const prods = agruparPor("codigo")(t.ajustes_estoques_produtos);
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   let maior = 0;
   for (const a of todos) {
     const numero = Number(a.codigo);
@@ -868,8 +946,69 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
   const cnpjDe = (id: string | undefined) => empresas.find((e) => e.id === id)?.cnpj;
   const maiores = new Map<string, number>();
   const porModelo = new Map<string, number>();
-  const origem = await achadorDeOrigem();
-  let ligadas = 0, semOrigem = 0;
+  // parcelas (vencimento|valor) das vendas/OS e duplicatas das NF-e/NFC-e: o vínculo mais seguro que o backup tem
+  const assinatura = (ps: [string | undefined, string | undefined][]) =>
+    ps.map(([d, v]) => `${dataBr(d)?.toISOString().slice(0, 10) ?? ""}|${numeroBr(v ?? "").toFixed(2)}`).sort().join(";");
+  const parcelasDoc = new Map<string, string>();
+  for (const [tipo, linhas, col] of [["venda", t.vendas_pagamentos, "n do pedido"], ["os", t.ordens_servicos_pagamentos, "n da os"]] as const) {
+    const porNumero = new Map<string, [string | undefined, string | undefined][]>();
+    for (const p of linhas ?? []) (porNumero.get(p[col]) ?? porNumero.set(p[col], []).get(p[col])!).push([p.vencimento, p["valor da parcela"]]);
+    const idsLeg = [...porNumero.keys()].map((n) => leg(`${tipo}:${Number(n)}`));
+    const achados = tipo === "venda" ? await prisma.venda.findMany({ where: { idLegado: { in: idsLeg } }, select: { id: true, idLegado: true } })
+      : await prisma.ordemServico.findMany({ where: { idLegado: { in: idsLeg } }, select: { id: true, idLegado: true } });
+    const idDe = new Map(achados.map((a) => [a.idLegado!, a.id]));
+    for (const [n, ps] of porNumero) { const id = idDe.get(leg(`${tipo}:${Number(n)}`)); if (id) parcelasDoc.set(id, assinatura(ps)); }
+  }
+  const duplicatas = new Map<string, [string | undefined, string | undefined][]>();
+  for (const p of t.notas_fiscais_pagamentos ?? []) (duplicatas.get(p["nota fiscal n"]) ?? duplicatas.set(p["nota fiscal n"], []).get(p["nota fiscal n"])!).push([p["data de vencimento"], p.valor]);
+  // serviços de cada OS (nomes), para a NFS-e cuja descrição cita os serviços
+  const servicosDoc = new Map<string, string[]>();
+  {
+    const porOs = new Map<string, string[]>();
+    for (const sv of t.ordens_servicos_servicos ?? []) {
+      const nome = chaveNome(sv.servico ?? "");
+      if (nome) (porOs.get(sv["n da os"]) ?? porOs.set(sv["n da os"], []).get(sv["n da os"])!).push(nome);
+    }
+    const idsLeg = [...porOs.keys()].map((n) => leg(`os:${Number(n)}`));
+    const achados = idsLeg.length ? await prisma.ordemServico.findMany({ where: { idLegado: { in: idsLeg } }, select: { id: true, idLegado: true } }) : [];
+    const idDe = new Map(achados.map((a) => [a.idLegado!, a.id]));
+    for (const [n, nomes] of porOs) { const id = idDe.get(leg(`os:${Number(n)}`)); if (id) servicosDoc.set(id, [...new Set(nomes)]); }
+  }
+  const origem = await achadorDeOrigem(parcelasDoc, servicosDoc, true);
+  // o documento de cada nota é achado de uma vez, para todas (os pares mais próximos na data primeiro)
+  const todas = tabelas.flatMap(([modelo, linhas]) => linhas.map((l) => ({ modelo, l })));
+  const paraLigar = todas.map(({ modelo, l }) => {
+    const nfse = modelo === "NFSE";
+    return {
+      modelo, numero: Number(nfse ? l.rps || l.numero : l.numero) || undefined, valor: numeroBr(nfse ? l["valor do servico"] : l["valor total"]), emitida: dataBr(l["data de emissao"]) ?? new Date(NaN),
+      doc: digitosGc(nfse ? l.cnpj || l.cpf || "" : l["cnpj do destinatario"] || l["cpf do destinatario"] || ""),
+      nome: chaveNome((nfse ? l["razao social"] : l["nome do destinatario"]) ?? ""),
+      // as duplicatas vêm só da NF-e (notas_fiscais_pagamentos); a NFC-e tem número próprio e fica no palpite
+      parcelas: modelo === "NFE" && duplicatas.has(l.numero) ? assinatura(duplicatas.get(l.numero)!) : undefined,
+      descricao: nfse ? chaveNome(l["descricao do servico"] ?? "") : undefined,
+    };
+  });
+  // nota citada pela venda/OS ou pela conta do Gestão Click (coluna NF-e/NFS-e): vínculo exato, vale mais que o palpite
+  const citadas = await notasCitadas(t);
+  const citada = (modelo: ModeloGc, l: Linha) => (modelo === "NFSE" ? [l.numero, l.rps] : [l.numero]).map((n) => citadas.get(`${modelo === "NFSE" ? "SERV" : "PROD"}:${Number(n)}`)).find(Boolean) ?? null;
+  // nota já no ERP com origem, ou cancelada, não disputa documento
+  const docDe = new Map<Linha, { tipo: "VENDA" | "OS"; id: string } | null>();
+  {
+    const idx: number[] = [];
+    for (const [k, { modelo, l }] of todas.entries()) {
+      const c = citada(modelo, l);
+      if (c) { docDe.set(l, c); continue; }
+      const numero = Number(modelo === "NFSE" ? l.rps || l.numero : l.numero), serie = Number(l.serie) || 1;
+      const ambiente = /homolog/i.test(l.ambiente ?? "") ? "HOMOLOGACAO" : "PRODUCAO";
+      const ja = numero ? await prisma.notaFiscal.findFirst({ where: { idLegado: leg(`nota:${modelo}:${serie}:${numero}:${ambiente}`) }, select: { id: true, origemId: true } }) : null;
+      const status = modelo === "NFSE" ? "AUTORIZADA" : STATUS_GC[chaveNome(l.situacao ?? "")] ?? "AUTORIZADA";
+      // com o backup em mãos o vínculo é refeito também para as notas já ligadas (a regra antiga podia errar)
+      if (status === "AUTORIZADA" && !isNaN(paraLigar[k].emitida.getTime())) idx.push(k);
+    }
+    const achados = origem.ligar(idx.map((k) => paraLigar[k]));
+    idx.forEach((k, j) => docDe.set(todas[k].l, achados[j]));
+  }
+  let ligadas = 0, semOrigem = 0, religadas = 0;
   for (const [modelo, linhas] of tabelas) {
     for (const [i, l] of linhas.entries()) {
       // NFS-e: o número que o MXERP controla é o da DPS (o RPS no Gestão Click); a NFS-e tem o número dado pelo governo
@@ -884,13 +1023,17 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
         maiores.set(k, Math.max(maiores.get(k) ?? 0, numero));
       }
       const idLegado = leg(`nota:${modelo}:${serie}:${numero}:${ambiente}`);
-      const ja = await prisma.notaFiscal.findFirst({ where: { OR: [{ idLegado }, { empresaId: empresaId ?? null, modelo, serie, numero, ambiente }, ...(chave.length === 44 ? [{ chave }] : [])] }, select: { id: true, origemId: true } });
+      const ja = await prisma.notaFiscal.findFirst({ where: { OR: [{ idLegado }, { empresaId: empresaId ?? null, modelo, serie, numero, ambiente }, ...(chave.length === 44 ? [{ chave }] : [])] }, select: { id: true, origemId: true, numeroNfse: true } });
       // o backup não diz de qual venda/OS a nota é: acha pelo cliente, valor e data
-      const doc = origem.achar(modelo, l);
+      const doc = docDe.get(l) ?? null;
       if (ja) {
-        if (!ja.origemId && doc) { ligadas++; if (!simular) await prisma.notaFiscal.update({ where: { id: ja.id }, data: { origemTipo: doc.tipo, origemId: doc.id } }); }
+        // ligada por palpite a outro documento, mas o Gestão Click cita a nota: corrige para o documento citado
+        // achou o documento (pelas duplicatas, pelos serviços ou pelo valor): liga, ou corrige a ligação antiga
+        if (doc && ja.origemId !== doc.id) { ligadas++; if (ja.origemId) religadas++; if (!simular) await prisma.notaFiscal.update({ where: { id: ja.id }, data: { origemTipo: doc.tipo, origemId: doc.id } }); }
         else if (!ja.origemId) semOrigem++;
-        r.ignorados.push({ linha: i + 2, motivo: `${modelo} ${numero} já existe no ERP` });
+        // NFS-e trazida antes de guardar o número da nota (o numero é o da DPS/RPS): completa
+        if (modelo === "NFSE" && ja.numeroNfse == null && Number(l.numero) && !simular) await prisma.notaFiscal.update({ where: { id: ja.id }, data: { numeroNfse: Number(l.numero) } });
+        r.ignorados.push({ linha: i + 2, motivo: `${modelo} ${modelo === "NFSE" ? l.numero || numero : numero} já existe no ERP` });
         continue;
       }
       if (doc) ligadas++; else semOrigem++;
@@ -903,6 +1046,7 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
       await prisma.notaFiscal.create({
         data: {
           modelo, serie, numero, ambiente, status, empresaId: empresaId ?? null, idLegado,
+          numeroNfse: modelo === "NFSE" ? Number(l.numero) || null : null,
           ...(doc ? { origemTipo: doc.tipo, origemId: doc.id } : {}),
           chave: chave.length === 44 ? chave : null, protocolo: l.protocolo || null, emitidaEm,
           valorTotal: numeroBr(modelo === "NFSE" ? l["valor do servico"] : l["valor total"]).toFixed(2),
@@ -917,7 +1061,7 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
   if (!simular)
     for (const [chave, valor] of maiores)
       await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES (${chave}, ${valor}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${valor})`;
-  if (ligadas || semOrigem) r.avisos.push(`${ligadas} notas ${simular ? "vão ficar" : "ficaram"} ligadas à venda ou OS de origem (mesmo cliente e valor, emitida perto da data); ${semOrigem} sem origem encontrada.`);
+  if (ligadas || semOrigem) r.avisos.push(`${ligadas} notas ${simular ? "vão ficar" : "ficaram"} ligadas à venda ou OS de origem (pelas duplicatas = parcelas, pelos serviços citados na NFS-e ou pelo cliente, valor e data)${religadas ? `, das quais ${religadas} ${simular ? "vão trocar" : "trocaram"} de documento` : ""}; ${semOrigem} sem origem encontrada.`);
   if (porModelo.size) r.avisos.push(`Notas do Gestão Click para consulta (sem XML): ${[...porModelo].map(([m, n]) => `${m === "NFE" ? "NF-e" : m === "NFCE" ? "NFC-e" : "NFS-e"} ${n}`).join(", ")}.`);
   if (maiores.size) r.avisos.push(`A numeração das notas continua do Gestão Click: ${[...maiores].map(([k, v]) => `${k.startsWith("DPS") ? "DPS" : k.includes("-65-") ? "NFC-e" : "NF-e"} série ${k.split("-").at(-2)} a partir do nº ${v + 1}`).join("; ")}.`);
   else if (r.lidas) r.avisos.push("Cadastre a empresa (CNPJ) antes: sem ela a numeração das notas não pode continuar a do Gestão Click.");
@@ -926,51 +1070,169 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
 type ModeloGc = "NFE" | "NFCE" | "NFSE";
 const digitosGc = (s: string) => s.replace(/\D/g, "");
 
+/** Coluna com o número da nota numa linha do Gestão Click ("NF-e", "Nº da NF-e", "Nota fiscal", "NFS-e"). */
+export function notasDaLinha(l: Linha): { grupo: "PROD" | "SERV"; numero: number }[] {
+  const r: { grupo: "PROD" | "SERV"; numero: number }[] = [];
+  for (const [k, v] of Object.entries(l)) {
+    const m = /^(?:n|no|numero)?\s*(?:d[aeo]\s+)?(nf e|nfe|nfs e|nfse|nota fiscal|nota fiscal de servico|nota)$/.exec(k);
+    if (!m || !v) continue;
+    const grupo = /nfs|servico/.test(m[1]) ? "SERV" : "PROD";
+    // pode vir "#6756", "6756" ou várias ("6756, 6757")
+    for (const n of String(v).match(/\d+/g) ?? []) if (Number(n) > 0) r.push({ grupo, numero: Number(n) });
+  }
+  return r;
+}
+
+/** Número de nota → venda/OS, pelas colunas de nota das vendas, das OS e das contas a receber do backup. */
+async function notasCitadas(t: Tabelas) {
+  const r = new Map<string, { tipo: "VENDA" | "OS"; id: string }>();
+  const fontes: { tipo: "VENDA" | "OS"; numero: number; notas: ReturnType<typeof notasDaLinha> }[] = [
+    ...(t.vendas ?? []).map((v) => ({ tipo: "VENDA" as const, numero: Number(v["n do pedido"]), notas: notasDaLinha(v) })),
+    ...(t.ordens_servicos ?? []).map((o) => ({ tipo: "OS" as const, numero: Number(o["n da os"]), notas: notasDaLinha(o) })),
+    ...(t.contas_receber ?? []).flatMap((c) => {
+      const d = documentoDaDescricao(c["descricao do recebimento"]);
+      return d && d.tipo !== "COMPRA" ? [{ tipo: d.tipo, numero: d.numero, notas: notasDaLinha(c) }] : [];
+    }),
+  ].filter((f) => f.numero > 0 && f.notas.length);
+  const ids = new Map<string, string | null>();
+  for (const f of fontes) {
+    const k = `${f.tipo}:${f.numero}`;
+    if (!ids.has(k)) {
+      const where = { idLegado: leg(`${f.tipo === "VENDA" ? "venda" : "os"}:${f.numero}`) };
+      ids.set(k, (f.tipo === "VENDA" ? await prisma.venda.findFirst({ where, select: { id: true } }) : await prisma.ordemServico.findFirst({ where, select: { id: true } }))?.id ?? null);
+    }
+    const id = ids.get(k);
+    if (id) for (const n of f.notas) if (!r.has(`${n.grupo}:${n.numero}`)) r.set(`${n.grupo}:${n.numero}`, { tipo: f.tipo, id });
+  }
+  return r;
+}
+
 /**
  * Venda ou OS de onde a nota do Gestão Click saiu: o backup não traz o vínculo, então acha pelo cliente (CPF/CNPJ ou
- * nome), pelo valor (NF-e/NFC-e = total ou produtos; NFS-e = serviços ou total) e pela data (emitida até 3 dias antes
- * e 90 depois do documento; fica a mais próxima). Só liga quando há uma única melhor e cada documento uma vez por modelo.
+ * nome) e, primeiro, pelas duplicatas: a nota cujas duplicatas (vencimento e valor) são as parcelas da venda/OS é
+ * dela, em qualquer data. Sem isso, pelo valor (NF-e/NFC-e = total ou produtos; NFS-e = serviços ou total) e pela data:
+ * emitida entre 10 dias antes da entrada e 365 dias depois da saída da OS (na venda, da data dela). Junta todas as notas e documentos
+ * possíveis e liga primeiro os pares mais próximos na data, um documento por modelo de nota; documento que já tem
+ * nota daquele modelo no ERP não recebe outra. Nota sem destinatário (NFC-e de balcão) só liga no mesmo dia e se
+ * houver um único documento com o valor.
  */
-async function achadorDeOrigem() {
+export type NotaParaLigar = { modelo: ModeloGc; numero?: number; valor: number; emitida: Date; doc: string; nome: string; parcelas?: string; descricao?: string };
+async function achadorDeOrigem(parcelasDoc: Map<string, string> = new Map(), servicosDoc: Map<string, string[]> = new Map(), recalcular = false) {
   const pessoa = { select: { documento: true, nome: true, fantasia: true } } as const;
-  const [vendas, oss] = await Promise.all([
-    prisma.venda.findMany({ select: { id: true, data: true, total: true, totalProdutos: true, totalServicos: true, cliente: pessoa } }),
-    prisma.ordemServico.findMany({ select: { id: true, entrada: true, saida: true, total: true, totalProdutos: true, totalServicos: true, cliente: pessoa } }),
+  const [vendas, oss, ligadas] = await Promise.all([
+    // documento cancelado não recebe nota (no Gestão Click a venda refeita fica com a nota e a duplicada é cancelada)
+    prisma.venda.findMany({ where: { situacao: { not: "CANCELADA" } }, select: { id: true, numero: true, data: true, total: true, totalProdutos: true, totalServicos: true, cliente: pessoa } }),
+    prisma.ordemServico.findMany({ where: { situacao: { not: "CANCELADA" } }, select: { id: true, numero: true, entrada: true, saida: true, total: true, totalProdutos: true, totalServicos: true, cliente: pessoa } }),
+    // recalculando com o backup, as notas do Gestão Click não seguram documento (o vínculo delas é refeito)
+    prisma.notaFiscal.findMany({ where: { origemId: { not: null }, status: { notIn: ["CANCELADA", "REJEITADA", "DENEGADA", "INUTILIZADA"] }, ...(recalcular ? { idLegado: null } : {}) }, select: { modelo: true, origemId: true } }),
   ]);
-  type Doc = { tipo: "VENDA" | "OS"; id: string; data: Date; valores: Record<"NFE" | "NFSE", number[]>; doc: string; nomes: string[] };
+  type Doc = { tipo: "VENDA" | "OS"; id: string; numero: number; de: number; ate: number; valores: Record<"NFE" | "NFSE", number[]>; doc: string; nomes: string[] };
   const nomes = (c: { nome: string; fantasia: string | null } | null) => c ? [chaveNome(c.nome), ...(c.fantasia ? [chaveNome(c.fantasia)] : [])] : [];
   const docs: Doc[] = [
-    ...vendas.map((v) => ({ tipo: "VENDA" as const, id: v.id, data: v.data, doc: digitosGc(v.cliente?.documento ?? ""), nomes: nomes(v.cliente),
+    ...vendas.map((v) => ({ tipo: "VENDA" as const, id: v.id, numero: v.numero, de: v.data.getTime(), ate: v.data.getTime(), doc: digitosGc(v.cliente?.documento ?? ""), nomes: nomes(v.cliente),
       valores: { NFE: [Number(v.total), Number(v.totalProdutos)], NFSE: [Number(v.totalServicos), Number(v.total)] } })),
-    ...oss.map((o) => ({ tipo: "OS" as const, id: o.id, data: o.saida ?? o.entrada, doc: digitosGc(o.cliente?.documento ?? ""), nomes: nomes(o.cliente),
-      valores: { NFE: [Number(o.totalProdutos), Number(o.total)], NFSE: [Number(o.totalServicos), Number(o.total)] } })),
+    ...oss.map((o) => {
+      const t = [o.entrada.getTime(), (o.saida ?? o.entrada).getTime()];
+      return { tipo: "OS" as const, id: o.id, numero: o.numero, de: Math.min(...t), ate: Math.max(...t), doc: digitosGc(o.cliente?.documento ?? ""), nomes: nomes(o.cliente),
+        valores: { NFE: [Number(o.totalProdutos), Number(o.total)], NFSE: [Number(o.totalServicos), Number(o.total)] } };
+    }),
   ];
-  const usados = new Set<string>();
+  const usados = new Set(ligadas.map((n) => `${n.modelo}:${n.origemId}`));
   const DIA = 86400000;
+  const diaUtc = (t: number) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
   return {
-    achar(modelo: ModeloGc, l: Linha): { tipo: "VENDA" | "OS"; id: string } | null {
-      const nfse = modelo === "NFSE";
-      const valor = Math.round(numeroBr(nfse ? l["valor do servico"] : l["valor total"]) * 100) / 100;
-      const emitida = dataBr(l["data de emissao"]);
-      if (!(valor > 0) || !emitida) return null;
-      const docDest = digitosGc(nfse ? l.cnpj || l.cpf || "" : l["cnpj do destinatario"] || l["cpf do destinatario"] || "");
-      const nomeDest = chaveNome((nfse ? l["razao social"] : l["nome do destinatario"]) ?? "");
-      const chave = nfse ? "NFSE" : "NFE";
-      const cands = docs.filter((d) => !usados.has(`${modelo}:${d.id}`)
-        && (docDest && d.doc ? d.doc === docDest : nomeDest ? d.nomes.includes(nomeDest) : !docDest)
-        && d.valores[chave].some((v) => v > 0 && Math.abs(v - valor) < 0.01)
-        // sem destinatário (NFC-e de balcão): só no mesmo dia, pelo valor
-        && (docDest || nomeDest
-          ? emitida.getTime() >= d.data.getTime() - 3 * DIA && emitida.getTime() <= d.data.getTime() + 90 * DIA
-          : Math.abs(emitida.getTime() - Date.UTC(d.data.getUTCFullYear(), d.data.getUTCMonth(), d.data.getUTCDate())) <= DIA));
-      if (!cands.length || (!docDest && !nomeDest && cands.length > 1)) return null;
-      cands.sort((a, b) => Math.abs(emitida.getTime() - a.data.getTime()) - Math.abs(emitida.getTime() - b.data.getTime()));
-      // empate (dois documentos iguais na mesma distância): não chuta
-      if (cands.length > 1 && Math.abs(emitida.getTime() - cands[0].data.getTime()) === Math.abs(emitida.getTime() - cands[1].data.getTime())) return null;
-      usados.add(`${modelo}:${cands[0].id}`);
-      return { tipo: cands[0].tipo, id: cands[0].id };
+    /** Documento de cada nota (mesma ordem da lista), ou null. */
+    ligar(notas: NotaParaLigar[]): ({ tipo: "VENDA" | "OS"; id: string } | null)[] {
+      const pares: { n: number; d: Doc; dist: number }[] = [];
+      const semDestinatario = new Map<number, Doc[]>();
+      notas.forEach((nt, n) => {
+        const valor = Math.round(nt.valor * 100) / 100;
+        if (!(valor > 0)) return;
+        const chave = nt.modelo === "NFSE" ? "NFSE" : "NFE";
+        const emitida = nt.emitida.getTime();
+        const anonima = !nt.doc && !nt.nome;
+        // duplicatas da nota iguais às parcelas da venda/OS (vencimento e valor de cada uma), do mesmo cliente: é ela,
+        // em qualquer data (a nota pode sair meses depois da venda)
+        if (nt.parcelas) {
+          const mesmas = docs.filter((d) => !usados.has(`${nt.modelo}:${d.id}`) && parcelasDoc.get(d.id) === nt.parcelas);
+          const doCliente = mesmas.filter((d) => (nt.doc && d.doc ? d.doc === nt.doc : nt.nome ? d.nomes.includes(nt.nome) : true));
+          // cliente com nome/CNPJ diferente no cadastro: vale se só um documento do sistema inteiro tem essas parcelas
+          const iguais = doCliente.length ? doCliente : mesmas.length === 1 ? mesmas : [];
+          if (iguais.length) {
+            for (const d of iguais) pares.push({ n, d, dist: -1e15 + Math.abs(emitida - d.ate) });
+            return;
+          }
+        }
+        for (const d of docs) {
+          if (usados.has(`${nt.modelo}:${d.id}`)) continue;
+          if (!(nt.doc && d.doc ? d.doc === nt.doc : nt.nome ? d.nomes.includes(nt.nome) : !nt.doc)) continue;
+          if (!d.valores[chave].some((v) => v > 0 && Math.abs(v - valor) < 0.01)) continue;
+          if (anonima) {
+            if (Math.abs(diaUtc(emitida) - diaUtc(d.de)) <= DIA) (semDestinatario.get(n) ?? semDestinatario.set(n, []).get(n)!).push(d);
+            continue;
+          }
+          if (emitida < d.de - 10 * DIA || emitida > d.ate + 365 * DIA) continue;
+          // dentro do período da OS (entrada a saída) conta como distância zero
+          pares.push({ n, d, dist: emitida < d.de ? d.de - emitida : emitida > d.ate ? emitida - d.ate : 0 });
+        }
+      });
+      // balcão sem destinatário: só com um único documento possível
+      for (const [n, ds] of semDestinatario) if (ds.length === 1) pares.push({ n, d: ds[0], dist: 0 });
+      // empate (vendas iguais do mesmo cliente): a nota de número menor fica com o documento de número menor
+      pares.sort((x, y) => x.dist - y.dist || (notas[x.n].numero ?? x.n) - (notas[y.n].numero ?? y.n) || x.d.numero - y.d.numero);
+      const r: ({ tipo: "VENDA" | "OS"; id: string } | null)[] = notas.map(() => null);
+      for (const p of pares) {
+        const k = `${notas[p.n].modelo}:${p.d.id}`;
+        if (r[p.n] || usados.has(k)) continue;
+        usados.add(k);
+        r[p.n] = { tipo: p.d.tipo, id: p.d.id };
+      }
+      // NFS-e com valor diferente da OS: o Gestão Click escreve na descrição os serviços da OS ("VISITA TÉCNICA -
+      // MANUTENÇÃO CFTV - …"). Liga só quando uma única OS do cliente, sem NFS-e, tem todos os serviços citados e
+      // nenhuma outra nota disputa essa OS.
+      const porDescricao = new Map<number, Doc[]>();
+      notas.forEach((nt, n) => {
+        if (r[n] || nt.modelo !== "NFSE" || !nt.descricao || (!nt.doc && !nt.nome)) return;
+        const emitida = nt.emitida.getTime();
+        const cands = docs.filter((d) => {
+          const servs = servicosDoc.get(d.id);
+          return !!servs?.length && !usados.has(`NFSE:${d.id}`)
+            && (nt.doc && d.doc ? d.doc === nt.doc : d.nomes.includes(nt.nome))
+            && emitida >= d.de - 10 * DIA && emitida <= d.ate + 365 * DIA
+            && servs.every((sv) => nt.descricao!.includes(sv));
+        });
+        if (cands.length === 1) porDescricao.set(n, cands);
+      });
+      const disputa = new Map<string, number>();
+      for (const [, [d]] of porDescricao) disputa.set(d.id, (disputa.get(d.id) ?? 0) + 1);
+      for (const [n, [d]] of porDescricao) {
+        if (disputa.get(d.id) !== 1) continue;
+        usados.add(`NFSE:${d.id}`);
+        r[n] = { tipo: d.tipo, id: d.id };
+      }
+      return r;
     },
   };
+}
+
+/**
+ * Liga às vendas/OS as notas do Gestão Click que ficaram sem origem, usando só o que já está no ERP (destinatário,
+ * valor e data da nota). Não precisa do backup. Nada é desligado: só preenche as que estão vazias.
+ */
+export async function ligarNotasDoGestaoClick(simular: boolean) {
+  const notas = await prisma.notaFiscal.findMany({
+    where: { idLegado: { not: null }, origemId: null, emitidaEm: { not: null }, status: { notIn: ["CANCELADA", "REJEITADA", "DENEGADA", "INUTILIZADA"] } },
+    select: { id: true, modelo: true, numero: true, valorTotal: true, emitidaEm: true, destinatarioNome: true },
+  });
+  const origem = await achadorDeOrigem();
+  const docs = origem.ligar(notas.map((n) => ({ modelo: n.modelo as ModeloGc, numero: n.numero, valor: Number(n.valorTotal), emitida: n.emitidaEm!, doc: "", nome: chaveNome(n.destinatarioNome ?? "") })));
+  let ligadas = 0;
+  for (const [i, d] of docs.entries()) {
+    if (!d) continue;
+    ligadas++;
+    if (!simular) await prisma.notaFiscal.update({ where: { id: notas[i].id }, data: { origemTipo: d.tipo, origemId: d.id } });
+  }
+  return { semOrigem: notas.length, ligadas };
 }
 
 // ---------- serviços recorrentes (contratos)
@@ -984,7 +1246,7 @@ async function importarContratos(t: Tabelas, simular: boolean): Promise<Resultad
   const r: Resultado = { tipo: "contratos", simulado: simular, lidas: todos.length, criados: 0, atualizados: 0, ignorados: [], avisos: [] };
   if (!todos.length) return r;
   const servs = agruparPor("codigo")(t.servicos_recorrentes_servicos);
-  const ctx = await contextoComercial(t);
+  const ctx = await contextoComercial(t, simular);
   let total = 0, ativos = 0, primeira: Date | null = null;
   const conferir: string[] = [];
   const renumerados: string[] = [];
@@ -1126,7 +1388,7 @@ async function importarNaEmpresa(t: Tabelas, opts: { simular?: boolean; etapas?:
   if (e.compras && t.ajustes_estoques) res.push(await importarAjustes(t, simular));
   if (e.notas) res.push(await importarNotas(t, simular));
   if (e.contratos) res.push(await importarContratos(t, simular));
-  if (e.receber) res.push(await importarContas(t.contas_receber, "RECEBER", simular, false, !!e.pagas));
-  if (e.pagar) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas, !!e.pagas));
+  if (e.receber || e.completarContas) res.push(await importarContas(t.contas_receber, "RECEBER", simular, false, !!e.pagas, !e.receber));
+  if (e.pagar || e.completarContas) res.push(await importarContas(t.contas_pagar, "PAGAR", simular, !e.pagarVencidas, !!e.pagas, !e.pagar));
   return res;
 }

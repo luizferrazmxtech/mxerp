@@ -6,7 +6,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
  * Menu suspenso (Mais ações ▾, Editar ▾, ⋮). Fecha ao clicar fora, rolar a página ou escolher uma opção.
  * O menu fica em position:fixed calculado a partir do botão, então não é cortado por tabelas com overflow
  * (o ⋮ da última linha das listas era cortado). Se não couber embaixo, abre para cima. Continua no mesmo lugar
- * do DOM (sem portal) para os botões de formulário dentro dele seguirem funcionando.
+ * do DOM (sem portal) para os botões de formulário dentro dele seguirem funcionando. Fecha só depois do clique
+ * (setTimeout): fechar no próprio clique tirava o <form> da página antes do envio ("Clonar produto" não fazia nada).
  */
 export default function Suspenso({ botao, classe = "btn-sec", children, direita = false, titulo }: {
   botao: React.ReactNode; classe?: string; children: React.ReactNode; direita?: boolean; titulo?: string;
@@ -48,7 +49,7 @@ export default function Suspenso({ botao, classe = "btn-sec", children, direita 
     <div ref={ref} className="relative inline-block">
       <button ref={btn} type="button" className={classe} onClick={() => setAberto((v) => !v)} title={titulo} aria-expanded={aberto}>{botao}</button>
       {aberto && (
-        <div ref={menu} onClick={() => setAberto(false)} style={pos}
+        <div ref={menu} onClick={() => setTimeout(() => setAberto(false), 0)} style={pos}
           className="fixed z-50 w-max min-w-48 max-w-[24rem] rounded-md border bg-white py-1 text-[14px] text-slate-800 shadow-lg">
           {children}
         </div>

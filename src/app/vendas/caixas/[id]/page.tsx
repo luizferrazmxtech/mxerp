@@ -3,8 +3,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { pode } from "@/lib/auth/permissoesAcao";
-import { linhasCaixas, conferenciaDe } from "@/lib/pdv/relatorio";
-import { resumoCaixa } from "@/lib/pdv/caixa";
+import { caixasDoUsuario, linhasCaixas, conferenciaDe } from "@/lib/pdv/relatorio";
+import { caixaAberto, resumoCaixa } from "@/lib/pdv/caixa";
 import { brl, dataSP, horaSP } from "@/lib/ui/format";
 import { Pagina, Pilula } from "@/components/ui/Pagina";
 import SemPermissao from "@/components/ui/SemPermissao";
@@ -28,8 +28,10 @@ export default async function Caixa({ params, searchParams }: { params: Promise<
   const [l] = await linhasCaixas({ id });
   if (!l) notFound();
   const todos = await pode(u.papel, "pdv.caixas");
-  const meu = l.operador.id === u.id;
-  if (!meu && !todos) return <SemPermissao texto="Você só pode ver os seus caixas." />;
+  const pode0 = todos || (await prisma.caixaPdv.count({ where: { AND: [{ id }, caixasDoUsuario(u.id)] } })) > 0;
+  if (!pode0) return <SemPermissao texto="Você só pode ver os caixas em que trabalhou." />;
+  // o caixa em que o PDV deste usuário está vendendo (um por empresa)
+  const meu = l.aberto && (await caixaAberto(u.id))?.id === id;
   const [movs, vendas, podeSangria] = await Promise.all([
     prisma.movimentoCaixa.findMany({ where: { caixaId: id }, orderBy: { createdAt: "asc" }, include: { usuario: { select: { nome: true } } } }),
     prisma.venda.findMany({
@@ -41,7 +43,7 @@ export default async function Caixa({ params, searchParams }: { params: Promise<
   const conf = l.aberto ? (await resumoCaixa(id)).esperadoPorForma : conferenciaDe(l);
   const base = `/vendas/caixas/${id}`;
   const voltar = `&voltar=${encodeURIComponent(base)}`;
-  const fecharAberto = l.aberto && acao === "fechar" && (meu || todos);
+  const fecharAberto = l.aberto && acao === "fechar";
   const info = (rotulo: string, valor: React.ReactNode, cls = "") => (
     <div className="rounded border border-slate-200 p-2"><div className="text-[11px] text-slate-500">{rotulo}</div><div className={`text-[15px] font-semibold ${cls}`}>{valor}</div></div>
   );
@@ -56,13 +58,13 @@ export default async function Caixa({ params, searchParams }: { params: Promise<
         {l.aberto && meu && <Link href="/pdv" className="btn-sec"><Icone nome="carrinho" size={14} /> Ir para o PDV</Link>}
         {l.aberto && meu && podeSangria && <Link href={`/pdv?acao=sangria${voltar}`} className="btn-sec">Sangria</Link>}
         {l.aberto && meu && podeSangria && <Link href={`/pdv?acao=reforco${voltar}`} className="btn-sec">Reforço</Link>}
-        {l.aberto && (meu || todos) && <Link href={`${base}?acao=fechar`} className="btn"><Icone nome="caixa" size={14} /> Fechar caixa</Link>}
+        {l.aberto && <Link href={`${base}?acao=fechar`} className="btn"><Icone nome="caixa" size={14} /> Fechar caixa</Link>}
       </div>
 
       <div className="cartao p-4 text-[13px]">
         <h2 className="mb-3 text-[16px]">Relatório do <b>caixa {l.numero ?? ""}</b></h2>
         <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
-          <div><span className="text-slate-500">Operador:</span> {l.operador.nome}</div>
+          <div><span className="text-slate-500">Aberto por:</span> {l.operador.nome}</div>
           <div><span className="text-slate-500">Abertura:</span> {quando(l.abertoEm)}</div>
           <div><span className="text-slate-500">Fechamento:</span> {l.fechadoEm ? quando(l.fechadoEm) : "caixa aberto"}</div>
           {l.fechadoPor && <div><span className="text-slate-500">Fechado por:</span> {l.fechadoPor}</div>}
@@ -145,10 +147,10 @@ export default async function Caixa({ params, searchParams }: { params: Promise<
         <div className="no-print fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 pt-10 sm:p-4 sm:pt-20">
           <div className="cartao w-full max-w-md shadow-xl">
             <div className="flex items-center border-b px-4 py-3">
-              <h3 className="text-[16px]">Fechar o <b>caixa {l.numero ?? ""}</b>{!meu && <span className="block text-[12px] text-slate-500">de {l.operador.nome}</span>}</h3>
+              <h3 className="text-[16px]">Fechar o <b>caixa {l.numero ?? ""}</b><span className="block text-[12px] text-slate-500">aberto por {l.operador.nome}</span></h3>
               <Link href={base} className="ml-auto text-slate-500 hover:text-black" aria-label="Fechar"><Icone nome="fechar" /></Link>
             </div>
-            <div className="p-4"><FecharCaixa caixaId={id} linhas={conf.map(({ forma, esperado }) => ({ forma, esperado }))} outro={!meu} /></div>
+            <div className="p-4"><FecharCaixa caixaId={id} linhas={conf.map(({ forma, esperado }) => ({ forma, esperado }))} /></div>
           </div>
         </div>
       )}

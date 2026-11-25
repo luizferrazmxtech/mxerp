@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { sqlDaLoja } from "@/lib/empresa/loja";
+import { lojaAtualId, sqlDaLoja } from "@/lib/empresa/loja";
 import { atrasada, prazoOs, type PrazoOs } from "@/lib/os/prazo";
 
 /**
@@ -27,17 +27,23 @@ const local = (col: string) => Prisma.raw(`(${col} AT TIME ZONE 'UTC' AT TIME ZO
 
 export async function itensVendidos(p: Periodo, f: FiltroVendas = {}): Promise<ItemVendido[]> {
   const fim = new Date(p.ate.getTime() + 86400000);
-  const lv = await sqlDaLoja(`v."empresaId"`), lo = await sqlDaLoja(`o."empresaId"`);
+  const lv = await sqlDaLoja(`v."empresaId"`);
+  // OS com os serviços por outra empresa (ex.: VFX): as peças contam na empresa da OS e os serviços na dos serviços
+  const loja = await lojaAtualId();
+  const lo = loja ? Prisma.sql` AND (o."empresaId" IS NULL OR o."empresaId" = ${loja} OR o."empresaServicosId" = ${loja})` : Prisma.empty;
+  const li = loja ? Prisma.sql` WHERE (CASE WHEN it.tipo = 'SERVICO' THEN d."empServ" ELSE d."empProd" END) IS NULL OR (CASE WHEN it.tipo = 'SERVICO' THEN d."empServ" ELSE d."empProd" END) = ${loja}` : Prisma.empty;
   const vv = f.vendedorId ? Prisma.sql` AND v."vendedorId" = ${f.vendedorId}` : Prisma.empty;
   const vo = f.vendedorId ? Prisma.sql` AND o."vendedorId" = ${f.vendedorId}` : Prisma.empty;
   const rows = await prisma.$queryRaw<ItemVendido[]>`
     WITH docs AS (
       SELECT 'VENDA' origem, v.id, v.numero, ${local("v.data")} dia, v."clienteId", v."vendedorId", NULL::text "tecnicoId", v.canal, v.tipo::text "tipoDoc", v.desconto,
+             v."empresaId" "empProd", v."empresaId" "empServ",
              NULL::timestamp "osEntrada", NULL::timestamp "osPrevisao", NULL::timestamp "osSaida",
              COALESCE((SELECT SUM(subtotal) FROM "VendaItem" WHERE "vendaId" = v.id), 0) + COALESCE((SELECT SUM(subtotal) FROM "VendaItemServico" WHERE "vendaId" = v.id), 0) bruto
         FROM "Venda" v WHERE v.situacao = 'CONCLUIDA' AND ${local("v.data")} >= ${p.de}::date AND ${local("v.data")} < ${fim}::date${lv}${vv}
       UNION ALL
       SELECT 'OS', o.id, o.numero, ${local('COALESCE(o.saida, o.entrada)')}, o."clienteId", o."vendedorId", o."tecnicoId", o.canal, 'OS', o.desconto,
+             o."empresaId", COALESCE(o."empresaServicosId", o."empresaId"),
              o.entrada, o.previsao, o.saida,
              COALESCE((SELECT SUM(subtotal) FROM "OsItemProduto" WHERE "osId" = o.id), 0) + COALESCE((SELECT SUM(subtotal) FROM "OsItemServico" WHERE "osId" = o.id), 0)
         FROM "OrdemServico" o WHERE o.situacao IN ('CONCLUIDA','FATURADA') AND ${local('COALESCE(o.saida, o.entrada)')} >= ${p.de}::date AND ${local('COALESCE(o.saida, o.entrada)')} < ${fim}::date${lo}${vo}
@@ -58,7 +64,7 @@ export async function itensVendidos(p: Periodo, f: FiltroVendas = {}): Promise<I
       LEFT JOIN "Usuario" u ON u.id = d."vendedorId"
       LEFT JOIN "Usuario" t ON t.id = d."tecnicoId"
       LEFT JOIN "Produto" pr ON it.tipo = 'PRODUTO' AND pr.id = it.item
-      LEFT JOIN "Servico" sv ON it.tipo = 'SERVICO' AND sv.id = it.item
+      LEFT JOIN "Servico" sv ON it.tipo = 'SERVICO' AND sv.id = it.item${li}
      ORDER BY d.dia, d.numero`;
   return rows;
 }

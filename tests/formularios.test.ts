@@ -115,6 +115,13 @@ describe("caixa do PDV", () => {
     await expect(caixa.movimentarCaixa(c.id, usuario, { tipo: "SUPRIMENTO", valor: 10 })).rejects.toThrow(/não está aberto/);
   });
 
+  it("dois operadores abrindo ao mesmo tempo ficam no mesmo caixa", async () => {
+    const outro = (await prisma.usuario.create({ data: { nome: "Outro", email: "o@x.test", senhaHash: "x" } })).id;
+    const [a, b] = await Promise.all([caixa.abrirCaixa(usuario, 10), caixa.abrirCaixa(outro, 20)]);
+    expect(a.id).toBe(b.id);
+    expect(await prisma.caixaPdv.count({ where: { fechadoEm: null } })).toBe(1);
+  });
+
   it("fecha com conferência por forma, lança a quebra no financeiro e aparece no relatório de caixas", async () => {
     const pix = (await prisma.formaPagamento.findUniqueOrThrow({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "PIX" } } })).id;
     const c1 = await caixa.abrirCaixa(usuario, 50);
@@ -124,10 +131,12 @@ describe("caixa do PDV", () => {
     await caixa.movimentarCaixa(c.id, usuario, { tipo: "SANGRIA", valor: 100, motivo: "cofre" });
     const r = await caixa.resumoCaixa(c.id);
     expect(r.esperadoPorForma.map((x) => [x.forma, x.esperado])).toEqual([["Dinheiro", 150], ["PIX", 300]]);
-    // outro usuário não fecha sem a opção de gerente
+    // um caixa por empresa: outro operador que "abre" o caixa entra no mesmo, e pode fechá-lo
     const gerente = (await prisma.usuario.create({ data: { nome: "Gerente", email: "g@x.test", senhaHash: "x", papel: "GERENTE" } })).id;
-    await expect(caixa.fecharCaixa(c.id, gerente, { Dinheiro: 140 })).rejects.toThrow(/não está aberto/);
-    const f = await caixa.fecharCaixa(c.id, gerente, { Dinheiro: 140, PIX: 300 }, "faltou troco", { qualquerOperador: true, lancarDiferenca: true });
+    expect((await caixa.abrirCaixa(gerente, 999)).id).toBe(c.id);
+    expect((await caixa.caixaAberto(gerente))?.id).toBe(c.id);
+    expect((await caixa.caixasAbertos()).map((x) => x.usuario.nome)).toEqual(["Op"]);
+    const f = await caixa.fecharCaixa(c.id, gerente, { Dinheiro: 140, PIX: 300 }, "faltou troco", { lancarDiferenca: true });
     expect([Number(f.valorFechamento), Number(f.valorEsperado), f.fechadoPorId]).toEqual([140, 150, gerente]);
     expect(caixa.lerConferencia(f.conferencia)).toEqual([{ forma: "Dinheiro", esperado: 150, contado: 140 }, { forma: "PIX", esperado: 300, contado: 300 }]);
     const quebra = await prisma.lancamento.findUniqueOrThrow({ where: { id: f.lancamentoDiferencaId! }, include: { contaBancaria: true } });

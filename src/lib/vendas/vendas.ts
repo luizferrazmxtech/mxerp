@@ -98,7 +98,7 @@ async function concluirTx(tx: Tx, vendaId: string, pagamentos: Pagamento[], opts
   await transicionarEstoque(tx, "VENDA", vendaId, estadoEstoqueVenda(v.situacao), "BAIXADO", itensDaVenda(tx, vendaId), opts);
   await tx.vendaPagamento.deleteMany({ where: { vendaId } });
   await tx.vendaPagamento.createMany({
-    data: pagamentos.map((p) => ({ vendaId, formaPagamentoId: p.formaPagamentoId, valor: D(p.valor), parcelas: p.parcelas ?? 1 })),
+    data: pagamentos.map((p) => ({ vendaId, formaPagamentoId: p.formaPagamentoId, valor: D(p.valor), parcelas: p.parcelas ?? 1, bandeira: p.bandeira || null })),
   });
   const venda = await tx.venda.update({ where: { id: vendaId }, data: { situacao: "CONCLUIDA", situacaoId: await cfgId(tx, "CONCLUIDA") } });
   await garantirPadroes(tx);

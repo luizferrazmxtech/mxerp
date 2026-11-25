@@ -9,10 +9,10 @@ import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
 import { numerosPendentes } from "@/lib/fiscal/inutilizacao";
 import { estimativaDoMes, mesAnterior, mesAtual } from "@/lib/fiscal/impostos";
-import { URL_DANFSE } from "@/lib/fiscal/nfse";
 import { consultarStatus } from "./actions";
 import AcoesNota from "./AcoesNota";
 import Resumo from "@/components/ui/Resumo";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Notas fiscais" };
@@ -121,7 +121,7 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
               const [rot, cor] = SITUACAO[n.status] ?? [n.status, "bg-slate-50 text-slate-600"];
               return (
                 <tr key={n.id}>
-                  <td><Link href={`/fiscal/${n.id}`} className="font-semibold text-marca hover:underline">{n.numero}</Link><span className="text-[11px] text-slate-500"> série {n.serie}</span>
+                  <td><Link href={`/fiscal/${n.id}`} className="font-semibold text-marca hover:underline">{numeroDaNota(n)}</Link><span className="text-[11px] text-slate-500">{n.modelo === "NFSE" ? ` DPS ${n.serie}/${n.numero}` : ` série ${n.serie}`}</span>
                     {n.ambiente === "HOMOLOGACAO" && <div className="text-[10px] text-amber-700">homologação</div>}</td>
                   {!modelo && <td className="text-[12px]">{MODELOS[n.modelo]?.curto ?? n.modelo}</td>}
                   <td>{o ? <Link href={o.href} className="text-marca hover:underline">{o.rotulo}</Link> : <span className="text-slate-400">—</span>}</td>
@@ -134,7 +134,7 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
                     {n.status !== "AUTORIZADA" && n.motivo && <div className="max-w-56 truncate text-[11px] text-slate-500" title={n.motivo}>{n.motivo}</div>}</td>
                   <td className="text-right">
                     <AcoesNota n={{ id: n.id, modelo: n.modelo, status: n.status, temXml: !!n.xml, temChave: !!n.chave }} origem={o ? { rotulo: o.rotulo, href: o.href } : null}
-                      danfse={n.modelo === "NFSE" && n.chave ? `${URL_DANFSE[n.ambiente === "PRODUCAO" ? 1 : 2]}/${n.chave}` : null} />
+                      danfse={n.modelo === "NFSE" && n.chave ? `/fiscal/${n.id}/danfse` : null} />
                   </td>
                 </tr>
               );

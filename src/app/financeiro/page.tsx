@@ -7,8 +7,12 @@ import { avisosPendentes } from "@/lib/financeiro/avisosBoleto";
 import { ROTULO_BOLETO } from "@/lib/financeiro/boletos";
 import { diaSP, periodoDia } from "@/lib/datas";
 import { brl, num2 } from "@/lib/ui/format";
+import { origemPelaDescricao } from "@/lib/financeiro/origem";
 import { boletoAbrivel, contaAvulsa, iconeForma, ordemContas, origemConta, situacaoConta, whereContas, whereSituacao, type ParamsContas } from "@/lib/financeiro/lista";
-import { baixarVariasAcao, estornarContaAcao, excluirContaAcao, excluirVariasAcao } from "./actions";
+import { agruparContasAcao, baixarVariasAcao, estornarContaAcao, excluirContaAcao, excluirVariasAcao } from "./actions";
+import { rotulosDocumentos } from "@/lib/financeiro/agrupar";
+import { usuarioAtual } from "@/lib/auth/atual";
+import { pode } from "@/lib/auth/permissoesAcao";
 import { Pagina } from "@/components/ui/Pagina";
 import { LinkSuspenso, urlCom } from "@/components/ui/BarraLista";
 import Paginacao, { Ordenar, lerPagina } from "@/components/ui/Paginacao";
@@ -20,6 +24,7 @@ import BotaoAcao from "@/components/ui/BotaoAcao";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
 import Icone from "@/components/Icone";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Financeiro" };
@@ -40,6 +45,7 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
   const params: ParamsContas = { ...sp, tipo };
   const hoje = diaSP();
   await prisma.$transaction((tx) => garantirPadroes(tx));
+  const eu = await usuarioAtual();
 
   const filtro = whereContas(tipo, params);
   const where = { AND: [filtro, whereSituacao(sp.f, hoje)] };
@@ -53,6 +59,7 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
       include: {
         pessoa: { select: { id: true, nome: true, fantasia: true, cliente: true, fornecedor: true } }, formaPagamento: true, contaBancaria: { select: { nome: true } },
         categoria: { select: { nome: true, codigo: true } }, boletos: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, situacao: true } },
+        agrupados: { select: { origemTipo: true, origemId: true, descricao: true, parcela: true, totalParcelas: true }, orderBy: [{ vencimento: "asc" }, { createdAt: "asc" }] },
       },
     }),
     prisma.lancamento.count({ where }),
@@ -68,16 +75,25 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
     sp.cli ? prisma.pessoa.findUnique({ where: { id: sp.cli }, select: { id: true, nome: true } }) : null,
   ]);
 
+  // conta do Gestão Click ainda sem o documento ligado: acha a venda/OS/compra pelo número da descrição
+  const achadas = await origemPelaDescricao(lista);
+  const doc = (l: (typeof lista)[number]) => achadas.get(l.id) ?? l;
   // NF-e e NFS-e do documento que gerou a conta
-  const origens = lista.filter((l) => l.origemId && (l.origemTipo === "VENDA" || l.origemTipo === "OS")).map((l) => l.origemId!);
-  const compras = lista.filter((l) => l.origemId && l.origemTipo === "COMPRA").map((l) => l.origemId!);
+  const origens = lista.map(doc).filter((l) => l.origemId && (l.origemTipo === "VENDA" || l.origemTipo === "OS")).map((l) => l.origemId!);
+  const compras = lista.map(doc).filter((l) => l.origemId && l.origemTipo === "COMPRA").map((l) => l.origemId!);
   const [notas, nfCompras] = await Promise.all([
-    origens.length ? prisma.notaFiscal.findMany({ where: { origemId: { in: origens }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true, modelo: true } }) : [],
+    origens.length ? prisma.notaFiscal.findMany({ where: { origemId: { in: origens }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true, numeroNfse: true, modelo: true } }) : [],
     compras.length ? prisma.compra.findMany({ where: { id: { in: compras } }, select: { id: true, numeroNfe: true } }) : [],
   ]);
   const nfe = (id: string | null) => notas.find((n) => n.origemId === id && n.modelo !== "NFSE");
   const nfse = (id: string | null) => notas.find((n) => n.origemId === id && n.modelo === "NFSE");
   const nfCompra = new Map(nfCompras.map((c) => [c.id, c.numeroNfe]));
+  // título agrupado: links para a venda/OS de cada conta que ele juntou
+  const todosAgrupados = lista.flatMap((l) => l.agrupados);
+  const rotulosAg = todosAgrupados.length ? await rotulosDocumentos(todosAgrupados) : [];
+  const refsDe = new Map<string, { rotulo: string; href: string | null }[]>();
+  { let k = 0; for (const l of lista) refsDe.set(l.id, l.agrupados.map((a) => ({ rotulo: rotulosAg[k++], href: origemConta(a)?.href ?? null }))); }
+  const podeAgrupar = !pagar && !!eu && (await pode(eu.papel, "financeiro.agrupar"));
 
   const v = (a: { _sum: { valor: unknown } }) => Number(a._sum.valor ?? 0);
   const totalV = v(totPeriodo);
@@ -86,7 +102,7 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
   const plural = (n: number) => `${n} conta${n === 1 ? "" : "s"}`;
   const titulo = pagar ? "Contas a pagar" : "Contas a receber";
   const modo = sp.acao;
-  const selecao = modo === "baixar" || modo === "excluir";
+  const selecao = modo === "baixar" || modo === "excluir" || (modo === "agrupar" && podeAgrupar);
   const sem = urlCom(base, params, { acao: undefined });
   const rotuloCat = (c: { codigo: string | null; nome: string }) => (c.codigo ? `${c.codigo} ${c.nome}` : c.nome);
   const linkPessoa = (p: { id: string; cliente: boolean; fornecedor: boolean }) => (pagar ? (p.fornecedor ? `/fornecedores/${p.id}` : `/clientes/${p.id}`) : (p.cliente || !p.fornecedor ? `/clientes/${p.id}` : `/fornecedores/${p.id}`));
@@ -110,17 +126,22 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
           {lista.map((l) => {
             const s = situacaoConta(l, hoje);
             const ic = iconeForma(l.formaPagamento);
-            const orig = origemConta(l);
-            const nf = nfe(l.origemId), ns = nfse(l.origemId);
-            const nfc = l.origemId ? nfCompra.get(l.origemId) : null;
+            const d = doc(l);
+            const orig = origemConta({ id: l.id, ...d });
+            const nf = nfe(d.origemId), ns = nfse(d.origemId);
+            const nfc = d.origemId ? nfCompra.get(d.origemId) : null;
             const bol = l.boletos[0];
             const pdf = boletoAbrivel(bol);
             return (
               <tr key={l.id}>
-                {selecao && <td><input type="checkbox" name="ids" value={l.id} disabled={modo === "baixar" ? !!l.pagoEm : !!l.pagoEm || !contaAvulsa(l)} /></td>}
+                {selecao && <td><input type="checkbox" name="ids" value={l.id} disabled={modo === "baixar" || modo === "agrupar" ? !!l.pagoEm : !!l.pagoEm || !contaAvulsa(l)} /></td>}
                 <td>
-                  <Link href={`/financeiro/lancamentos/${l.id}`} className="hover:underline">{l.descricao}</Link>
+                  {/* conta de venda/OS/compra: a descrição abre o documento que gerou o título (a lupa abre a conta) */}
+                  <Link href={orig?.href ?? `/financeiro/lancamentos/${l.id}`} title={orig?.rotulo} className="hover:underline">{l.descricao}</Link>
                   {orig && <Link href={orig.href} title={orig.rotulo} className="ml-1.5 inline-block align-[-2px] text-slate-500 hover:text-slate-900"><Icone nome={orig.icone} size={13} /></Link>}
+                  {l.agrupados.length > 0 && (
+                    <div className="text-[11px] text-slate-600">Agrupa: {(refsDe.get(l.id) ?? []).map((r, i, a) => <span key={i}>{r.href ? <Link href={r.href} className="sublinhado">{r.rotulo}</Link> : r.rotulo}{i < a.length - 1 ? ", " : ""}</span>)}</div>
+                  )}
                   <div className="text-[11px] text-slate-500">{rotuloCat(l.categoria)}</div>
                 </td>
                 <td>
@@ -139,7 +160,7 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
                   {l.pagoEm && <div className="text-[11px] text-emerald-700">{pagar ? "pago" : "recebido"} {diaBr(l.pagoEm)}</div>}
                 </td>
                 <td>{nf ? <Link href={`/fiscal/${nf.id}`} className="sublinhado">{nf.numero}</Link> : nfc ? nfc : <span className="text-slate-400">—</span>}</td>
-                {!pagar && <td>{ns ? <Link href={`/fiscal/${ns.id}`} className="sublinhado">{ns.numero}</Link> : <span className="text-slate-400">—</span>}</td>}
+                {!pagar && <td>{ns ? <Link href={`/fiscal/${ns.id}`} className="sublinhado">{numeroDaNota(ns)}</Link> : <span className="text-slate-400">—</span>}</td>}
                 <td className="text-center"><span className={`pilula ${s.pilula}`}>{s.rotulo}</span></td>
                 <td className="text-right">
                   {num2(l.valor)}
@@ -183,6 +204,7 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
         <Link href={`/financeiro/adicionar?tipo=${tipo}`} className="btn"><Icone nome="mais" size={15} /> Adicionar</Link>
         <Suspenso classe="btn-sec" botao={<><Icone nome="ajustes" size={15} /> Mais ações <Icone nome="abaixo" size={13} /></>}>
           <LinkSuspenso href={urlCom(base, params, { acao: "baixar" })} icone="confirmado">{pagar ? "Pagar várias" : "Receber várias"}</LinkSuspenso>
+          {podeAgrupar && <LinkSuspenso href={urlCom(base, params, { acao: "agrupar", f: sp.f ?? "abertos" })} icone="copiar">Agrupar contas</LinkSuspenso>}
           <LinkSuspenso href={urlCom(base, params, { acao: "excluir" })} icone="excluir">Excluir várias</LinkSuspenso>
           <div className="my-1 border-t" />
           <LinkSuspenso href={`/financeiro?tipo=${pagar ? "RECEBER" : "PAGAR"}`} icone={pagar ? "receber" : "pagar"}>{pagar ? "Contas a receber" : "Contas a pagar"}</LinkSuspenso>
@@ -276,6 +298,14 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
           campos={<>
             <label className="text-[12px]">Data<input type="date" name="data" defaultValue={iso(hoje)} className="campo" required /></label>
             <label className="text-[12px]">Conta bancária<select name="contaBancariaId" className="campo" required><option value="">Escolha</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></label>
+          </>}>{tabela}</FormSelecao>
+      ) : modo === "agrupar" && podeAgrupar ? (
+        <FormSelecao acao={agruparContasAcao} titulo="Agrupar contas a receber" botao="Agrupar marcadas" voltar={sem}
+          confirmar="Agrupar as contas marcadas num título só? As contas saem do financeiro e ficam guardadas dentro do título, com a venda/OS de cada uma. Dá para desagrupar enquanto o título estiver em aberto."
+          campos={<>
+            <label className="text-[12px]">Vencimento do título<input type="date" name="vencimento" className="campo" /></label>
+            <label className="text-[12px]">Forma de pagamento<select name="formaPagamentoId" className="campo"><option value="">A das contas</option>{formas.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></label>
+            <p className="col-span-full text-[12px] text-slate-600">Marque contas em aberto do <b>mesmo cliente</b>. Vencimento em branco = o maior vencimento das marcadas. Conta com boleto registrado precisa ter o boleto cancelado antes. Busque pelo cliente para achar as contas dele.</p>
           </>}>{tabela}</FormSelecao>
       ) : modo === "excluir" ? (
         <FormSelecao acao={excluirVariasAcao} perigo titulo="Excluir contas" botao="Excluir marcadas" voltar={sem} confirmar="Excluir as contas marcadas? Só saem as em aberto lançadas no financeiro.">{tabela}</FormSelecao>
