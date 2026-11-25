@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { MOTIVO_AVISO } from "@/lib/financeiro/boletos";
 import { candidatasDoAviso } from "@/lib/financeiro/avisosBoleto";
+import { resolverAvisosJaLancados } from "@/lib/financeiro/avisoJaLancado";
 import { resolverAvisoBoletoAcao } from "@/lib/financeiro/acoes";
 import { brl, data } from "@/lib/ui/format";
 import { Bloco, Pagina, Pilula } from "@/components/ui/Pagina";
@@ -12,7 +13,13 @@ export const metadata = { title: "Boletos pagos sem conta no sistema" };
 
 const doc = (d: string | null) => !d ? "" : d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
 
+/** A primeira candidata é do mesmo pagador e do mesmo valor: já vem escolhida (o botão ainda precisa ser clicado). */
+const provavel = (a: { pagadorDocumento: string | null; valor: unknown; valorRecebido: unknown }, l?: { valor: unknown; pessoa: { documento: string | null } | null }) =>
+  !!l && !!a.pagadorDocumento && l.pessoa?.documento === a.pagadorDocumento && Math.abs(Number(l.valor) - Number(a.valorRecebido ?? a.valor ?? 0)) <= 0.1;
+
 export default async function AvisosBoletos() {
+  // boleto de fora cujo recebimento já está lançado: encerra sozinho (aparece em "Resolvidos recentemente")
+  await resolverAvisosJaLancados();
   const [pendentes, resolvidos, categorias] = await Promise.all([
     prisma.avisoBoleto.findMany({ where: { resolvidoEm: null }, orderBy: { pagoEm: "asc" }, include: { lancamento: { select: { id: true, descricao: true, pagoEm: true, valorPago: true } } } }),
     prisma.avisoBoleto.findMany({ where: { resolvidoEm: { not: null } }, orderBy: { resolvidoEm: "desc" }, take: 30, include: { lancamento: { select: { id: true, descricao: true } } } }),
@@ -49,7 +56,7 @@ export default async function AvisosBoletos() {
               <input type="hidden" name="id" value={a.id} /><input type="hidden" name="como" value="baixar" />
               <div className="text-[13px] font-semibold">Baixar uma conta em aberto</div>
               <label className="block"><span className="rotulo obrig">Conta a receber</span>
-                <select name="lancamentoId" required className="campo">
+                <select name="lancamentoId" required className="campo" defaultValue={provavel(a, candidatas[i][0]) ? candidatas[i][0].id : ""}>
                   <option value="">Escolha…</option>
                   {candidatas[i].map((l) => <option key={l.id} value={l.id}>{data(l.vencimento)} · {brl(Number(l.valor))} · {l.pessoa?.nome ?? "sem cliente"} · {l.descricao}</option>)}
                 </select></label>
@@ -73,7 +80,7 @@ export default async function AvisosBoletos() {
                 <tr key={a.id}>
                   <td>{a.pagoEm ? data(a.pagoEm) : "—"}</td><td>{a.pagadorNome ?? "—"}</td><td className="text-right">{brl(Number(a.valorRecebido ?? a.valor ?? 0))}</td>
                   <td><Pilula rotulo={MOTIVO_AVISO[a.motivo]?.split(" (")[0] ?? a.motivo} cor="border-slate-300 bg-slate-50 text-slate-600" /></td>
-                  <td>{a.resolucao}</td><td>{a.resolvidoPor} · {a.resolvidoEm ? data(a.resolvidoEm) : ""}</td>
+                  <td>{a.lancamento ? <Link className="underline" href={`/financeiro/lancamentos/${a.lancamento.id}`}>{a.resolucao}</Link> : a.resolucao}</td><td>{a.resolvidoPor} · {a.resolvidoEm ? data(a.resolvidoEm) : ""}</td>
                 </tr>
               ))}
             </tbody>
