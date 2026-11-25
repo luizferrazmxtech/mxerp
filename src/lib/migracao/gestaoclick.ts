@@ -957,11 +957,16 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
       nome: chaveNome((nfse ? l["razao social"] : l["nome do destinatario"]) ?? ""),
     };
   });
+  // nota citada pela venda/OS ou pela conta do Gestão Click (coluna NF-e/NFS-e): vínculo exato, vale mais que o palpite
+  const citadas = await notasCitadas(t);
+  const citada = (modelo: ModeloGc, l: Linha) => (modelo === "NFSE" ? [l.numero, l.rps] : [l.numero]).map((n) => citadas.get(`${modelo === "NFSE" ? "SERV" : "PROD"}:${Number(n)}`)).find(Boolean) ?? null;
   // nota já no ERP com origem, ou cancelada, não disputa documento
   const docDe = new Map<Linha, { tipo: "VENDA" | "OS"; id: string } | null>();
   {
     const idx: number[] = [];
     for (const [k, { modelo, l }] of todas.entries()) {
+      const c = citada(modelo, l);
+      if (c) { docDe.set(l, c); continue; }
       const numero = Number(modelo === "NFSE" ? l.rps || l.numero : l.numero), serie = Number(l.serie) || 1;
       const ambiente = /homolog/i.test(l.ambiente ?? "") ? "HOMOLOGACAO" : "PRODUCAO";
       const ja = numero ? await prisma.notaFiscal.findFirst({ where: { idLegado: leg(`nota:${modelo}:${serie}:${numero}:${ambiente}`) }, select: { id: true, origemId: true } }) : null;
@@ -990,7 +995,8 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
       // o backup não diz de qual venda/OS a nota é: acha pelo cliente, valor e data
       const doc = docDe.get(l) ?? null;
       if (ja) {
-        if (!ja.origemId && doc) { ligadas++; if (!simular) await prisma.notaFiscal.update({ where: { id: ja.id }, data: { origemTipo: doc.tipo, origemId: doc.id } }); }
+        // ligada por palpite a outro documento, mas o Gestão Click cita a nota: corrige para o documento citado
+        if (doc && (!ja.origemId || (ja.origemId !== doc.id && citada(modelo, l)))) { ligadas++; if (!simular) await prisma.notaFiscal.update({ where: { id: ja.id }, data: { origemTipo: doc.tipo, origemId: doc.id } }); }
         else if (!ja.origemId) semOrigem++;
         r.ignorados.push({ linha: i + 2, motivo: `${modelo} ${numero} já existe no ERP` });
         continue;
@@ -1027,6 +1033,43 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
 }
 type ModeloGc = "NFE" | "NFCE" | "NFSE";
 const digitosGc = (s: string) => s.replace(/\D/g, "");
+
+/** Coluna com o número da nota numa linha do Gestão Click ("NF-e", "Nº da NF-e", "Nota fiscal", "NFS-e"). */
+export function notasDaLinha(l: Linha): { grupo: "PROD" | "SERV"; numero: number }[] {
+  const r: { grupo: "PROD" | "SERV"; numero: number }[] = [];
+  for (const [k, v] of Object.entries(l)) {
+    const m = /^(?:n|no|numero)?\s*(?:d[aeo]\s+)?(nf e|nfe|nfs e|nfse|nota fiscal|nota fiscal de servico|nota)$/.exec(k);
+    if (!m || !v) continue;
+    const grupo = /nfs|servico/.test(m[1]) ? "SERV" : "PROD";
+    // pode vir "#6756", "6756" ou várias ("6756, 6757")
+    for (const n of String(v).match(/\d+/g) ?? []) if (Number(n) > 0) r.push({ grupo, numero: Number(n) });
+  }
+  return r;
+}
+
+/** Número de nota → venda/OS, pelas colunas de nota das vendas, das OS e das contas a receber do backup. */
+async function notasCitadas(t: Tabelas) {
+  const r = new Map<string, { tipo: "VENDA" | "OS"; id: string }>();
+  const fontes: { tipo: "VENDA" | "OS"; numero: number; notas: ReturnType<typeof notasDaLinha> }[] = [
+    ...(t.vendas ?? []).map((v) => ({ tipo: "VENDA" as const, numero: Number(v["n do pedido"]), notas: notasDaLinha(v) })),
+    ...(t.ordens_servicos ?? []).map((o) => ({ tipo: "OS" as const, numero: Number(o["n da os"]), notas: notasDaLinha(o) })),
+    ...(t.contas_receber ?? []).flatMap((c) => {
+      const d = documentoDaDescricao(c["descricao do recebimento"]);
+      return d && d.tipo !== "COMPRA" ? [{ tipo: d.tipo, numero: d.numero, notas: notasDaLinha(c) }] : [];
+    }),
+  ].filter((f) => f.numero > 0 && f.notas.length);
+  const ids = new Map<string, string | null>();
+  for (const f of fontes) {
+    const k = `${f.tipo}:${f.numero}`;
+    if (!ids.has(k)) {
+      const where = { idLegado: leg(`${f.tipo === "VENDA" ? "venda" : "os"}:${f.numero}`) };
+      ids.set(k, (f.tipo === "VENDA" ? await prisma.venda.findFirst({ where, select: { id: true } }) : await prisma.ordemServico.findFirst({ where, select: { id: true } }))?.id ?? null);
+    }
+    const id = ids.get(k);
+    if (id) for (const n of f.notas) if (!r.has(`${n.grupo}:${n.numero}`)) r.set(`${n.grupo}:${n.numero}`, { tipo: f.tipo, id });
+  }
+  return r;
+}
 
 /**
  * Venda ou OS de onde a nota do Gestão Click saiu: o backup não traz o vínculo, então acha pelo cliente (CPF/CNPJ ou
