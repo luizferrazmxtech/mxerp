@@ -7,7 +7,9 @@ export type LinhaProduto = { id?: string; produtoId: string; nome: string; codig
   /** só OS: a peça sai deste local (o carro do técnico) em vez do estoque da loja; vazio = loja */
   localOrigemId?: string;
   /** item avulso: digitado na hora, sem cadastro e sem estoque (o nome é a descrição digitada) */
-  avulso?: boolean };
+  avulso?: boolean;
+  /** só na tela: descrição do item avulso que esta linha está substituindo (troca pelo produto cadastrado) */
+  eraAvulso?: string };
 export type LinhaServico = { id?: string; servicoId: string; nome: string; codigo: string; detalhes: string; quantidade: string; valorUnit: string; desconto: string; descontoPct: boolean };
 export type Parcela = { vencimento: string; valor: string; formaPagamentoId: string; observacao: string;
   /** cartão (venda/OS): bandeira e nº de vezes, para calcular a taxa da forma */

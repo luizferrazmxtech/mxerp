@@ -191,7 +191,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
       {sp.carro && <FormItensCarro osId={id} numero={o.numero} voltar={base}
         bloqueio={o.situacaoCfg?.estoque === "LANCAR" ? "A OS já baixou o estoque: reabra para trocar de onde saem as peças." : undefined}
         carros={carros.map((c) => ({ localId: c.localId, nome: c.nome, daOs: c.equipeId === o.equipeId }))}
-        itens={o.produtos.map((p) => ({ id: p.id, nome: p.produto.nome, codigo: p.produto.codigo, quantidade: `${qtd(p.quantidade)} ${p.produto.unidade}`, localOrigemId: p.localOrigemId,
+        itens={o.produtos.filter((p) => !p.descricao).map((p) => ({ id: p.id, nome: p.produto.nome, codigo: p.produto.codigo, quantidade: `${qtd(p.quantidade)} ${p.produto.unidade}`, localOrigemId: p.localOrigemId,
           livrePorCarro: Object.fromEntries(carros.map((c) => [c.localId, livreCarro.get(`${p.produtoId}|${c.localId}`) ?? 0])) }))} />}
 
       <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
@@ -303,13 +303,13 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
             <div className="space-y-2">
               {o.produtos.map((l) => (
                 <div key={l.id} className="cartao p-3 text-[13px]">
-                  <div className="flex flex-wrap items-center gap-2"><Link href={`/produtos/${l.produto.id}`} className="font-semibold hover:underline">{l.produto.nome}</Link><span className="pilula border-slate-300 bg-slate-50 text-slate-600">Varejo</span><span className="font-mono text-[11px] text-slate-500">{l.produto.codigo}</span>
+                  <div className="flex flex-wrap items-center gap-2">{l.descricao ? <><span className="font-semibold">{l.descricao}</span><span className="pilula border-amber-300 bg-amber-50 text-amber-800">avulso</span></> : <><Link href={`/produtos/${l.produto.id}`} className="font-semibold hover:underline">{l.produto.nome}</Link><span className="pilula border-slate-300 bg-slate-50 text-slate-600">Varejo</span><span className="font-mono text-[11px] text-slate-500">{l.produto.codigo}</span></>}
                     {l.localOrigem && <span className="pilula border-teal-300 bg-teal-50 text-marca-escura">{l.localOrigem.deposito.nome}</span>}</div>
                   {l.detalhes && <div className="text-[12px] text-slate-500">{l.detalhes}</div>}
                   <Instalado i={l} fotos={fotosDoItem(l.id)} />
                   <div className="mt-1 grid gap-2 text-[12px] sm:grid-cols-5">
                     <div><span className="text-slate-500">Valor</span><br />{brl(l.valorUnit)}</div>
-                    <DicaSaldo produtoId={l.produto.id}><span className="text-slate-500">Quantidade</span><br />{qtd(l.quantidade)} {l.produto.unidade}</DicaSaldo>
+                    <DicaSaldo produtoId={l.descricao ? undefined : l.produto.id}><span className="text-slate-500">Quantidade</span><br />{qtd(l.quantidade)} {l.produto.unidade}</DicaSaldo>
                     <div><span className="text-slate-500">Custo (total)</span><br />{brl(Number(l.custoUnit) * Number(l.quantidade))}</div>
                     <div><span className="text-slate-500">Estoque</span><br />{ondeItem(l.id) || "—"}</div>
                     <div className="text-right"><span className="text-slate-500">Subtotal</span><br /><b>{brl(l.subtotal)}</b></div>

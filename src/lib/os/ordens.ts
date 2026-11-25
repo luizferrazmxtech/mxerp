@@ -13,7 +13,8 @@ import { LOJA_ATUAL, lojaAtualId, naLoja } from "@/lib/empresa/loja";
 import { divisaoOs, empresaDosServicos, servicosPorParcela, valorServicos } from "@/lib/os/faturamento";
 import { proximoNumero } from "@/lib/sequencia";
 import { parseDia, periodoDia } from "@/lib/datas";
-import { descontoLinha, lerNumero, subtotalProduto, subtotalServico } from "@/lib/orcamentos/tipos";
+import { descontoLinha, lerNumero, linhasProdutos, subtotalProduto, subtotalServico } from "@/lib/orcamentos/tipos";
+import { bloqueioAvulsoOs, produtoAvulsoId } from "@/lib/itens/avulso";
 import { dataLocalSP, rotuloTipoAtendimento, totaisOs, type DadosOs } from "@/lib/os/tipos";
 import { aposExcluirOs, aposMudarOs } from "@/lib/agenda/google";
 import { estadoEstoque } from "@/lib/os/os";
@@ -144,12 +145,23 @@ async function lancarFinanceiro(tx: Tx, osId: string) {
 export async function aplicar(tx: Tx, osId: string, de: EstadoEstoque, para: SituacaoOsConfig,
   opts: { refazerItens?: () => Promise<void>; refazerFinanceiro?: boolean; permitirNegativo?: boolean; forcar?: boolean; usuarioId?: string; usuarioNome?: string }) {
   const temLanc = await temContas(tx, "OS", osId);
-  if (temLanc && (!para.financeiro || opts.refazerFinanceiro)) await cancelarRecebimentos(tx, "OS", osId, opts.forcar);
   const novo = estadoDe(para.estoque);
+  // item avulso: a OS vale como orçamento de conclusão, mas não conclui/fatura (nem lança estoque ou contas) até trocar pelo produto cadastrado
+  const finaliza = novo === "BAIXADO" || para.financeiro;
+  const avancando = (novo === "BAIXADO" && de !== "BAIXADO") || (para.financeiro && !temLanc);
+  if (avancando && !opts.refazerItens) {
+    const erro = await bloqueioAvulsoOs(tx, osId);
+    if (erro) throw new OsError(erro);
+  }
+  if (temLanc && (!para.financeiro || opts.refazerFinanceiro)) await cancelarRecebimentos(tx, "OS", osId, opts.forcar);
   if (opts.refazerItens || novo !== de) de = await estadoEfetivo(tx, osId, de, opts.usuarioId);
   if (opts.refazerItens) {
     await transicionarEstoque(tx, "OS", osId, de, "LIVRE", itensDoc(tx, osId), opts);
     await opts.refazerItens();
+    if (finaliza) {
+      const erro = await bloqueioAvulsoOs(tx, osId);
+      if (erro) throw new OsError(erro);
+    }
     await transicionarEstoque(tx, "OS", osId, "LIVRE", novo, itensDoc(tx, osId), opts);
   } else {
     await transicionarEstoque(tx, "OS", osId, de, novo, itensDoc(tx, osId), opts);
@@ -218,9 +230,18 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
   // visita no local não tem equipamento; manutenção segue como sempre
   const equipamentos = visita ? [] : d.equipamentos.filter((e) => Object.values(e).some((v) => v.trim()));
   for (const [i, e] of equipamentos.entries()) if (!e.equipamento.trim()) throw new OsError(`Informe o nome do equipamento ${i + 1}`);
-  const produtos = d.produtos.filter((l) => l.produtoId);
+  const semTroca = d.produtos.find((l) => !l.avulso && !l.produtoId && l.eraAvulso);
+  if (semTroca) throw new OsError(`Escolha o produto cadastrado no lugar do item avulso "${semTroca.eraAvulso}"`);
+  const { linhas: produtos, erro: erroAvulso } = linhasProdutos(d.produtos.map((l) => ({ ...l })));
+  if (erroAvulso) throw new OsError(erroAvulso);
   const servicos = d.servicos.filter((l) => l.servicoId);
   for (const l of [...produtos, ...servicos]) if (!(n(l.quantidade) > 0)) throw new OsError(`Informe a quantidade de ${l.nome || "todos os itens"}`);
+  // item avulso aponta para o produto de sistema (sem estoque/reserva) e guarda a descrição digitada
+  if (produtos.some((l) => l.avulso)) {
+    const avulsoId = await produtoAvulsoId(prisma);
+    for (const l of produtos) if (l.avulso) { l.produtoId = avulsoId; l.localOrigemId = ""; }
+  }
+  const descr = (l: { avulso?: boolean; nome: string }) => (l.avulso ? l.nome.trim() : null);
   const tot = totaisOs({ ...d, produtos, servicos });
   if (tot.total < 0) throw new OsError("O desconto é maior que o valor da OS");
 
@@ -255,8 +276,9 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
     empresaServicosId: null as string | null,
   };
   // o local de origem (item no carro da equipe) também muda a reserva
-  const assinaturaItens = (l: { produtoId: string; quantidade: number; localOrigemId: string | null }[]) => l.map((x) => `${x.produtoId}:${x.quantidade}:${x.localOrigemId ?? ""}`).sort().join("|");
-  const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, quantidade: n(l.quantidade), localOrigemId: t(l.localOrigemId) }));
+  const chave = (produtoId: string, descricao: string | null) => `${produtoId}~${descricao ?? ""}`;
+  const assinaturaItens = (l: { produtoId: string; descricao: string | null; quantidade: number; localOrigemId: string | null }[]) => l.map((x) => `${chave(x.produtoId, x.descricao)}:${x.quantidade}:${x.localOrigemId ?? ""}`).sort().join("|");
+  const novosItens = produtos.map((l) => ({ produtoId: l.produtoId, descricao: descr(l), quantidade: n(l.quantidade), localOrigemId: t(l.localOrigemId) }));
   const assinaturaFin = (empServ: string | null, servicosLiq: number, total: number, ps: { vencimento: Date; valor: Prisma.Decimal; formaPagamentoId: string | null; bandeira?: string | null; vezes?: number | null }[]) =>
     `${empServ ? `${empServ}:${servicosLiq.toFixed(2)}` : ""}#${total.toFixed(2)}#${ps.map((p) => `${p.vencimento.toISOString().slice(0, 10)}:${Number(p.valor).toFixed(2)}:${p.formaPagamentoId ?? ""}:${p.bandeira ?? ""}:${p.vezes ?? ""}`).join("|")}`;
 
@@ -267,7 +289,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
       await tx.osItemProduto.deleteMany({ where: { osId } });
       for (const [i, l] of produtos.entries()) {
         const antigo = casar(l.id, l.produtoId);
-        const novo = await tx.osItemProduto.create({ data: { osId, ordem: i, produtoId: l.produtoId, detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), custoUnit: custos.get(l.produtoId) ?? 0, desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)), ...antigo?.marcas, localOrigemId: t(l.localOrigemId) } });
+        const novo = await tx.osItemProduto.create({ data: { osId, ordem: i, produtoId: l.produtoId, descricao: descr(l), detalhes: t(l.detalhes), quantidade: new Prisma.Decimal(n(l.quantidade)), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), custoUnit: custos.get(l.produtoId) ?? 0, desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)), ...antigo?.marcas, localOrigemId: t(l.localOrigemId) } });
         if (antigo) await moverFotos(tx, osId, antigo.id, novo.id);
       }
     };
@@ -295,7 +317,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
       if (numero !== atual.numero && (await tx.ordemServico.findUnique({ where: { numero } }))) throw new OsError(`Já existe a OS nº ${numero}`);
       const existentes = await tx.osItemProduto.findMany({ where: { osId: id } });
       const antigas = await tx.osParcela.findMany({ where: { osId: id }, orderBy: { numero: "asc" } });
-      const mudouItens = assinaturaItens(existentes.map((e) => ({ produtoId: e.produtoId, quantidade: Number(e.quantidade), localOrigemId: e.localOrigemId }))) !== assinaturaItens(novosItens);
+      const mudouItens = assinaturaItens(existentes.map((e) => ({ produtoId: e.produtoId, descricao: e.descricao, quantidade: Number(e.quantidade), localOrigemId: e.localOrigemId }))) !== assinaturaItens(novosItens);
       dados.empresaServicosId = await empresaServicosValida(tx, atual.empresaId, empresaServicosEscolhida);
       if ((dados.empresaServicosId ?? null) !== (atual.empresaServicosId ?? null)
         && (await tx.notaFiscal.count({ where: { origemTipo: "OS", origemId: id, modelo: "NFSE", status: { in: ["AUTORIZADA", "ENVIADA"] } } })))
@@ -315,14 +337,14 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
       const nomeEquip = (e: { equipamento: string; marca: string | null; modelo: string | null }) => [e.equipamento, e.marca, e.modelo].filter(Boolean).join(" ");
       const mudancas = resumoAlteracoes(
         {
-          itens: [...existentes.map((e) => ({ chave: `P${e.produtoId}`, nome: nomesItens.get(`P${e.produtoId}`) ?? "produto", quantidade: Number(e.quantidade), valorUnit: Number(e.valorUnit) })),
+          itens: [...existentes.map((e) => ({ chave: `P${chave(e.produtoId, e.descricao)}`, nome: e.descricao ?? nomesItens.get(`P${e.produtoId}`) ?? "produto", quantidade: Number(e.quantidade), valorUnit: Number(e.valorUnit) })),
             ...servicosAntes.map((e) => ({ chave: `S${e.servicoId}`, nome: nomesItens.get(`S${e.servicoId}`) ?? "serviço", quantidade: Number(e.quantidade), valorUnit: Number(e.valorUnit) }))],
           total: Number(atual.total), tecnicos: (atual.tecnicoIds.length ? atual.tecnicoIds : [atual.tecnicoId]).filter((x): x is string => !!x).map((x) => nomesUsu.get(x) ?? "?"),
           equipe: atual.equipeId ? nomesEquipe.get(atual.equipeId) ?? null : null, saida: atual.saida, observacoes: atual.observacoes, equipamentos: equipAntes.map(nomeEquip),
           tipo: rotuloTipoAtendimento(atual.tipoAtendimento), descricaoVisita: atual.descricaoVisita,
         },
         {
-          itens: [...produtos.map((l) => ({ chave: `P${l.produtoId}`, nome: nomesItens.get(`P${l.produtoId}`) ?? "produto", quantidade: n(l.quantidade), valorUnit: n(l.valorUnit) })),
+          itens: [...produtos.map((l) => ({ chave: `P${chave(l.produtoId, descr(l))}`, nome: descr(l) ?? nomesItens.get(`P${l.produtoId}`) ?? "produto", quantidade: n(l.quantidade), valorUnit: n(l.valorUnit) })),
             ...servicos.map((l) => ({ chave: `S${l.servicoId}`, nome: nomesItens.get(`S${l.servicoId}`) ?? "serviço", quantidade: n(l.quantidade), valorUnit: n(l.valorUnit) }))],
           total: tot.total, tecnicos: tecnicoIds.map((x) => nomesUsu.get(x) ?? "?"), equipe: dados.equipeId ? nomesEquipe.get(dados.equipeId) ?? null : null,
           saida: saidaEm, observacoes: dados.observacoes, equipamentos: equipamentos.map((e) => nomeEquip({ equipamento: e.equipamento.trim(), marca: t(e.marca), modelo: t(e.modelo) })),
@@ -337,9 +359,9 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
       if (mudouItens) await aplicar(tx, id, estadoAtual(atual), para, { ...opts, usuarioId: u.id, usuarioNome: u.nome, refazerFinanceiro: mudouFin, refazerItens: () => criarItens(id) });
       else {
         // mesmos produtos e quantidades: troca valores sem mexer nas reservas/baixas
-        const porProduto = new Map(existentes.map((e) => [e.produtoId, e]));
+        const porProduto = new Map(existentes.map((e) => [chave(e.produtoId, e.descricao), e]));
         for (const [i, l] of produtos.entries()) {
-          const e = porProduto.get(l.produtoId);
+          const e = porProduto.get(chave(l.produtoId, descr(l)));
           if (e) await tx.osItemProduto.update({ where: { id: e.id }, data: { ordem: i, detalhes: t(l.detalhes), tipoValorId: t(l.tipoValorId), valorUnit: D(n(l.valorUnit)), desconto: D(descontoLinha(n(l.quantidade) * n(l.valorUnit), l.desconto, l.descontoPct)), subtotal: D(subtotalProduto(l)) } });
         }
         await aplicar(tx, id, estadoAtual(atual), para, { ...opts, usuarioId: u.id, usuarioNome: u.nome, refazerFinanceiro: mudouFin });
@@ -410,7 +432,7 @@ export async function clonarOrdem(id: string, u: Usuario) {
   return salvarOrdem({
     tipo: "SERVICO", numero: "", clienteId: o.clienteId, clienteNome: "", data: agora.slice(0, 10), validade: "", vendedorId: o.vendedorId ?? "",
     prazoEntrega: "", aosCuidados: "", canal: o.canal, centroCusto: o.centroCusto ?? "", introducao: "", situacaoId: "",
-    produtos: o.produtos.map((i) => ({ produtoId: i.produtoId, nome: i.produto.nome, codigo: i.produto.codigo, unidade: i.produto.unidade, detalhes: i.detalhes ?? "", quantidade: String(Number(i.quantidade)), tipoValorId: i.tipoValorId ?? "", valorUnit: f(i.valorUnit), desconto: f(i.desconto), descontoPct: false })),
+    produtos: o.produtos.map((i) => ({ produtoId: i.produtoId, avulso: !!i.descricao, nome: i.descricao ?? i.produto.nome, codigo: i.produto.codigo, unidade: i.produto.unidade, detalhes: i.detalhes ?? "", quantidade: String(Number(i.quantidade)), tipoValorId: i.tipoValorId ?? "", valorUnit: f(i.valorUnit), desconto: f(i.desconto), descontoPct: false })),
     servicos: o.servicos.map((i) => ({ servicoId: i.servicoId, nome: i.servico.nome, codigo: i.servico.codigo, detalhes: i.detalhes ?? "", quantidade: String(Number(i.quantidade)), valorUnit: f(i.valorUnit), desconto: f(i.desconto), descontoPct: false })),
     transportadoraId: o.transportadoraId ?? "", transportadoraNome: "", frete: f(o.frete), mostrarEntrega: o.mostrarEntrega, enderecoEntregaId: o.enderecoEntregaId ?? "",
     desconto: f(o.desconto), descontoPct: false, exibirTotal: o.exibirTotal, gerarCondicoes: true, condicao: "AVISTA", formaPagamentoId: o.formaPagamentoId ?? "", vencimento: "",

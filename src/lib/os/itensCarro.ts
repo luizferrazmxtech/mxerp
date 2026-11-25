@@ -28,6 +28,7 @@ export async function definirOrigemItensTx(tx: Tx, osId: string, origens: Origem
   for (const { itemId, localId } of origens) {
     const item = itens.find((i) => i.id === itemId);
     if (!item) throw new OsError("Item não encontrado nesta OS");
+    if (item.descricao) continue; // item avulso não tem estoque: não sai de carro nenhum
     const novo = localId || null;
     if ((item.localOrigemId ?? null) === novo) continue;
     if (novo && !locais.get(novo)?.deposito.equipeId) throw new OsError("Escolha o carro de uma equipe");

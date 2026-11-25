@@ -182,7 +182,7 @@ export async function removerItemTecnico(u: UsuarioTecnico, osId: string, tipo: 
     } else await tx.osItemServico.delete({ where: { id: itemId } });
     await tx.anexo.updateMany({ where: { entidade: "OS_FOTO", entidadeId: osId, referencia: itemId }, data: { referencia: null } });
     await recalcular(tx, osId);
-    const nome = "produto" in item ? item.produto.nome : item.servico.nome;
+    const nome = "produto" in item ? item.descricao || item.produto.nome : item.servico.nome;
     await historico(tx, osId, u, `Técnico tirou ${qtdTxt(Number(item.quantidade))} × ${nome}`);
   }, { timeout: 30000 });
 }
@@ -197,7 +197,7 @@ export async function marcarInstalado(u: UsuarioTecnico, osId: string, tipo: "pr
       : await tx.osItemServico.updateMany({ where: { id: itemId, osId }, data });
     if (!r.count) throw new OsError("Item não encontrado nesta OS");
     const nome = tipo === "produto"
-      ? (await tx.osItemProduto.findUniqueOrThrow({ where: { id: itemId }, include: { produto: { select: { nome: true } } } })).produto.nome
+      ? await tx.osItemProduto.findUniqueOrThrow({ where: { id: itemId }, include: { produto: { select: { nome: true } } } }).then((p) => p.descricao || p.produto.nome)
       : (await tx.osItemServico.findUniqueOrThrow({ where: { id: itemId }, include: { servico: { select: { nome: true } } } })).servico.nome;
     await historico(tx, osId, u, instalado ? `${nome}: ${tipo === "produto" ? "instalado" : "feito"}` : `${nome}: desmarcado como ${tipo === "produto" ? "instalado" : "feito"}`);
   });
@@ -218,7 +218,7 @@ export async function anexarFoto(u: UsuarioTecnico, osId: string, foto: { nome: 
       const p = await tx.osItemProduto.findFirst({ where: { id: itemId, osId }, include: { produto: { select: { nome: true } } } });
       const s = p ? null : await tx.osItemServico.findFirst({ where: { id: itemId, osId }, include: { servico: { select: { nome: true } } } });
       if (!p && !s) throw new OsError("Item não encontrado nesta OS");
-      legenda = p?.produto.nome ?? s!.servico.nome;
+      legenda = p ? p.descricao || p.produto.nome : s!.servico.nome;
     }
     const quando = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).replace(/[/:,\s]+/g, "-");
     const ext = foto.tipo === "image/png" ? "png" : foto.tipo === "image/webp" ? "webp" : "jpg";

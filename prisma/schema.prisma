@@ -887,6 +887,7 @@ model OsItemProduto {
   os             OrdemServico @relation(fields: [osId], references: [id], onDelete: Cascade)
   produtoId      String
   produto        Produto      @relation(fields: [produtoId], references: [id])
+  descricao      String? // item avulso: descrição digitada (produto = ITEM-AVULSO); bloqueia concluir/faturar
   quantidade     Decimal      @db.Decimal(14, 4)
   valorUnit      Decimal      @db.Decimal(14, 2)
   custoUnit      Decimal      @default(0) @db.Decimal(14, 4)

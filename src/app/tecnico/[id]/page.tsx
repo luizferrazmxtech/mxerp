@@ -70,11 +70,11 @@ export default async function OsDoTecnico({ params }: { params: Promise<{ id: st
   });
   const itens: ItemTecnico[] = [
     ...o.produtos.map((p) => ({
-      id: p.id, tipo: "produto" as const, nome: p.produto.nome, codigo: p.produto.codigo, quantidade: `${qtd(p.quantidade)} ${p.produto.unidade}`, detalhes: p.detalhes ?? "",
+      id: p.id, tipo: "produto" as const, nome: p.descricao || p.produto.nome, codigo: p.descricao ? "avulso" : p.produto.codigo, quantidade: `${qtd(p.quantidade)} ${p.produto.unidade}`, detalhes: p.detalhes ?? "",
       onde: reservas.filter((r) => r.origemItemId === p.id).map((r) => `${r.local?.codigo ?? "EM FALTA"} (${qtd(r.quantidade)})${r.status === "BAIXADA" ? " · saiu" : ""}`).join(", "),
       emFalta: reservas.some((r) => r.origemItemId === p.id && r.status === "ATIVA" && !r.localId),
       fotos: fotosDe(p.id), ...marca(p),
-      comigo: meuLocal && editavel && podeItens && (!p.localOrigemId || p.localOrigemId === meuLocal) ? p.localOrigemId === meuLocal : null,
+      comigo: !p.descricao && meuLocal && editavel && podeItens && (!p.localOrigemId || p.localOrigemId === meuLocal) ? p.localOrigemId === meuLocal : null,
     })),
     ...o.servicos.map((s) => ({
       id: s.id, tipo: "servico" as const, nome: s.servico.nome, codigo: s.servico.codigo, quantidade: qtd(s.quantidade), detalhes: s.detalhes ?? "", onde: "", emFalta: false,

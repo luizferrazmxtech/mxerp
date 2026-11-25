@@ -57,7 +57,7 @@ async function carregar(origemTipo: string | null, origemId: string | null, cont
       pessoa: o.cliente, papel: "Cliente", hrefPessoa: `/clientes/${o.cliente.id}`, responsavel: o.tecnico?.nome,
       itens: [
         ...o.servicos.map((i) => ({ id: i.id, codigo: i.servico.codigo, nome: i.servico.nome, detalhes: i.detalhes, quantidade: i.quantidade, unidade: "SV", valorUnit: i.valorUnit, subtotal: i.subtotal })),
-        ...o.produtos.map((i) => ({ id: i.id, codigo: i.produto.codigo, nome: i.produto.nome, detalhes: i.detalhes, quantidade: i.quantidade, unidade: i.produto.unidade, valorUnit: i.valorUnit, subtotal: i.subtotal })),
+        ...o.produtos.map((i) => ({ id: i.id, codigo: i.descricao ? "" : i.produto.codigo, nome: i.descricao || i.produto.nome, detalhes: i.detalhes, quantidade: i.quantidade, unidade: i.produto.unidade, valorUnit: i.valorUnit, subtotal: i.subtotal })),
       ],
       produtos: Number(o.totalProdutos), servicos: Number(o.totalServicos), desconto: Number(o.desconto), frete: Number(o.frete) + Number(o.outros), total: Number(o.total), observacoes: o.observacoes,
     };

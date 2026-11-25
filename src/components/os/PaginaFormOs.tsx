@@ -69,7 +69,7 @@ export default async function PaginaFormOs({ id, clienteId }: { id?: string; cli
     inicial = {
       id, tipo: "SERVICO", numero: String(o.numero), clienteId: o.clienteId, clienteNome: o.cliente.nome, data: hoje(), validade: "",
       vendedorId: o.vendedorId ?? "", prazoEntrega: "", aosCuidados: "", canal: o.canal, centroCusto: o.centroCusto ?? "", introducao: "", situacaoId: o.situacaoId ?? padrao.id,
-      produtos: o.produtos.map((l) => ({ id: l.id, produtoId: l.produtoId, nome: l.produto.nome, codigo: l.produto.codigo, unidade: l.produto.unidade, detalhes: l.detalhes ?? "",
+      produtos: o.produtos.map((l) => ({ id: l.id, produtoId: l.produtoId, avulso: !!l.descricao, nome: l.descricao ?? l.produto.nome, codigo: l.produto.codigo, unidade: l.produto.unidade, detalhes: l.detalhes ?? "",
         quantidade: qt(l.quantidade), tipoValorId: l.tipoValorId ?? tiposValor[0]?.id ?? "", valorUnit: n2(l.valorUnit), desconto: Number(l.desconto) ? n2(l.desconto) : "", descontoPct: false,
         valores: l.produto.valores.map((x) => ({ tipoValorId: x.tipoValorId, valor: Number(x.valor) })), localOrigemId: l.localOrigemId ?? "" })),
       servicos: o.servicos.map((l) => ({ id: l.id, servicoId: l.servicoId, nome: l.servico.nome, codigo: l.servico.codigo, detalhes: l.detalhes ?? "",
