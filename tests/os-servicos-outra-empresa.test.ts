@@ -106,6 +106,8 @@ describe("serviços da OS faturados por outra empresa", () => {
     expect(html).toContain("Em aberto");
     expect(html).toContain("NF-e nº 6906");
     expect(html).toContain("MXTECH LTDA (CNPJ 12.965.283/0001-95)");
+    expect(html).toContain("Atenção: nota de peças e serviços emitida pelo grupo MXTECH");
+    expect(html).toContain("Serviços: <b>VFX INFO SERVICE LTDA</b> (CNPJ 36.130.603/0001-55)");
     await prisma.notaFiscal.deleteMany({});
 
     // relatório de lucro: peças na MXTECH, serviços na VFX

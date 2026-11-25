@@ -2,7 +2,6 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { diaSP } from "@/lib/datas";
 import { ATIVOS } from "@/lib/financeiro/boletos";
-import { URL_DANFSE } from "@/lib/fiscal/nfse";
 import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
 
 /**
@@ -198,7 +197,7 @@ export async function notasDe(pessoaId: string, so?: FiltroOrigem) {
     id: x.id, modelo: x.modelo, serie: x.serie, numero: x.numero, chave: x.chave, cancelada: x.status === "CANCELADA", homologacao: x.ambiente === "HOMOLOGACAO",
     valor: n(x.valorTotal), data: x.emitidaEm ?? x.createdAt, loja: x.empresaId ? ls.get(x.empresaId) ?? null : null,
     origem: x.origemId ? origem.get(x.origemId) ?? null : null,
-    danfse: x.modelo === "NFSE" && x.chave ? `${URL_DANFSE[x.ambiente === "PRODUCAO" ? 1 : 2]}/${x.chave}` : null,
+    danfse: x.modelo === "NFSE" && x.chave ? `/area-cliente/arquivos/nota/${x.id}/pdf` : null,
   }));
 }
 export type NotaPortal = Awaited<ReturnType<typeof notasDe>>[number];

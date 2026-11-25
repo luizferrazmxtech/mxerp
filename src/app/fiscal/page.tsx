@@ -9,7 +9,6 @@ import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
 import { numerosPendentes } from "@/lib/fiscal/inutilizacao";
 import { estimativaDoMes, mesAnterior, mesAtual } from "@/lib/fiscal/impostos";
-import { URL_DANFSE } from "@/lib/fiscal/nfse";
 import { consultarStatus } from "./actions";
 import AcoesNota from "./AcoesNota";
 import Resumo from "@/components/ui/Resumo";
@@ -134,7 +133,7 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
                     {n.status !== "AUTORIZADA" && n.motivo && <div className="max-w-56 truncate text-[11px] text-slate-500" title={n.motivo}>{n.motivo}</div>}</td>
                   <td className="text-right">
                     <AcoesNota n={{ id: n.id, modelo: n.modelo, status: n.status, temXml: !!n.xml, temChave: !!n.chave }} origem={o ? { rotulo: o.rotulo, href: o.href } : null}
-                      danfse={n.modelo === "NFSE" && n.chave ? `${URL_DANFSE[n.ambiente === "PRODUCAO" ? 1 : 2]}/${n.chave}` : null} />
+                      danfse={n.modelo === "NFSE" && n.chave ? `/fiscal/${n.id}/danfse` : null} />
                   </td>
                 </tr>
               );

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { empresaDosServicos } from "@/lib/os/faturamento";
 import { ATIVOS } from "@/lib/financeiro/boletos";
 import { empresaDoDocumento } from "@/lib/empresa/atual";
-import { brl, dataSP, horaSP, qtd } from "@/lib/ui/format";
+import { brl, dataSP, docFmt, horaSP, qtd } from "@/lib/ui/format";
 import { duracao, resumoTrabalho } from "@/lib/os/trabalho";
 import { fotosDoHistorico } from "@/lib/os/historicoFotos";
 import { rotuloPrioridade } from "@/lib/os/tipos";
@@ -19,8 +19,6 @@ const quando = (d: Date | string | null | undefined) => (d ? `${dataSP(d)} ${hor
 const IMAGENS = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const titulo = "mb-1 mt-4 border-b border-slate-400 pb-0.5 text-[11px] font-semibold uppercase text-slate-600";
 
-const docFmt = (d: string | null | undefined) =>
-  !d ? "" : d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
 
 /** OS impressa / link de cobrança da OS (A4, com a marca MXTECH). */
 export default async function DocumentoOs({ id, token, cobranca, modo: modoPedido = "simples" }: { id?: string; token?: string; cobranca?: boolean; modo?: ModoImpressao }) {
@@ -81,6 +79,9 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
       pagoEm: l.pagoEm, boleto: l.boletos[0]?.token ?? null,
       quem: fora ? `${l.empresaId === fora ? "Serviços" : "Peças"} · ${empresasCobranca.get(l.empresaId ?? "") ?? emp?.nomeFantasia ?? emp?.razaoSocial ?? ""}` : "" }))
     : os.parcelas.map((p) => ({ id: p.id, n: p.numero, de: os.parcelas.length, venc: p.vencimento, valor: p.valor, forma: p.formaPagamento?.nome ?? os.formaPagamento?.nome, pago: false, pagoEm: null as Date | null, boleto: null as string | null, quem: "" }));
+  // tarja de atenção quando peças e serviços saem por empresas diferentes do grupo (notas e cobranças separadas)
+  const empServ = fora ? await prisma.empresa.findUnique({ where: { id: fora }, select: { razaoSocial: true, cnpj: true } }) : null;
+  const grupo = emp?.nomeFantasia || emp?.razaoSocial || "MXTECH";
   const hojeUtc = new Date(new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }) + "T00:00:00Z");
   const situacaoParcela = (p: { pagoEm: Date | null; venc: Date }) => (!lanc.length ? "" : p.pagoEm ? `Paga em ${p.pagoEm.toLocaleDateString("pt-BR", { timeZone: "UTC" })}` : p.venc < hojeUtc ? "Atrasada" : "Em aberto");
   return (
@@ -102,6 +103,14 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
         <h1 className="text-[18px] font-semibold">Ordem de serviço nº {os.numero}{modo === "completa" && <span className="ml-2 text-[12px] font-normal text-slate-500">(administrativa)</span>}{modo === "historico" && <span className="ml-2 text-[12px] font-normal text-slate-500">(administrativa com histórico)</span>}</h1>
         <div className="text-right">Situação: <b>{os.situacaoCfg?.nome ?? os.situacao}</b><br />Entrada: {dataSP(os.entrada)} {horaSP(os.entrada)}{os.saida && <> · Saída: {dataSP(os.saida)}</>}</div>
       </div>
+
+      {empServ && (
+        <div className="mt-3 rounded border-2 border-amber-500 bg-amber-50 px-3 py-2 text-[11.5px] [print-color-adjust:exact]" style={{ breakInside: "avoid" }}>
+          <div className="text-[12.5px] font-bold uppercase text-amber-900">Atenção: nota de peças e serviços emitida pelo grupo {grupo}</div>
+          <div className="mt-0.5">Peças: <b>{emp?.razaoSocial}</b>{emp && ` (CNPJ ${docFmt(emp.cnpj)})`} · Serviços: <b>{empServ.razaoSocial}</b> (CNPJ {docFmt(empServ.cnpj)})</div>
+          <div className="text-[10.5px] text-slate-700">As notas fiscais e as cobranças (boletos) saem separadas, uma de cada empresa.</div>
+        </div>
+      )}
 
       <section className="mt-3 rounded border border-slate-300 p-2.5">
         <div className="mb-1 text-[10px] font-semibold uppercase text-slate-500">Cliente</div>
