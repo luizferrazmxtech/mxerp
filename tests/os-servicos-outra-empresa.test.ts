@@ -120,6 +120,9 @@ describe("serviços da OS faturados por outra empresa", () => {
     await prisma.notaFiscal.create({ data: { empresaId: vfx, modelo: "NFSE", serie: 1, numero: 1, ambiente: "HOMOLOGACAO", origemTipo: "OS", origemId: o.id, valorTotal: 135, status: "AUTORIZADA" } });
     await prisma.situacaoOsConfig.update({ where: { id: "so_concretizada" }, data: { permiteEdicao: true } });
     await expect(naLoja(mx, () => ord.salvarOrdem(dados({ situacaoId: "so_concretizada", empresaServicosId: "", parcelas: gerarParcelas(325, 2, "2026-12-01", 30, formaMx.id) }), u, o.id))).rejects.toThrow(/NFS-e/);
+    // lista de OS da MXTECH: acha a NFS-e da VFX pela OS (origemId exato em OR), mesmo com a loja filtrando
+    const naLista = await naLoja(mx, () => prisma.notaFiscal.findMany({ where: { origemTipo: "OS", OR: [{ origemId: o.id }], modelo: { in: ["NFSE", "NFE"] } }, select: { modelo: true, empresaId: true } }));
+    expect(naLista).toEqual([{ modelo: "NFSE", empresaId: vfx }]);
     await prisma.notaFiscal.deleteMany({});
 
     // volta tudo para a MXTECH: as contas da VFX somem e a MXTECH fica com o total
