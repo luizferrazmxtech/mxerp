@@ -207,11 +207,11 @@ export async function gerarOsDoOrcamento(id: string, u: Usuario, situacaoId?: st
     servicos: o.servicos.map((l) => ({ servicoId: l.servicoId, quantidade: Number(l.quantidade), valorUnit: unitLiquido(l) })),
     usuarioId: u.id, permitirNegativo: true,
   });
-  // OS não tem item avulso: a descrição digitada vai para os detalhes da peça "Item avulso"
+  // item avulso segue avulso na OS (descrição na linha); a OS não conclui até trocar pelo produto cadastrado
   const avulsos = o.produtos.filter((l) => l.descricao);
   if (avulsos.length) {
     const naOs = await prisma.osItemProduto.findMany({ where: { osId, produtoId: avulsos[0].produtoId }, orderBy: [{ ordem: "asc" }, { createdAt: "asc" }, { id: "asc" }], select: { id: true } });
-    for (const [i, it] of naOs.entries()) if (avulsos[i]) await prisma.osItemProduto.update({ where: { id: it.id }, data: { detalhes: [avulsos[i].descricao, avulsos[i].detalhes].filter(Boolean).join(" · ") } });
+    for (const [i, it] of naOs.entries()) if (avulsos[i]) await prisma.osItemProduto.update({ where: { id: it.id }, data: { descricao: avulsos[i].descricao, detalhes: avulsos[i].detalhes } });
   }
   const os = await prisma.ordemServico.findUniqueOrThrow({ where: { id: osId }, select: { numero: true } });
   const conc = await situacaoConcretizado(situacaoId);

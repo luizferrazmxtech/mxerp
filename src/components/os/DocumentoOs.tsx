@@ -67,7 +67,7 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
   const totalTrabalho = trabalho.fechadoMs + (trabalho.abertoDesde ? Date.now() - new Date(trabalho.abertoDesde).getTime() : 0);
   // a foto sai pela rota do link público (token) ou pela do ERP (logado)
   const urlFoto = (fotoId: string) => (token ? `/cobranca/os/${token}/foto/${fotoId}` : `/api/cadastros/anexo/${fotoId}`);
-  const nomeItem = new Map<string, string>([...os.produtos.map((p) => [p.id, p.produto.nome] as const), ...os.servicos.map((s) => [s.id, s.servico.nome] as const)]);
+  const nomeItem = new Map<string, string>([...os.produtos.map((p) => [p.id, p.descricao || p.produto.nome] as const), ...os.servicos.map((s) => [s.id, s.servico.nome] as const)]);
   const ce = (os.camposExtras ?? {}) as Record<string, string>;
   const statusItem = (i: { instalado: boolean; instaladoEm: Date | null; instaladoPorId: string | null }, servico?: boolean) =>
     i.instalado ? `${servico ? "Feito" : "Instalado"}${i.instaladoEm ? ` ${quando(i.instaladoEm)}` : ""}${i.instaladoPorId && nomeUsu.get(i.instaladoPorId) ? ` · ${nomeUsu.get(i.instaladoPorId)}` : ""}` : "Pendente";
@@ -155,7 +155,7 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
             <thead><tr className="border-b border-slate-300 text-left text-[11px]"><th className="py-1">Item</th><th className="w-12 text-right">Qtd</th><th className="w-20 text-right">Valor</th><th className="w-20 text-right">Subtotal</th><th className="w-44 pl-2">Situação</th></tr></thead>
             <tbody>{os.produtos.map((p) => (
               <tr key={p.id} className="border-b border-slate-200 align-top">
-                <td className="py-1">{p.produto.codigo} · {p.produto.nome}{p.detalhes && <div className="text-[10px] text-slate-500">{p.detalhes}</div>}{p.localOrigem && <div className="text-[10px] text-slate-500">Sai de: {p.localOrigem.codigo}</div>}</td>
+                <td className="py-1">{p.descricao || `${p.produto.codigo} · ${p.produto.nome}`}{p.detalhes && <div className="text-[10px] text-slate-500">{p.detalhes}</div>}{p.localOrigem && <div className="text-[10px] text-slate-500">Sai de: {p.localOrigem.codigo}</div>}</td>
                 <td className="text-right">{qtd(p.quantidade)}</td><td className="text-right">{brl(p.valorUnit)}</td><td className="text-right">{brl(p.subtotal)}</td>
                 <td className={`pl-2 text-[11px] ${p.instalado ? "text-emerald-700" : "text-slate-500"}`}>{statusItem(p)}{fotosItem(p.id).length > 0 && <div className="text-slate-500">{fotosItem(p.id).length} foto(s)</div>}</td>
               </tr>))}</tbody>
@@ -180,7 +180,7 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
       {!completa && os.produtos.length > 0 && (
         <table className="mt-3 w-full border-collapse">
           <thead><tr className="border-b border-slate-400 text-left"><th className="py-1">Produtos / peças</th><th className="w-16 text-right">Qtd</th><th className="w-24 text-right">Valor</th><th className="w-24 text-right">Subtotal</th></tr></thead>
-          <tbody>{os.produtos.map((p) => <tr key={p.id} className="border-b border-slate-200"><td className="py-1">{p.produto.codigo} · {p.produto.nome}</td><td className="text-right">{qtd(p.quantidade)}</td><td className="text-right">{brl(p.valorUnit)}</td><td className="text-right">{brl(p.subtotal)}</td></tr>)}</tbody>
+          <tbody>{os.produtos.map((p) => <tr key={p.id} className="border-b border-slate-200"><td className="py-1">{p.descricao || `${p.produto.codigo} · ${p.produto.nome}`}{p.detalhes && <div className="text-[10px] text-slate-500">{p.detalhes}</div>}</td><td className="text-right">{qtd(p.quantidade)}</td><td className="text-right">{brl(p.valorUnit)}</td><td className="text-right">{brl(p.subtotal)}</td></tr>)}</tbody>
         </table>
       )}
       {!completa && os.servicos.length > 0 && (

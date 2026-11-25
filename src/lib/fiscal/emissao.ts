@@ -1,4 +1,5 @@
 import type { Prisma, Empresa, ModeloNota, OrigemDocumento, Pessoa, RegimeTributario } from "@prisma/client";
+import { bloqueioAvulsoOs } from "@/lib/itens/avulso";
 import { dividirDesconto } from "./desconto";
 import { lerConfigNfse } from "./configNfse";
 import { empresaDosServicos } from "@/lib/os/faturamento";
@@ -275,6 +276,8 @@ export async function emitirNotaOs(osId: string, deps: Dependencias = {}) {
     include: { cliente: true, produtos: { include: { produto: true } }, servicos: { select: { subtotal: true } } },
   });
   if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a nota");
+  const avulso = await bloqueioAvulsoOs(prisma, osId, "emitir a nota");
+  if (avulso) throw new FiscalError(avulso);
   if (!os.produtos.length) throw new FiscalError("OS sem peças: emita só a NFS-e dos serviços");
   // serviços por outra empresa: a forma de pagamento da nota é a da conta das peças (a da empresa da OS)
   const servicosFora = empresaDosServicos(os);
@@ -323,6 +326,8 @@ export async function emitirNfseOs(osId: string, deps: DependenciasNfse = {}) {
     include: { cliente: true, servicos: { include: { servico: true } }, produtos: { select: { subtotal: true } }, equipamentos: { orderBy: { ordem: "asc" } } },
   });
   if (!["CONCLUIDA", "FATURADA"].includes(os.situacao)) throw new FiscalError("Conclua ou fature a OS antes de emitir a NFS-e");
+  const avulso = await bloqueioAvulsoOs(prisma, osId, "emitir a NFS-e");
+  if (avulso) throw new FiscalError(avulso);
   return emitirNfse({
     // os serviços podem ser faturados por outra empresa do grupo (ex.: VFX): a NFS-e sai pelo CNPJ/certificado dela
     origemTipo: "OS", origemId: osId, empresaId: empresaDosServicos(os) ?? os.empresaId, rotulo: "OS", referencia: `OS ${os.numero}`, cliente: os.cliente, servicos: os.servicos,

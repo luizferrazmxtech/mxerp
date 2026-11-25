@@ -3,6 +3,7 @@ import { prisma, type Tx } from "@/lib/db";
 import { liberarItem, reservarItem, EstoqueError } from "@/lib/estoque/estoque";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { proximoNumero } from "@/lib/sequencia";
+import { bloqueioAvulsoOs } from "@/lib/itens/avulso";
 import { cancelarRecebimentos, gerarRecebimentos, type Pagamento } from "@/lib/financeiro/lancamentos";
 import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
 
@@ -303,6 +304,10 @@ export async function alterarSituacaoTx(
   if (os.situacao === "FATURADA" && nova !== "FATURADA") await cancelarRecebimentos(tx, "OS", osId, opts.forcar);
   const de = estadoEstoque(os.situacao);
   const para = estadoEstoque(nova);
+  if (para === "BAIXADO" && de !== "BAIXADO") {
+    const erro = await bloqueioAvulsoOs(tx, osId);
+    if (erro) throw new EstoqueError(erro);
+  }
   await transicionarEstoque(tx, "OS", osId, de, para, async () =>
     (await tx.osItemProduto.findMany({ where: { osId } })).map((i) => ({ id: i.id, produtoId: i.produtoId, quantidade: Number(i.quantidade), localId: i.localOrigemId })),
     opts,

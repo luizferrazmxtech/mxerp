@@ -109,6 +109,39 @@ describe("ordens de serviço (situações configuráveis)", () => {
     expect(await estoque()).toMatchObject({ fisico: 7, reservado: 0 });
   });
 
+  it("item avulso: entra na OS sem reservar estoque, mas bloqueia concluir/faturar até trocar pelo produto cadastrado", async () => {
+    const avulso = { produtoId: "", avulso: true, nome: "Cabo HDMI 3m", codigo: "", unidade: "UN", detalhes: "", quantidade: "2", tipoValorId: "", valorUnit: "25,00", desconto: "0", descontoPct: false };
+    const base = dados({ condicao: "AVISTA", parcelas: [] });
+    const o = await ord.salvarOrdem({ ...base, produtos: [...base.produtos, avulso] }, u);
+    expect(Number(o.total)).toBe(400);
+    const linhas = await prisma.osItemProduto.findMany({ where: { osId: o.id }, include: { produto: true }, orderBy: { ordem: "asc" } });
+    expect(linhas.map((l) => l.descricao)).toEqual([null, "Cabo HDMI 3m"]);
+    expect(linhas[1].produto.codigo).toBe("ITEM-AVULSO");
+    expect(await estoque()).toMatchObject({ fisico: 5, reservado: 1 });
+    expect(await prisma.reserva.count({ where: { origemItemId: linhas[1].id } })).toBe(0);
+
+    // trocar a situação para concluída/faturada é recusado, e nada muda
+    await expect(ord.alterarSituacaoOrdem(o.id, "so_faturar", u)).rejects.toThrow(/item avulso \(Cabo HDMI 3m\): troque pelo produto cadastrado/);
+    await expect(ord.alterarSituacaoOrdem(o.id, "so_concretizada", u)).rejects.toThrow(/troque pelo produto cadastrado/);
+    // salvar o formulário já levando para concretizada também
+    await expect(ord.salvarOrdem({ ...base, situacaoId: "so_concretizada", produtos: [...base.produtos, avulso] }, u, o.id)).rejects.toThrow(/troque pelo produto cadastrado/);
+    expect(await recebiveis(o.id)).toHaveLength(0);
+    expect(await estoque()).toMatchObject({ fisico: 5, reservado: 1 });
+    // OS nova já concluída com avulso também não
+    await expect(ord.salvarOrdem({ ...base, situacaoId: "so_faturar", produtos: [avulso] }, u)).rejects.toThrow(/troque pelo produto cadastrado/);
+
+    // editar mantendo o avulso funciona (orçamento de conclusão), e trocar sem escolher o produto é recusado
+    await ord.salvarOrdem({ ...base, produtos: [...base.produtos, { ...avulso, valorUnit: "30,00" }] }, u, o.id);
+    expect(Number((await prisma.ordemServico.findUniqueOrThrow({ where: { id: o.id } })).total)).toBe(410);
+    await expect(ord.salvarOrdem({ ...base, produtos: [...base.produtos, { ...avulso, avulso: false, nome: "", eraAvulso: "Cabo HDMI 3m" }] }, u, o.id)).rejects.toThrow(/Escolha o produto cadastrado no lugar do item avulso "Cabo HDMI 3m"/);
+
+    // trocado pelo produto cadastrado: conclui, baixa e lança o financeiro
+    await ord.salvarOrdem({ ...base, produtos: [{ ...base.produtos[0], quantidade: "3" }] }, u, o.id);
+    await ord.alterarSituacaoOrdem(o.id, "so_concretizada", u);
+    expect(await estoque()).toMatchObject({ fisico: 2, reservado: 0 });
+    expect(await recebiveis(o.id)).toHaveLength(1);
+  });
+
   it("gerar cópia cria uma nova OS em aberto com os mesmos itens e equipamentos", async () => {
     const o = await ord.salvarOrdem(dados({ situacaoId: "so_concretizada" }), u);
     const c = await ord.clonarOrdem(o.id, u);

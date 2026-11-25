@@ -136,7 +136,7 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                   {l.avulso ? (
                     <div>
                       <input className="campo" placeholder="Descrição do item avulso" autoFocus={!l.id && !l.nome} value={l.nome} onChange={(e) => setProd(i, { nome: e.target.value })} />
-                      <span className="text-[11px] text-slate-500">Item avulso: sem cadastro e sem estoque</span>
+                      <span className="text-[11px] text-slate-500">Item avulso: sem cadastro e sem estoque{os && <> · <button type="button" className="text-marca hover:underline" title="Escolher o produto cadastrado no lugar deste item avulso" onClick={() => setProd(i, { avulso: false, produtoId: "", eraAvulso: l.nome })}>Trocar pelo produto cadastrado</button></>}</span>
                     </div>
                   ) : l.produtoId ? (
                     <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}
@@ -150,12 +150,13 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
                           </select>
                         </label>
                       )}</div>
-                  ) : (
+                  ) : (<>
                     <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus larguraMin={560} classeLinha={(p) => fundoEstoque(p.situacao)}
                       linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} unidade={p.unidade} valor={p.valores.find((v) => v.tipoValorId === padrao)?.valor ?? p.preco} disponivel={p.disponivel} situacao={p.situacao} minimo={p.minimo} nosCarros={p.fisicoCarros} />}
                       onEscolher={(p) => p && setProd(i, { produtoId: p.id, nome: p.nome, codigo: p.codigo, unidade: p.unidade, valores: p.valores, disponivel: p.disponivel, nosCarros: p.fisicoCarros, tipoValorId: padrao,
-                        valorUnit: n2(p.valores.find((v) => v.tipoValorId === padrao)?.valor ?? p.preco) })} />
-                  )}
+                        valorUnit: n2(p.valores.find((v) => v.tipoValorId === padrao)?.valor ?? p.preco), eraAvulso: undefined })} />
+                    {l.eraAvulso && <span className="text-[11px] text-amber-700">No lugar do item avulso: {l.eraAvulso} · <button type="button" className="hover:underline" onClick={() => setProd(i, { avulso: true, nome: l.eraAvulso ?? "", eraAvulso: undefined })}>voltar</button></span>}
+                  </>)}
                 </td>
                 {vi("detalhes") && <td><input className="campo" value={l.detalhes} onChange={(e) => setProd(i, { detalhes: e.target.value })} /></td>}
                 <td><DicaSaldo produtoId={(!l.avulso && l.produtoId) || undefined}><input className="campo text-right" value={l.quantidade} onChange={(e) => setProd(i, { quantidade: e.target.value })} /></DicaSaldo></td>
@@ -176,7 +177,8 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
         </table>
       </div>
       <div className="flex flex-wrap gap-2 p-3"><button type="button" className="btn-sec" onClick={() => set("produtos", [...d.produtos, novoProduto()])}><Icone nome="mais" size={14} /> Adicionar produto</button>
-        {!os && <button type="button" className="btn-sec" title="Item digitado na hora, sem cadastro de produto e sem movimentar estoque" onClick={() => set("produtos", [...d.produtos, { ...novoProduto(), avulso: true, unidade: "UN" }])}><Icone nome="mais" size={14} /> Adicionar item avulso</button>}</div>
+        <button type="button" className="btn-sec" title={os ? "Item digitado na hora, sem cadastro e sem estoque: serve para mandar ao cliente como orçamento de conclusão; a OS só conclui depois de trocar pelo produto cadastrado" : "Item digitado na hora, sem cadastro de produto e sem movimentar estoque"} onClick={() => set("produtos", [...d.produtos, { ...novoProduto(), avulso: true, unidade: "UN" }])}><Icone nome="mais" size={14} /> Adicionar item avulso</button></div>
+      {os && d.produtos.some((l) => l.avulso) && <p className="mx-3 mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">Esta OS tem item avulso: pode ser enviada ao cliente como orçamento, mas só pode ser concluída ou faturada depois de trocar cada item avulso pelo produto cadastrado.</p>}
     </Bloco>
   );
 

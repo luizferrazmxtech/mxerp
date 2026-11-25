@@ -163,7 +163,9 @@ describe("orçamentos", () => {
 
     const { osId } = await orc.gerarOsDoOrcamento(o.id, u);
     const naOs = await prisma.osItemProduto.findFirstOrThrow({ where: { osId, produtoId: itens[1].produtoId } });
-    expect(naOs.detalhes).toBe("Cabo sob medida 3m");
+    // na OS segue avulso (orçamento de conclusão) e bloqueia concluir até trocar pelo produto cadastrado
+    expect(naOs.descricao).toBe("Cabo sob medida 3m");
+    expect(naOs.detalhes).toBeNull();
   });
 
   it("produto de sistema do item avulso não aparece na lista de produtos", async () => {

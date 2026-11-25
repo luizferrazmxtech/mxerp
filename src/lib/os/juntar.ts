@@ -138,7 +138,7 @@ export async function juntarOrdens(idsEntrada: string[], u: Usuario, opts: { per
     const linhasP = new Map<string, { id: string; quantidade: number; desconto: number; subtotal: number; detalhes: string[] }>();
     ordem = 0;
     for (const i of ordens.flatMap((o) => o.produtos)) {
-      const k = `${i.produtoId}~${Number(i.valorUnit).toFixed(2)}~${i.localOrigemId ?? ""}~${i.instalado}~${i.tipoValorId ?? ""}`;
+      const k = `${i.produtoId}~${i.descricao ?? ""}~${Number(i.valorUnit).toFixed(2)}~${i.localOrigemId ?? ""}~${i.instalado}~${i.tipoValorId ?? ""}`;
       const l = linhasP.get(k);
       if (l) {
         l.quantidade += Number(i.quantidade); l.desconto += Number(i.desconto); l.subtotal += Number(i.subtotal);
@@ -146,7 +146,7 @@ export async function juntarOrdens(idsEntrada: string[], u: Usuario, opts: { per
         await fotos(i, l.id);
         continue;
       }
-      const c = await tx.osItemProduto.create({ data: { osId: nova.id, ordem: ordem++, produtoId: i.produtoId, quantidade: i.quantidade, valorUnit: i.valorUnit, custoUnit: i.custoUnit, desconto: i.desconto, subtotal: i.subtotal, detalhes: i.detalhes, tipoValorId: i.tipoValorId, criadoPorId: i.criadoPorId, instalado: i.instalado, instaladoEm: i.instaladoEm, instaladoPorId: i.instaladoPorId, localOrigemId: i.localOrigemId } });
+      const c = await tx.osItemProduto.create({ data: { osId: nova.id, ordem: ordem++, produtoId: i.produtoId, descricao: i.descricao, quantidade: i.quantidade, valorUnit: i.valorUnit, custoUnit: i.custoUnit, desconto: i.desconto, subtotal: i.subtotal, detalhes: i.detalhes, tipoValorId: i.tipoValorId, criadoPorId: i.criadoPorId, instalado: i.instalado, instaladoEm: i.instaladoEm, instaladoPorId: i.instaladoPorId, localOrigemId: i.localOrigemId } });
       linhasP.set(k, { id: c.id, quantidade: Number(i.quantidade), desconto: Number(i.desconto), subtotal: Number(i.subtotal), detalhes: i.detalhes?.trim() ? [i.detalhes.trim()] : [] });
       await fotos(i, c.id);
     }
