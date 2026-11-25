@@ -361,6 +361,7 @@ export async function importarExtrato(contaBancariaId: string, ts: TransacaoExtr
     }
   }
   let baixadas = await conciliarPorBoleto(contaBancariaId);
+  baixadas += await (await import("./pixInter")).conciliarPixDoPdv(contaBancariaId);
   const boletos = await tirarBoletosRecebidos(contaBancariaId);
   const jaBaixadas = await amarrarJaBaixadas(contaBancariaId);
   if (opts.baixarAutomatico !== false) {

@@ -8,6 +8,7 @@ import { brl, dataSP, horaSP } from "@/lib/ui/format";
 import Icone from "@/components/Icone";
 import Pdv from "./Pdv";
 import { pixPagSeguroAtivo } from "@/lib/pagseguro/pagseguro";
+import { pixInterAtivo } from "@/lib/financeiro/pixInter";
 import AbrirCaixa from "./AbrirCaixa";
 import FecharCaixa from "./FecharCaixa";
 import MovimentoCaixa from "./MovimentoCaixa";
@@ -28,6 +29,7 @@ export default async function PdvPage({ searchParams }: { searchParams: Promise<
   formas.sort((a, b) => (ordem.indexOf(a.nome) + 1 || 99) - (ordem.indexOf(b.nome) + 1 || 99));
   const resumo = await resumoCaixa(caixa.id);
   const pixAtivo = await pixPagSeguroAtivo();
+  const pixInter = !!(await pixInterAtivo());
   const contas = acao === "sangria" || acao === "suprimento" || acao === "reforco"
     ? await prisma.contaBancaria.findMany({ where: { ativa: true, NOT: { nome: "Caixa" } }, orderBy: { nome: "asc" }, select: { id: true, nome: true } })
     : [];
@@ -43,7 +45,7 @@ export default async function PdvPage({ searchParams }: { searchParams: Promise<
   );
   return (
     <>
-      <Pdv formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo, pix: pixAtivo && f.pagseguro && f.tPag === "17", tPag: f.tPag, taxa: Number(f.taxa), taxas: f.taxas }))} podeDesconto={await pode(u.papel, "pdv.desconto")} podeSangria={await pode(u.papel, "pdv.sangria")} podeCancelar={await pode(u.papel, "pdv.cancelar")}
+      <Pdv formas={formas.map((f) => ({ id: f.id, nome: f.nome, diasPrazo: f.diasPrazo, pix: pixAtivo && f.pagseguro && f.tPag === "17", pixInter: pixInter && !f.pagseguro && f.tPag === "17", tPag: f.tPag, taxa: Number(f.taxa), taxas: f.taxas }))} podeDesconto={await pode(u.papel, "pdv.desconto")} podeSangria={await pode(u.papel, "pdv.sangria")} podeCancelar={await pode(u.papel, "pdv.cancelar")}
         caixa={{ numero: caixa.numero, operador: (await prisma.usuario.findUnique({ where: { id: caixa.usuarioId }, select: { nome: true } }))?.nome ?? "", abertoEm: `${dataSP(caixa.abertoEm)} ${horaSP(caixa.abertoEm)}`, vendas: resumo.vendas, total: resumo.total }} />
       {acao === "fechar" && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 pt-10 sm:p-4 sm:pt-20">

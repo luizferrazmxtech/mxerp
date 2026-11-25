@@ -27,9 +27,12 @@ export const ESCOPO_EXTRATO = "extrato.read";
 export const ESCOPOS_COBRANCA = "boleto-cobranca.read boleto-cobranca.write";
 export const ESCOPOS_PADRAO = `${ESCOPO_EXTRATO} ${ESCOPOS_COBRANCA}`;
 export const temCobranca = (escopos?: string | null) => (escopos ?? "").split(/\s+/).includes("boleto-cobranca.write");
+/** Cobrança Pix imediata (QR do PDV) pela API Pix v2. */
+export const ESCOPOS_PIX = "cob.read cob.write";
+export const temPix = (escopos?: string | null) => (escopos ?? "").split(/\s+/).includes("cob.write");
 
 export type RespostaInter = { status: number; corpo: string };
-export type MetodoHttp = "GET" | "POST" | "PUT" | "DELETE";
+export type MetodoHttp = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type TransporteInter = (metodo: MetodoHttp, url: string, headers: Record<string, string>, corpo: string | null) => Promise<RespostaInter>;
 
 export type ConfigInter = {
@@ -302,8 +305,10 @@ function converter(t: TransacaoInter): TransacaoExtrato {
 
 export function explicar(r: RespostaInter, escopo = ESCOPO_EXTRATO) {
   const boleto = escopo.includes("boleto-cobranca");
+  const pix = escopo.includes("cob.");
   const dica =
     r.status === 401 ? " (confira o Client ID, o Client Secret e se o certificado é desta integração)" :
+    pix && (r.status === 400 || r.status === 403) ? " (a integração no Inter Empresas precisa das permissões de Pix \"Emitir e consultar cobranças imediatas\" (cob.write e cob.read), e a chave Pix tem de ser desta conta)" :
     r.status === 403 ? (boleto
       ? " (a integração precisa da permissão \"Emitir e cancelar boletos/cobranças\" e \"Consultar boletos/cobranças\" no Inter Empresas)"
       : " (a integração precisa da permissão \"Consultar extrato e saldo\" no Inter Empresas; confira também a conta corrente)") :

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { BANDEIRAS, calcularTaxa, maxVezes, pct, temTabela, tipoCartao } from "@/lib/financeiro/taxasCartao";
 
-export type Forma = { id: string; nome: string; diasPrazo: number; /** PIX do PagSeguro: mostra o QR antes de fechar */ pix?: boolean;
+export type Forma = { id: string; nome: string; diasPrazo: number; /** PIX do PagSeguro: mostra o QR antes de fechar */ pix?: boolean; /** PIX do Banco Inter (sem taxa): mostra o QR antes de fechar */ pixInter?: boolean;
   /** para calcular a taxa (cartão: tabela por bandeira e vezes) */ tPag?: string; taxa?: number; taxas?: unknown };
 export type LinhaPag = { formaPagamentoId: string; valor: number; parcelas: number; bandeira?: string };
 
