@@ -20,8 +20,10 @@ export async function exigirUsuario(papeis?: PapelUsuario[]) {
 export async function exigirArea(caminho: string) {
   const u = await usuarioAtual();
   if (!u) redirect("/login");
-  const { podeAcessar } = await import("./permissoes");
-  if (!podeAcessar(u.papel, caminho)) redirect("/?negado=1");
+  const { podeAcessar, acaoDaArea } = await import("./permissoes");
+  const acao = acaoDaArea(caminho);
+  const acoes = acao ? await (await import("./permissoesAcao")).acoesLiberadas(u.papel, [acao as import("./permissoesAcao").ChaveAcao]) : undefined;
+  if (!podeAcessar(u.papel, caminho, acoes)) redirect("/?negado=1");
   return u;
 }
 

@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db";
 const TODOS: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR", "TECNICO", "CAIXA"];
 const GER: PapelUsuario[] = ["ADMIN", "GERENTE"];
 const VENDE: PapelUsuario[] = ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"];
+const ADM: PapelUsuario[] = ["ADMIN"];
 
 export const ACOES = {
   "venda.situacao": { grupo: "Vendas", rotulo: "Mudar a situação de vendas", padrao: VENDE },
@@ -42,6 +43,8 @@ export const ACOES = {
   "financeiro.estornar": { grupo: "Financeiro", rotulo: "Estornar baixas", padrao: GER },
   "financeiro.agrupar": { grupo: "Financeiro", rotulo: "Agrupar e desagrupar contas a receber", padrao: GER },
   "financeiro.excluir": { grupo: "Financeiro", rotulo: "Excluir lançamentos", padrao: GER },
+  "relatorios.ver": { grupo: "Relatórios e Início", rotulo: "Abrir Relatórios (lucro, curva ABC, comissões, DRE, painéis, comparar meses, resumo no WhatsApp)", padrao: ADM },
+  "inicio.indicadores": { grupo: "Relatórios e Início", rotulo: "Ver os números da tela Início e do Painel de OS (saldo, financeiro, vendas, faturamento, valores de OS e orçamentos e gráficos)", padrao: ADM },
 } satisfies Record<string, { grupo: string; rotulo: string; padrao: PapelUsuario[] }>;
 
 export type ChaveAcao = keyof typeof ACOES;
@@ -63,6 +66,12 @@ export async function pode(papel: PapelUsuario, acao: ChaveAcao) {
   if (papel === "ADMIN") return true;
   const x = (await excecoes()).get(`${papel}:${acao}`);
   return x ?? (ACOES[acao].padrao as PapelUsuario[]).includes(papel);
+}
+
+/** Quais destas ações o papel pode fazer (para o menu e o middleware, que usam podeAcessar). */
+export async function acoesLiberadas(papel: PapelUsuario, acoes: ChaveAcao[] = Object.keys(ACOES) as ChaveAcao[]) {
+  const ok = await Promise.all(acoes.map((a) => pode(papel, a)));
+  return new Set<string>(acoes.filter((_, i) => ok[i]));
 }
 
 /** Matriz completa (para a tela): ação → papel → pode? */

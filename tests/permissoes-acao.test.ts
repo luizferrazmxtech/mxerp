@@ -45,4 +45,18 @@ describe("permissões por ação", () => {
     expect(await prisma.permissaoPapel.count()).toBe(0);
     expect(await perm.pode("CAIXA", "pdv.desconto")).toBe(true);
   });
+
+  it("relatórios e números do Início são só do administrador até serem liberados", async () => {
+    for (const p of perm.PAPEIS_CONFIGURAVEIS) {
+      expect(await perm.pode(p, "relatorios.ver")).toBe(false);
+      expect(await perm.pode(p, "inicio.indicadores")).toBe(false);
+    }
+    expect(await perm.pode("ADMIN", "relatorios.ver")).toBe(true);
+    expect([...(await perm.acoesLiberadas("OPERADOR", ["relatorios.ver", "os.situacao"]))]).toEqual(["os.situacao"]);
+    const marcadas = new Set<string>(["GERENTE:relatorios.ver"]);
+    for (const m of await perm.matrizPermissoes()) for (const p of perm.PAPEIS_CONFIGURAVEIS) if (m.papeis[p].padrao) marcadas.add(`${p}:${m.acao}`);
+    await perm.salvarPermissoes(marcadas);
+    expect(await perm.pode("GERENTE", "relatorios.ver")).toBe(true);
+    expect(await perm.pode("OPERADOR", "relatorios.ver")).toBe(false);
+  });
 });

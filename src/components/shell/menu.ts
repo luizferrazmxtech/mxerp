@@ -247,12 +247,12 @@ export const MODULOS: { prefixo: string; rotulo: string; cor: string; icone: str
   { prefixo: "/whatsapp", rotulo: "Configurações", cor: "#5b6573", icone: "configuracoes" },
 ];
 
-export function menuDoPapel(papel: PapelUsuario): ItemMenu[] {
+export function menuDoPapel(papel: PapelUsuario, acoes?: ReadonlySet<string>): ItemMenu[] {
   return MENU.map((g) => ({
     ...g,
     filhos: g.filhos
-      ?.map((f) => (f.filhos ? { ...f, filhos: f.filhos.filter((x) => podeAcessar(papel, x.href.split("?")[0])) } : f))
-      .filter((f) => (f.filhos ? f.filhos.length > 0 : podeAcessar(papel, f.href.split("?")[0]))),
+      ?.map((f) => (f.filhos ? { ...f, filhos: f.filhos.filter((x) => podeAcessar(papel, x.href.split("?")[0], acoes)) } : f))
+      .filter((f) => (f.filhos ? f.filhos.length > 0 : podeAcessar(papel, f.href.split("?")[0], acoes))),
   }))
-    .filter((g) => (g.filhos ? g.filhos.length > 0 : g.href && podeAcessar(papel, g.href)));
+    .filter((g) => (g.filhos ? g.filhos.length > 0 : g.href && podeAcessar(papel, g.href, acoes)));
 }

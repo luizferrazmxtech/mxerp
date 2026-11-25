@@ -26,4 +26,13 @@ describe("login", () => {
     expect(podeAcessar("OPERADOR", "/api/notas/1/xml")).toBe(false);
     expect(podeAcessar("OPERADOR", "/usuarios")).toBe(false);
   });
+
+  it("relatórios só abrem com a permissão relatorios.ver (padrão: só o administrador)", () => {
+    expect(podeAcessar("ADMIN", "/relatorios")).toBe(true);
+    expect(podeAcessar("GERENTE", "/relatorios/lucro")).toBe(false);
+    expect(podeAcessar("OPERADOR", "/relatorios")).toBe(false);
+    expect(podeAcessar("OPERADOR", "/api/relatorios/lucro")).toBe(false);
+    expect(podeAcessar("GERENTE", "/relatorios/dre", new Set(["relatorios.ver"]))).toBe(true);
+    expect(podeAcessar("OPERADOR", "/relatoriosX")).toBe(true); // prefixo só casa por segmento
+  });
 });

@@ -4,6 +4,7 @@ import "./globals.css";
 import { usuarioAtual } from "@/lib/auth/atual";
 import AppShell from "@/components/shell/AppShell";
 import { menuDoPapel } from "@/components/shell/menu";
+import { acoesLiberadas } from "@/lib/auth/permissoesAcao";
 import { sair } from "./login/actions";
 import { lojasDoUsuario, lojaAtual, nomeLoja } from "@/lib/empresa/atual";
 import { trocarLoja } from "./empresas/actions";
@@ -24,6 +25,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const usuario = portal ? null : await usuarioAtual();
   const [empresa, lojas] = usuario ? await Promise.all([lojaAtual(), lojasDoUsuario()]) : [null, []];
   const licenca = usuario ? await licencaAtual() : null;
+  const acoes = usuario ? await acoesLiberadas(usuario.papel, ["relatorios.ver"]) : undefined;
   return (
     <html lang="pt-BR">
       <head>
@@ -37,7 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <main>{children}</main>
         ) : (
           <AppShell
-            menu={menuDoPapel(usuario.papel)}
+            menu={menuDoPapel(usuario.papel, acoes)}
             usuario={{ nome: usuario.nome, papel: PAPEL[usuario.papel] ?? usuario.papel }}
             empresa={{ nome: empresa ? nomeLoja(empresa) : "MXTECH", cnpj: empresa ? cnpjFmt(empresa.cnpj) : null }}
             lojas={lojas.map((l) => ({ id: l.id, nome: nomeLoja(l), cnpj: cnpjFmt(l.cnpj), atual: l.id === empresa?.id }))}
