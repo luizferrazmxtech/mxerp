@@ -25,3 +25,7 @@ export const horaSP = (d: Date | string | null | undefined) =>
 
 /** Número no formato brasileiro sem o "R$" (como nas listas: 2.125,80). */
 export const num2 = (v: Num) => Number(v ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** CNPJ/CPF com pontuação. */
+export const docFmt = (d: string | null | undefined) =>
+  !d ? "" : d.length === 14 ? d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : d.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");

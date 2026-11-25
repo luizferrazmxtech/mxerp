@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { clienteAtual } from "@/lib/portal/atual";
 import { notaDoCliente } from "@/lib/portal/dados";
 import { gerarDanfePdf } from "@/lib/fiscal/danfePdf";
+import { danfseDaNota } from "@/lib/fiscal/danfse";
 
 const texto = (m: string, status: number) => new Response(m, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 
@@ -18,7 +19,15 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       headers: { "Content-Type": "application/xml; charset=utf-8", "Content-Disposition": `attachment; filename="${n.chave ?? base}${n.modelo !== "NFSE" ? "-procNFe" : ""}.xml"`, "Cache-Control": "private, no-store" },
     });
   }
-  if (tipo !== "pdf" || n.modelo === "NFSE") return texto("Formato inválido", 404);
+  if (tipo !== "pdf") return texto("Formato inválido", 404);
+  if (n.modelo === "NFSE") {
+    try {
+      const d = await danfseDaNota(n.id);
+      return new Response(new Uint8Array(d.pdf), { headers: { "Content-Type": "application/pdf", "Content-Disposition": `inline; filename="${d.nome}"`, "Cache-Control": "private, no-store" } });
+    } catch (e) {
+      return texto((e as Error).message, 404);
+    }
+  }
   const emp = n.empresaId ? await prisma.empresa.findUnique({ where: { id: n.empresaId }, select: { logo: true } }) : null;
   const aviso = n.ambiente === "HOMOLOGACAO" ? "SEM VALOR FISCAL - HOMOLOGAÇÃO" : n.status === "CANCELADA" ? "NOTA CANCELADA" : null;
   const pdf = await gerarDanfePdf(n.xml, { logo: emp?.logo ? Buffer.from(emp.logo) : null, aviso });

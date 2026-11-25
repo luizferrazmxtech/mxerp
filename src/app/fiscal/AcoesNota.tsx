@@ -23,7 +23,7 @@ export default function AcoesNota({ n, origem, danfse }: {
           : <Link href={`/fiscal/${n.id}/imprimir`} className={item}><Icone nome="imprimir" size={14} /> Imprimir DANFCE</Link>}
         {n.modelo === "NFE" && <Link href={`/fiscal/${n.id}/imprimir?formato=simplificado`} className={item}><Icone nome="imprimir" size={14} /> DANFE simplificado</Link>}
       </>}
-      {nfse && danfse && <a href={danfse} target="_blank" rel="noreferrer" className={item}><Icone nome="imprimir" size={14} /> DANFSe (PDF oficial)</a>}
+      {nfse && danfse && <a href={danfse} target="_blank" rel="noreferrer" className={item}><Icone nome="imprimir" size={14} /> DANFSe (PDF)</a>}
       {n.temXml && <a href={`/api/notas/${n.id}/xml`} className={item}><Icone nome="exportar" size={14} /> Baixar XML</a>}
       {!nfse && n.temChave && <Link href={`/fiscal/${n.id}#consultar`} className={item}><Icone nome="atualizar" size={14} /> Consultar na SEFAZ</Link>}
       {n.modelo === "NFE" && autorizada && <Link href={`/fiscal/${n.id}#cce`} className={item}><Icone nome="editar" size={14} /> Carta de correção</Link>}
