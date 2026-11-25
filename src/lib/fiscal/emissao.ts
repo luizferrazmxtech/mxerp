@@ -345,7 +345,7 @@ type ServicoNota = { quantidade: Prisma.Decimal; subtotal: Prisma.Decimal; servi
 
 async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; empresaId?: string | null; rotulo: string; referencia: string; cliente: Tomador; servicos: ServicoNota[]; extras: string[]; competencia?: Date; desconto?: number }, deps: DependenciasNfse) {
   const e = await empresa(a.empresaId);
-  if (!e.inscricaoMunicipal) throw new FiscalError("Informe a inscrição municipal da empresa");
+  // inscrição municipal é opcional: municípios sem cadastro complementar no CNC NFS-e recusam a IM (E0120)
   if (!a.servicos.length) throw new FiscalError(`A ${a.rotulo === "OS" ? "OS" : "venda"} não tem serviços`);
   const ja = await prisma.notaFiscal.findFirst({ where: { origemTipo: a.origemTipo, origemId: a.origemId, modelo: "NFSE", status: "AUTORIZADA" } });
   if (ja) throw new FiscalError(`Já existe NFS-e autorizada para esta ${a.rotulo} (DPS ${ja.numero})`);
@@ -382,7 +382,7 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
     const descricao = [...a.servicos.map((s) => `${Number(s.quantidade)} x ${s.servico.nome}`), ...a.extras, a.referencia, e.infCplNfse].filter(Boolean).join(" | ");
     const { xml } = montarDps({
       tpAmb: amb, emissao: agora, competencia: a.competencia ?? agora, serie, numero: nota.numero,
-      prestador: { cnpj: e.cnpj, im: e.inscricaoMunicipal, codigoMunicipio: e.codigoMunicipio!, fone: e.telefone, email: e.email, opSimpNac: OP_SIMPLES[e.regimeTributario], regApTribSN: cfgNfse.apuracao, regEspTrib: e.regimeEspecialNfse },
+      prestador: { cnpj: e.cnpj, im: cfgNfse.enviarIm ? e.inscricaoMunicipal : null, codigoMunicipio: e.codigoMunicipio!, fone: e.telefone, email: e.email, opSimpNac: OP_SIMPLES[e.regimeTributario], regApTribSN: cfgNfse.apuracao, regEspTrib: e.regimeEspecialNfse },
       tomador: c.documento ? {
         documento: c.documento, nome: c.nome, email: c.email, fone: c.telefone,
         endereco: c.codigoMunicipio && c.cep && c.logradouro && c.bairro

@@ -59,7 +59,7 @@ export async function salvarEmpresa(_: Res, form: FormData): Promise<Res> {
     // tributação da NFS-e (natureza, apuração, imunidade, suspensão e os códigos da prefeitura)
     const configNfse = lerConfigNfse({
       natureza: s(form.get("nfseNatureza")), apuracao: s(form.get("nfseApuracao")), tpImunidade: s(form.get("nfseImunidade")),
-      tpSusp: s(form.get("nfseSuspensao")), nProcesso: s(form.get("nfseProcesso")), tipoOperacao: s(form.get("nfseTipoOperacao")), indicadorOperacao: s(form.get("nfseIndicador")),
+      tpSusp: s(form.get("nfseSuspensao")), nProcesso: s(form.get("nfseProcesso")), tipoOperacao: s(form.get("nfseTipoOperacao")), indicadorOperacao: s(form.get("nfseIndicador")), enviarIm: form.get("nfseEnviarIm") !== null,
     });
     validarConfigNfse(configNfse);
     const dados = {
