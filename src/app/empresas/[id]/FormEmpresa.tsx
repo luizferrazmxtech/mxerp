@@ -20,6 +20,8 @@ type Dados = {
   configNfse: ConfigNfse;
   certificado: { titular: string | null; validade: string } | null;
   temLogo: boolean;
+  /** muda a cada gravação: o navegador não reaproveita a imagem antiga do logo depois de trocar */
+  logoVersao?: number;
 };
 
 const REG_ESP: [number, string][] = [
@@ -187,7 +189,7 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
         <div className="flex flex-wrap items-center gap-4">
           {e?.temLogo
             // eslint-disable-next-line @next/next/no-img-element
-            ? <img src={`/empresas/${e.id}/logo`} alt="Logo" className="h-20 max-w-60 rounded border bg-white object-contain p-1" />
+            ? <img src={`/empresas/${e.id}/logo?v=${e.logoVersao ?? 0}`} key={e.logoVersao} alt="Logo" className="h-20 max-w-60 rounded border bg-white object-contain p-1" />
             : <span className="text-[13px] text-slate-500">Sem logo.</span>}
           <Campo rotulo={e?.temLogo ? "Trocar logo" : "Arquivo do logo"}><input type="file" name="logo" accept="image/png,image/jpeg" className="campo" /></Campo>
           {e?.temLogo && <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" name="removerLogo" /> Remover logo</label>}

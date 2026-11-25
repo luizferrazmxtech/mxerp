@@ -29,7 +29,7 @@ export default async function Empresa({ params }: { params: Promise<{ id: string
           ambiente: e.ambienteFiscal, ambienteNfse: e.ambienteNfse, serieNfe: e.serieNfe, serieNfce: e.serieNfce, serieDps: e.serieDps,
           regimeEspecialNfse: e.regimeEspecialNfse, cscId: e.cscId, temCsc: !!e.cscToken, infCplNfe: e.infCplNfe, infCplNfse: e.infCplNfse, configNfse: lerConfigNfse(e.configNfse),
           certificado: e.certificadoValidade ? { titular: e.certificadoTitular, validade: e.certificadoValidade.toISOString() } : null,
-          temLogo: !!e.logo,
+          temLogo: !!e.logo, logoVersao: e.updatedAt.getTime(),
         }}
         ultimos={ultimos}
         certificadoServidor={temCertificadoServidor()}
