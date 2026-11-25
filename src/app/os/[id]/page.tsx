@@ -40,6 +40,7 @@ import { mensagemOs } from "@/lib/whatsapp/os";
 import EnviarWhatsappOs from "@/components/whatsapp/EnviarWhatsappOs";
 import ListaMensagens from "@/components/whatsapp/ListaMensagens";
 import { atrasada, dataPrevisao, prazoOs, textoPrazo } from "@/lib/os/prazo";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar OS" };
@@ -100,7 +101,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
   const empresaServicos = servicosFora ? nomesEmpresas.get(servicosFora) ?? "outra empresa" : null;
   // antes de lançar o financeiro: como cada parcela vai ser dividida entre peças e serviços (um boleto para cada)
   const partesServicos = servicosFora ? servicosPorParcela(o.parcelas, divisaoOs(o).servicos, Number(o.total)) : [];
-  const notasOs = await prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: id }, orderBy: { createdAt: "asc" }, select: { id: true, modelo: true, serie: true, numero: true, status: true, valorTotal: true, empresaId: true } });
+  const notasOs = await prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: id }, orderBy: { createdAt: "asc" }, select: { id: true, modelo: true, serie: true, numero: true, numeroNfse: true, status: true, valorTotal: true, empresaId: true } });
   const errosBoleto = lancamentos.filter((l) => !l.pagoEm && l.boletos[0]?.situacao === "ERRO").length;
   const link = `${h.get("x-forwarded-proto") ?? "http"}://${h.get("host")}/cobranca/os/${o.token}`;
   const nomeEmpresa = empresa?.nomeFantasia || empresa?.razaoSocial || "MXTECH";
@@ -241,7 +242,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                 <ul className="space-y-1 border-b pb-2">
                   {notasOs.map((n) => (
                     <li key={n.id} className="flex items-center gap-2">
-                      <Link href={`/fiscal/${n.id}`} className="text-marca hover:underline">{n.modelo === "NFSE" ? "NFS-e" : n.modelo === "NFCE" ? "NFC-e" : "NF-e"} {n.serie}/{n.numero}</Link>
+                      <Link href={`/fiscal/${n.id}`} className="text-marca hover:underline">{n.modelo === "NFSE" ? `NFS-e nº ${numeroDaNota(n)}` : `${n.modelo === "NFCE" ? "NFC-e" : "NF-e"} ${n.serie}/${n.numero}`}</Link>
                       <span className={`text-[11px] ${n.status === "AUTORIZADA" ? "text-emerald-700" : n.status === "REJEITADA" || n.status === "CANCELADA" ? "text-red-700" : "text-slate-500"}`}>{n.status.toLowerCase()}</span>
                       <span className="ml-auto text-[12px] text-slate-600">{brl(n.valorTotal)}</span>
                     </li>

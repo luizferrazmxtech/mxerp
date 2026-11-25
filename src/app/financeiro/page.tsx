@@ -24,6 +24,7 @@ import BotaoAcao from "@/components/ui/BotaoAcao";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
 import Icone from "@/components/Icone";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Financeiro" };
@@ -81,7 +82,7 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
   const origens = lista.map(doc).filter((l) => l.origemId && (l.origemTipo === "VENDA" || l.origemTipo === "OS")).map((l) => l.origemId!);
   const compras = lista.map(doc).filter((l) => l.origemId && l.origemTipo === "COMPRA").map((l) => l.origemId!);
   const [notas, nfCompras] = await Promise.all([
-    origens.length ? prisma.notaFiscal.findMany({ where: { origemId: { in: origens }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true, modelo: true } }) : [],
+    origens.length ? prisma.notaFiscal.findMany({ where: { origemId: { in: origens }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true, numeroNfse: true, modelo: true } }) : [],
     compras.length ? prisma.compra.findMany({ where: { id: { in: compras } }, select: { id: true, numeroNfe: true } }) : [],
   ]);
   const nfe = (id: string | null) => notas.find((n) => n.origemId === id && n.modelo !== "NFSE");
@@ -159,7 +160,7 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
                   {l.pagoEm && <div className="text-[11px] text-emerald-700">{pagar ? "pago" : "recebido"} {diaBr(l.pagoEm)}</div>}
                 </td>
                 <td>{nf ? <Link href={`/fiscal/${nf.id}`} className="sublinhado">{nf.numero}</Link> : nfc ? nfc : <span className="text-slate-400">—</span>}</td>
-                {!pagar && <td>{ns ? <Link href={`/fiscal/${ns.id}`} className="sublinhado">{ns.numero}</Link> : <span className="text-slate-400">—</span>}</td>}
+                {!pagar && <td>{ns ? <Link href={`/fiscal/${ns.id}`} className="sublinhado">{numeroDaNota(ns)}</Link> : <span className="text-slate-400">—</span>}</td>}
                 <td className="text-center"><span className={`pilula ${s.pilula}`}>{s.rotulo}</span></td>
                 <td className="text-right">
                   {num2(l.valor)}

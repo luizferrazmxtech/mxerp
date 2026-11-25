@@ -23,6 +23,7 @@ import FormSituacao from "@/components/orcamentos/FormSituacao";
 import TrocarVisualizacao from "@/components/os/TrocarVisualizacao";
 import Resumo from "@/components/ui/Resumo";
 import { brl } from "@/lib/ui/format";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Ordens de serviços" };
@@ -66,7 +67,7 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
   const vis = colunasVisiveis(u?.preferencias, base, COLUNAS, ["numero", "nfse", "cliente", "entrada", "saida", "situacao", "valor"]);
   // NFS-e de cada OS e cartões de resumo do período (por situação, sem o filtro de situação)
   const [nfses, porSituacao, faltaTotal] = await Promise.all([
-    prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: { in: lista.map((o) => o.id) }, modelo: "NFSE", status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true } }),
+    prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: { in: lista.map((o) => o.id) }, modelo: "NFSE", status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, modelo: true, numero: true, numeroNfse: true } }),
     prisma.ordemServico.groupBy({ by: ["situacao"], where: whereOrdens({ ...sp, s: undefined }), _sum: { total: true }, _count: true }),
     // OS da empresa atual com peça em falta (a reserva não tem empresa: filtra pela OS)
     prisma.reserva.findMany({ where: { origemTipo: "OS", status: "ATIVA", localId: null }, select: { origemId: true }, distinct: ["origemId"] })
@@ -132,7 +133,7 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
             <tr key={o.id}>
               {selecao && <td><input type="checkbox" name="ids" value={o.id} /></td>}
               {tem("numero") && <td>{o.numero}{o.juntadaEmId && <span className="block text-[10px] text-slate-500" title="OS juntada com outras numa OS nova">juntada</span>}</td>}
-              {tem("nfse") && <td>{nfseDe.get(o.id) ? <Link href={`/fiscal/${nfseDe.get(o.id)!.id}`} className="sublinhado">#{nfseDe.get(o.id)!.numero}</Link> : <span className="text-slate-400">—</span>}</td>}
+              {tem("nfse") && <td>{nfseDe.get(o.id) ? <Link href={`/fiscal/${nfseDe.get(o.id)!.id}`} className="sublinhado">#{numeroDaNota(nfseDe.get(o.id)!)}</Link> : <span className="text-slate-400">—</span>}</td>}
               {tem("cliente") && <td><Link href={`/os/${o.id}`} className="uppercase sublinhado">{o.cliente.nome}</Link>{o.cliente.fantasia && o.cliente.fantasia !== o.cliente.nome && <i className="block text-[11px] uppercase text-slate-500">({o.cliente.fantasia})</i>}</td>}
               {tem("entrada") && <td>{dataSP(o.entrada)}<div className="text-[11px] text-slate-400">{horaSP(o.entrada)}</div></td>}
               {tem("saida") && <td>{o.saida ? <>{dataSP(o.saida)}<div className="text-[11px] text-slate-400">{horaSP(o.saida)}</div></> : <span className="text-slate-400">—</span>}</td>}

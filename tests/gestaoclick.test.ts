@@ -341,6 +341,7 @@ describe("importar tudo: histórico das contas e notas do Gestão Click", () => 
 
     const notas = await prisma.notaFiscal.findMany({ orderBy: { numero: "asc" } });
     expect(notas.map((n) => [n.modelo, n.numero, n.status])).toEqual([["NFSE", 109, "AUTORIZADA"], ["NFE", 6900, "CANCELADA"], ["NFE", 6901, "AUTORIZADA"]]);
+    expect(notas[0].numeroNfse).toBe(1111); // a DPS/RPS 109 controla a numeração; a tela mostra a nota 1111
     expect(notas[2]).toMatchObject({ empresaId: emp.id, destinatarioNome: "FOLK COMERCIO LTDA", chave: "35251112965283000195550010000069011208477675" });
     expect((await prisma.sequencia.findUniqueOrThrow({ where: { chave: "NF-12965283000195-55-1-P" } })).valor).toBe(6901);
     expect((await prisma.sequencia.findUniqueOrThrow({ where: { chave: "DPS-12965283000195-900-P" } })).valor).toBe(109);

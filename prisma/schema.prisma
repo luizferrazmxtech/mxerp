@@ -1895,7 +1895,8 @@ model NotaFiscal {
   empresaId        String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
   modelo           ModeloNota
   serie            Int
-  numero           Int
+  numero           Int // NF-e/NFC-e: número da nota; NFS-e: número da DPS/RPS (controle interno da numeração)
+  numeroNfse       Int? // NFS-e: número da nota dado pela prefeitura/Sefin (é o que aparece para o usuário)
   chave            String?          @unique
   status           StatusNota       @default(RASCUNHO)
   ambiente         AmbienteFiscal

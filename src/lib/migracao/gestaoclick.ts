@@ -1023,7 +1023,7 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
         maiores.set(k, Math.max(maiores.get(k) ?? 0, numero));
       }
       const idLegado = leg(`nota:${modelo}:${serie}:${numero}:${ambiente}`);
-      const ja = await prisma.notaFiscal.findFirst({ where: { OR: [{ idLegado }, { empresaId: empresaId ?? null, modelo, serie, numero, ambiente }, ...(chave.length === 44 ? [{ chave }] : [])] }, select: { id: true, origemId: true } });
+      const ja = await prisma.notaFiscal.findFirst({ where: { OR: [{ idLegado }, { empresaId: empresaId ?? null, modelo, serie, numero, ambiente }, ...(chave.length === 44 ? [{ chave }] : [])] }, select: { id: true, origemId: true, numeroNfse: true } });
       // o backup não diz de qual venda/OS a nota é: acha pelo cliente, valor e data
       const doc = docDe.get(l) ?? null;
       if (ja) {
@@ -1031,7 +1031,9 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
         // achou o documento (pelas duplicatas, pelos serviços ou pelo valor): liga, ou corrige a ligação antiga
         if (doc && ja.origemId !== doc.id) { ligadas++; if (ja.origemId) religadas++; if (!simular) await prisma.notaFiscal.update({ where: { id: ja.id }, data: { origemTipo: doc.tipo, origemId: doc.id } }); }
         else if (!ja.origemId) semOrigem++;
-        r.ignorados.push({ linha: i + 2, motivo: `${modelo} ${numero} já existe no ERP` });
+        // NFS-e trazida antes de guardar o número da nota (o numero é o da DPS/RPS): completa
+        if (modelo === "NFSE" && ja.numeroNfse == null && Number(l.numero) && !simular) await prisma.notaFiscal.update({ where: { id: ja.id }, data: { numeroNfse: Number(l.numero) } });
+        r.ignorados.push({ linha: i + 2, motivo: `${modelo} ${modelo === "NFSE" ? l.numero || numero : numero} já existe no ERP` });
         continue;
       }
       if (doc) ligadas++; else semOrigem++;
@@ -1044,6 +1046,7 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
       await prisma.notaFiscal.create({
         data: {
           modelo, serie, numero, ambiente, status, empresaId: empresaId ?? null, idLegado,
+          numeroNfse: modelo === "NFSE" ? Number(l.numero) || null : null,
           ...(doc ? { origemTipo: doc.tipo, origemId: doc.id } : {}),
           chave: chave.length === 44 ? chave : null, protocolo: l.protocolo || null, emitidaEm,
           valorTotal: numeroBr(modelo === "NFSE" ? l["valor do servico"] : l["valor total"]).toFixed(2),
