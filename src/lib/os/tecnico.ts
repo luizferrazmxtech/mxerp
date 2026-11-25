@@ -60,7 +60,7 @@ export async function osDoTecnico(u: UsuarioTecnico, opts: { tecnicoId?: string;
     orderBy: [{ entrada: sentido }, { numero: sentido }],
     take: 200,
     select: {
-      id: true, numero: true, entrada: true, previsao: true, prioridade: true, situacao: true,
+      id: true, numero: true, entrada: true, previsao: true, prioridade: true, situacao: true, tipoAtendimento: true, descricaoVisita: true,
       situacaoCfg: { select: { nome: true, cor: true } },
       cliente: { select: { nome: true, celular: true, telefone: true, cidade: true, bairro: true, logradouro: true, numero: true } },
       equipe: { select: { nome: true } },

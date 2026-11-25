@@ -797,6 +797,9 @@ model OrdemServico {
   saida             DateTime?
   prioridade        PrioridadeOs?
   canal             String        @default("Presencial")
+  /// MANUTENCAO = equipamento veio para manutenção (usa OsEquipamento); VISITA = visita técnica no local (usa descricaoVisita)
+  tipoAtendimento   String        @default("MANUTENCAO")
+  descricaoVisita   String?
   observacoes       String?
   observacaoInterna String?
   desconto          Decimal       @default(0) @db.Decimal(14, 2)
@@ -858,6 +861,7 @@ model OrdemServico {
   @@index([situacao])
   @@index([clienteId])
   @@index([empresaId])
+  @@index([tipoAtendimento])
   @@index([empresaServicosId])
   @@index([equipeId])
   @@index([agendaInicio])

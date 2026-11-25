@@ -10,7 +10,7 @@ import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { cor, aplicarTags } from "@/lib/orcamentos/tipos";
 import { excluirAnotacaoAcao } from "@/lib/orcamentos/acoes";
 import { alterarSituacaoOsAcao, anotarOsAcao, clonarOsAcao, emitirNotaOsAcao, excluirOsEVoltarAcao } from "@/lib/os/acoes";
-import { avisoSituacaoOs, rotuloPrioridade } from "@/lib/os/tipos";
+import { avisoSituacaoOs, rotuloPrioridade, rotuloTipoAtendimento } from "@/lib/os/tipos";
 import { excluirAnexoAcao } from "@/lib/cadastros/acoes";
 import { brl, dataSP, horaSP, num2, qtd } from "@/lib/ui/format";
 import { Pagina } from "@/components/ui/Pagina";
@@ -123,7 +123,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
     || [...new Set(trabalho.trechos.map((t) => t.iniciadoPor))].join(", ");
   const ABAS = [
     { chave: "cliente", rotulo: "Cliente", icone: "pessoa", tem: true }, { chave: "produtos", rotulo: "Produtos/Peças", icone: "produtos", tem: o.produtos.length > 0 },
-    { chave: "servicos", rotulo: "Serviços", icone: "servicos", tem: o.servicos.length > 0 }, { chave: "equipamentos", rotulo: "Equipamentos", icone: "os", tem: o.equipamentos.length > 0 },
+    { chave: "servicos", rotulo: "Serviços", icone: "servicos", tem: o.servicos.length > 0 }, { chave: "visita", rotulo: "Visita técnica", icone: "os", tem: o.tipoAtendimento === "VISITA" }, { chave: "equipamentos", rotulo: "Equipamentos", icone: "os", tem: o.equipamentos.length > 0 },
     { chave: "pagamento", rotulo: "Pagamento", icone: "dinheiro", tem: true },
     { chave: "entrega", rotulo: "Entrega", icone: "frete", tem: o.mostrarEntrega || Number(o.frete) > 0 },
     { chave: "comissao", rotulo: "Comissão", icone: "percentual", tem: true }, { chave: "notas", rotulo: "Notas fiscais", icone: "notas", tem: true },
@@ -209,6 +209,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
               {o.previsao && <div><b>Previsão:</b> {dataPrevisao(o.previsao)}</div>}
               <div><b>Saída:</b> {quando(o.saida)}</div>
               {(() => { const p = prazoOs(o); return <div className={atrasada(p) ? "font-semibold text-amber-700" : "text-slate-600"}><b>Prazo:</b> {textoPrazo(p)}</div>; })()}
+              <div><b>Atendimento:</b> {rotuloTipoAtendimento(o.tipoAtendimento)}</div>
               {o.prioridade && <div><b>Prioridade:</b> {rotuloPrioridade(o.prioridade)}</div>}
               <div><b>Canal de venda:</b> {o.canal}</div>
               <div><b>Loja:</b> {nomeEmpresa}</div>
@@ -327,6 +328,13 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                   <td className="text-right">{qtd(l.quantidade)}</td><td className="text-right">{num2(l.valorUnit)}</td><td className="text-right">{Number(l.desconto) ? num2(l.desconto) : ""}</td><td className="text-right font-semibold">{num2(l.subtotal)}</td></tr>)}</tbody>
                 <tfoot><tr><td colSpan={4} className="text-right">Total de serviços</td><td className="text-right font-semibold">{num2(o.totalServicos)}</td></tr></tfoot>
               </table>
+            </div>
+          )}
+
+          {aba === "visita" && (
+            <div className="cartao p-3 text-[13px]">
+              <div className="mb-1 flex items-center gap-2"><b>Visita técnica no local</b><span className="pilula border-sky-300 bg-sky-50 text-sky-700">Visita</span></div>
+              <p className="whitespace-pre-wrap">{o.descricaoVisita || "Sem descrição."}</p>
             </div>
           )}
 

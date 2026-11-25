@@ -10,6 +10,9 @@ export type FotoOs = {
   saida: Date | null;
   observacoes: string | null;
   equipamentos: string[];
+  /** "Visita técnica" ou "Manutenção" (opcional para quem já chama sem ele) */
+  tipo?: string;
+  descricaoVisita?: string | null;
 };
 
 const q = (n: number) => (Number.isInteger(n) ? String(n) : n.toLocaleString("pt-BR", { maximumFractionDigits: 3 }));
@@ -43,6 +46,8 @@ export function resumoAlteracoes(a: FotoOs, d: FotoOs): string[] {
   if ((a.equipe ?? "") !== (d.equipe ?? "")) out.push(`equipe ${a.equipe ?? "—"} → ${d.equipe ?? "—"}`);
   if (d.saida && data(a.saida) !== data(d.saida)) out.push(`saída ${data(a.saida)} → ${data(d.saida)}`);
   if ((a.observacoes ?? "").trim() !== (d.observacoes ?? "").trim()) out.push("observações alteradas");
+  if (a.tipo && d.tipo && a.tipo !== d.tipo) out.push(`tipo ${a.tipo} → ${d.tipo}`);
+  if ((a.descricaoVisita ?? "").trim() !== (d.descricaoVisita ?? "").trim()) out.push("descrição da visita alterada");
   const eqA = new Set(a.equipamentos), eqD = new Set(d.equipamentos);
   for (const e of eqD) if (!eqA.has(e)) out.push(`+ equipamento ${e}`);
   for (const e of eqA) if (!eqD.has(e)) out.push(`− equipamento ${e}`);

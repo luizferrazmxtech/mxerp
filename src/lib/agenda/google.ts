@@ -158,6 +158,7 @@ export async function eventoDaOs(osId: string, duracaoPadrao: number) {
     `Cliente: ${o.cliente.nome}${fone ? ` · ${fone}` : ""}`,
     o.equipe ? `Equipe: ${o.equipe.nome}` : null,
     tecnicos.length ? `Técnicos: ${tecnicos.map((t) => t.nome).join(", ")}` : null,
+    o.tipoAtendimento === "VISITA" && o.descricaoVisita ? `Visita técnica: ${o.descricaoVisita}` : null,
     ...o.equipamentos.map((e) => `• ${[e.equipamento, e.marca, e.modelo].filter(Boolean).join(" ")}${e.defeitos ? `: ${e.defeitos}` : ""}`),
     o.observacoes ? `\n${o.observacoes}` : null,
     base ? `\nAbrir no ERP: ${base}/os/${o.id}` : null,

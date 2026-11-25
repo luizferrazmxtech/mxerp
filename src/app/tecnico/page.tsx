@@ -78,6 +78,7 @@ export default async function MinhasOs({ searchParams }: { searchParams: Promise
                 </div>
                 <div className="mt-1 text-[15px] font-medium">{o.cliente.nome}</div>
                 {endereco && <div className="text-[13px] text-slate-500">{endereco}</div>}
+                {o.tipoAtendimento === "VISITA" && o.descricaoVisita && <div className="mt-1 line-clamp-2 text-[13px] text-slate-700"><span className="font-medium text-sky-700">Visita:</span> {o.descricaoVisita}</div>}
                 {o.equipamentos.length > 0 && <div className="mt-1 text-[13px] text-slate-700">{o.equipamentos.map((e) => [e.equipamento, e.marca, e.modelo].filter(Boolean).join(" ")).join(" · ")}</div>}
                 <div className="mt-2 flex items-center gap-2 text-[12px] text-slate-600">
                   {itens.length > 0 ? (
