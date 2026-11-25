@@ -6,7 +6,7 @@ import { numeroDaNota } from "@/lib/fiscal/numeroNota";
  * Nome dos documentos ao imprimir/salvar em PDF (o navegador sugere o <title> da página e,
  * no PDF do boleto, o filename do Content-Disposition). Padrão pedido pelo Luiz (25/11/2026):
  *   "OS 7097 - NOME DO CLIENTE", "Venda 123 - NOME DO CLIENTE",
- *   "Boleto 45 - NOME DO CLIENTE - NOTA FISCAL 900 - Parcela 2/4" (nota e parcela só quando houver).
+ *   "BOLETO - OS 7097 - NOME DO CLIENTE - NFE 6906 - Parcela 2/4" (Venda no lugar de OS; nota e parcela só quando houver).
  */
 
 /** Tira caracteres que o Windows não aceita em nome de arquivo e espaços repetidos. */
@@ -45,15 +45,23 @@ export const tituloVenda = async (k: Chave, padrao = "Imprimir venda") => titulo
 export const tituloOrcamento = async (k: Chave, padrao = "Imprimir orçamento") => titulo(await nomeOrcamento(k), padrao);
 export const tituloCompra = async (id: string) => titulo(await nomeCompra(id), "Imprimir compra");
 
-/** Nome do PDF do boleto (sem a extensão). */
+/** Nome do PDF do boleto (sem a extensão): "BOLETO - OS 7097 - CLIENTE - NFE 6906 - Parcela 2/4".
+ *  O nº do boleto não entra (confunde com o da OS/venda); a nota e a parcela só quando houver. */
 export async function nomeBoleto(boletoId: string) {
   const b = await prisma.boleto.findUnique({
     where: { id: boletoId },
-    select: { seuNumero: true, lancamento: { select: { empresaId: true, parcela: true, totalParcelas: true, origemTipo: true, origemId: true, pessoa: { select: { nome: true } } } } },
+    select: { lancamento: { select: { empresaId: true, parcela: true, totalParcelas: true, origemTipo: true, origemId: true, pessoa: { select: { nome: true } } } } },
   });
   if (!b) return null;
   const l = b.lancamento;
-  const partes = [`Boleto ${b.seuNumero}`];
+  const partes = ["BOLETO"];
+  if (l?.origemId && l.origemTipo === "OS") {
+    const o = await prisma.ordemServico.findUnique({ where: { id: l.origemId }, select: { numero: true } });
+    if (o) partes.push(`OS ${o.numero}`);
+  } else if (l?.origemId && l.origemTipo === "VENDA") {
+    const v = await prisma.venda.findUnique({ where: { id: l.origemId }, select: { numero: true } });
+    if (v) partes.push(`Venda ${v.numero}`);
+  }
   if (l?.pessoa?.nome) partes.push(l.pessoa.nome.trim());
   if (l?.origemTipo && l.origemId) {
     const notas = await prisma.notaFiscal.findMany({
@@ -63,7 +71,7 @@ export async function nomeBoleto(boletoId: string) {
     // OS com serviços faturados por outra empresa: a conta de cada empresa cita a nota dela
     const daEmpresa = notas.filter((n) => n.empresaId === l.empresaId);
     const usar = daEmpresa.length ? daEmpresa : notas;
-    if (usar.length) partes.push(`NOTA FISCAL ${[...new Set(usar.map(numeroDaNota))].join(", ")}`);
+    for (const t of [...new Set(usar.map((n) => `${n.modelo} ${numeroDaNota(n)}`))]) partes.push(t);
   }
   if (l && l.totalParcelas > 1) partes.push(`Parcela ${l.parcela}/${l.totalParcelas}`);
   return limparNome(partes.join(" - "));
