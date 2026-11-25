@@ -326,11 +326,19 @@ export async function tirarBoletosRecebidos(contaBancariaId?: string) {
  */
 export async function conciliarPorBoleto(contaBancariaId: string) {
   const ts = await prisma.transacaoBancaria.findMany({ where: { contaBancariaId, situacao: "PENDENTE", valor: { gt: 0 }, documento: { not: null } } });
+  if (!ts.length) return 0;
+  // uma consulta só para todas as linhas (eram uma por linha: deixava a tela da conciliação lenta)
+  const docs = [...new Set(ts.map((t) => t.documento!))];
+  const bs = await prisma.boleto.findMany({ where: { OR: [{ nossoNumero: { in: docs } }, { txid: { in: docs } }], lancamentoId: { not: null } }, include: { lancamento: true }, orderBy: { createdAt: "asc" } });
+  const porDoc = new Map<string, (typeof bs)[number]>();
+  for (const b of bs) for (const d of [b.nossoNumero, b.txid]) if (d && !porDoc.has(d)) porDoc.set(d, b);
   let baixadas = 0;
+  const usados = new Set<string>();
   for (const t of ts) {
-    const b = await prisma.boleto.findFirst({ where: { OR: [{ nossoNumero: t.documento }, { txid: t.documento }], lancamentoId: { not: null } }, include: { lancamento: true } });
+    const b = porDoc.get(t.documento!);
     const l = b?.lancamento;
-    if (!l || l.tipo !== "RECEBER" || (l.transacaoId && l.transacaoId !== t.id)) continue;
+    if (!l || usados.has(l.id) || l.tipo !== "RECEBER" || (l.transacaoId && l.transacaoId !== t.id)) continue;
+    usados.add(l.id);
     await prisma.$transaction(async (tx) => {
       if (!l.pagoEm) {
         await conciliarTx(tx, t.id, [l.id]);
