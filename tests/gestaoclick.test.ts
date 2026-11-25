@@ -439,6 +439,31 @@ describe("vínculo exato das contas e notas do Gestão Click", () => {
     await prisma.pessoa.delete({ where: { id: cli.id } }).catch(() => null);
   });
 
+  it("liga a NF-e pelas duplicatas iguais às parcelas, mesmo emitida meses depois, e corrige palpite antigo", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Empresa", "Venda" CASCADE`);
+    await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", nomeFantasia: "MXTECH", cnpj: "12965283000195" } });
+    const cli = await prisma.pessoa.create({ data: { nome: "T-DUP POSTO", documento: "50488238000186", cliente: true } });
+    const dia = new Date("2026-01-29T12:00:00Z");
+    const certa = await prisma.venda.create({ data: { numero: 8001, idLegado: "venda:8001", clienteId: cli.id, data: dia, total: 300, totalProdutos: 300, situacao: "CONCLUIDA" } });
+    // cancelada com as mesmas parcelas: não conta
+    await prisma.venda.create({ data: { numero: 8002, idLegado: "venda:8002", clienteId: cli.id, data: dia, total: 300, totalProdutos: 300, situacao: "CANCELADA" } });
+    // venda do mesmo valor e data, que o palpite antigo escolheu
+    const errada = await prisma.venda.create({ data: { numero: 8003, idLegado: "venda:8003", clienteId: cli.id, data: new Date("2026-07-28T12:00:00Z"), total: 300, totalProdutos: 300, situacao: "CONCLUIDA" } });
+    const t = await gc.lerBackupGestaoClick(await backup());
+    t.vendas = [];
+    t.vendas_pagamentos = ["8001", "8002"].flatMap((n) => [
+      { "n do pedido": n, vencimento: "28/02/2026", "valor da parcela": "150,00" }, { "n do pedido": n, vencimento: "28/03/2026", "valor da parcela": "150,00" },
+    ]);
+    t.notas_fiscais = [{ loja: "MXTECH", numero: "6901", situacao: "Aprovada", serie: "1", chave: "", ambiente: "Produção", "data de emissao": "30/07/2026", "hora de emissao": "10:00:00", "valor total": "300,00", "nome do destinatario": "T-DUP POSTO" }];
+    t.notas_fiscais_pagamentos = [{ "nota fiscal n": "6901", "data de vencimento": "28/03/2026", valor: "150,00" }, { "nota fiscal n": "6901", "data de vencimento": "28/02/2026", valor: "150,00" }];
+    await prisma.notaFiscal.create({ data: { modelo: "NFE", serie: 1, numero: 6901, ambiente: "PRODUCAO", status: "AUTORIZADA", emitidaEm: new Date("2026-07-30T13:00:00Z"), valorTotal: 300, origemTipo: "VENDA", origemId: errada.id, idLegado: "nota:NFE:1:6901:PRODUCAO" } });
+    const res = await gc.importarBackupGestaoClick(t, { simular: false, etapas: { notas: true } });
+    expect(await prisma.notaFiscal.findFirstOrThrow({ where: { numero: 6901 } })).toMatchObject({ origemTipo: "VENDA", origemId: certa.id });
+    expect(res.find((r) => r.tipo === "notas")!.avisos.join(" ")).toMatch(/1 trocaram de documento/);
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Venda" CASCADE`);
+    await prisma.pessoa.delete({ where: { id: cli.id } }).catch(() => null);
+  });
+
   it("lê a coluna de nota em vários formatos", () => {
     expect(gc.notasDaLinha({ "nf e": "#6756", "n da nfs e": "98", valor: "10", nota: "" })).toEqual([{ grupo: "PROD", numero: 6756 }, { grupo: "SERV", numero: 98 }]);
     expect(gc.notasDaLinha({ "nota fiscal": "6756, 6757" }).map((n) => n.numero)).toEqual([6756, 6757]);
