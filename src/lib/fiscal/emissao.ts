@@ -382,7 +382,7 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
     const descricao = [...a.servicos.map((s) => `${Number(s.quantidade)} x ${s.servico.nome}`), ...a.extras, a.referencia, e.infCplNfse].filter(Boolean).join(" | ");
     const { xml } = montarDps({
       tpAmb: amb, emissao: agora, competencia: a.competencia ?? agora, serie, numero: nota.numero,
-      prestador: { cnpj: e.cnpj, im: cfgNfse.enviarIm ? e.inscricaoMunicipal : null, codigoMunicipio: e.codigoMunicipio!, fone: e.telefone, email: e.email, opSimpNac: OP_SIMPLES[e.regimeTributario], regApTribSN: cfgNfse.apuracao, regEspTrib: e.regimeEspecialNfse },
+      prestador: { cnpj: e.cnpj, im: cfgNfse.enviarIm ? e.inscricaoMunicipal : null, codigoMunicipio: e.codigoMunicipio!, fone: e.telefone, email: e.email, opSimpNac: OP_SIMPLES[e.regimeTributario], regApTribSN: cfgNfse.apuracao, regEspTrib: e.regimeEspecialNfse, pTotTribSN: cfgNfse.pTotTribSN },
       tomador: c.documento ? {
         documento: c.documento, nome: c.nome, email: c.email, fone: c.telefone,
         endereco: c.codigoMunicipio && c.cep && c.logradouro && c.bairro

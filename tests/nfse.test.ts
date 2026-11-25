@@ -6,6 +6,7 @@ import path from "node:path";
 import { lerCertificado } from "@/lib/fiscal/certificado";
 import { verificarAssinatura, assinarXml } from "@/lib/fiscal/assinatura";
 import { ClienteNfse, assinarDps, gunzipB64, gzipB64, idDps, montarDps, montarPedidoCancelamento, type DadosDps, type TransporteRest } from "@/lib/fiscal/nfse";
+import { lerConfigNfse } from "@/lib/fiscal/configNfse";
 import { pfxDeTeste } from "./helpers/certificado-teste";
 
 const { pfx, senha } = pfxDeTeste();
@@ -50,6 +51,19 @@ describe("NFS-e nacional", () => {
     });
     expect(xml).toContain("<pAliq>2.00</pAliq>");
     expect(xsd(assinarDps(xml, cert), "DPS_v1.00.xsd")).toBe("ok");
+  });
+
+  it("ME/EPP do Simples manda o % aproximado do Simples, não o indTotTrib (E0712)", () => {
+    const me = montarDps({ ...dados, prestador: { ...dados.prestador, pTotTribSN: 11.2 } }).xml;
+    expect(me).toContain("<totTrib><pTotTribSN>11.20</pTotTribSN></totTrib>");
+    expect(me).not.toContain("indTotTrib");
+    expect(xsd(assinarDps(me, cert), "DPS_v1.00.xsd")).toBe("ok");
+    expect(montarDps(dados).xml).toContain("<pTotTribSN>6.00</pTotTribSN>");
+    const normal = montarDps({ ...dados, prestador: { ...dados.prestador, opSimpNac: 1 }, servico: { ...dados.servico, aliquotaIss: 2 } }).xml;
+    expect(normal).toContain("<indTotTrib>0</indTotTrib>");
+    expect(lerConfigNfse({ pTotTribSN: "11,20" }).pTotTribSN).toBe(11.2);
+    expect(lerConfigNfse({ pTotTribSN: "6.5" }).pTotTribSN).toBe(6.5);
+    expect(lerConfigNfse({ pTotTribSN: "" }).pTotTribSN).toBeNull();
   });
 
   it("sem inscrição municipal a DPS sai sem <IM> e valida (E0120)", () => {
