@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { exigirUsuario } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
-import { ESCOPO_EXTRATO, ESCOPOS_COBRANCA, idInterAtual, idInterParaSalvar, lerArquivosInter, testarInter } from "@/lib/financeiro/inter";
+import { ESCOPO_EXTRATO, ESCOPOS_COBRANCA, ESCOPOS_PIX, idInterAtual, idInterParaSalvar, lerArquivosInter, testarInter } from "@/lib/financeiro/inter";
 import { registrarWebhook } from "@/lib/financeiro/boletos";
 import { cifrar, decifrar } from "@/lib/seguranca/segredos";
 
@@ -22,7 +22,10 @@ export async function salvarInter(_: Estado, form: FormData): Promise<Estado> {
     const contaCorrente = str(form.get("contaCorrente")).replace(/\D/g, "");
     const ambiente = str(form.get("ambiente")) === "sandbox" ? "sandbox" : "producao";
     const cobranca = form.get("cobranca") === "on";
-    const escopos = cobranca ? `${ESCOPO_EXTRATO} ${ESCOPOS_COBRANCA}` : ESCOPO_EXTRATO;
+    const pixPdv = form.get("pixPdv") === "on";
+    const chavePix = str(form.get("chavePix")) || null;
+    if (pixPdv && !chavePix) return { ok: false, mensagem: "Informe a chave Pix da conta do Inter para gerar o Pix no PDV" };
+    const escopos = [ESCOPO_EXTRATO, cobranca && ESCOPOS_COBRANCA, pixPdv && ESCOPOS_PIX].filter(Boolean).join(" ");
     const emitirBoletos = form.get("emitirBoletos") === "on";
     const pct = (k: string, max: number) => Math.min(max, Math.max(0, Number(str(form.get(k)).replace(",", ".")) || 0));
     const urlPublica = str(form.get("urlPublica")).replace(/\/+$/, "") || null;
@@ -46,7 +49,7 @@ export async function salvarInter(_: Estado, form: FormData): Promise<Estado> {
 
     const dados = {
       clientId, contaCorrente: contaCorrente || null, ambiente, escopos, contaBancariaId,
-      sincronizarAuto: form.get("sincronizarAuto") === "on",
+      sincronizarAuto: form.get("sincronizarAuto") === "on", pixPdv, chavePix,
       emitirBoletos, multaPct: pct("multaPct", 10), jurosMesPct: pct("jurosMesPct", 10), diasBaixa: Math.round(pct("diasBaixa", 60)),
       mensagemBoleto: str(form.get("mensagemBoleto")).slice(0, 78) || null, urlPublica,
       // só parcelas lançadas a partir de quando os boletos foram ligados viram boleto (as antigas não)

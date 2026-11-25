@@ -2,15 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import Icone from "@/components/Icone";
-import { cancelarPixAcao, consultarPixAcao, criarPixAcao, type PixTela } from "@/lib/pagseguro/acoes";
+import { cancelarPixAcao, consultarPixAcao, criarPixAcao, type PixTela, type ProvedorPix } from "@/lib/pagseguro/acoes";
 
 const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 /**
- * PDV: QR do PIX do PagSeguro. Consulta o pagamento a cada 3 segundos; quando o PagSeguro confirma, chama onPago e
- * a venda fecha sozinha.
+ * PDV: QR do PIX do PagSeguro ou do Banco Inter. Consulta o pagamento a cada poucos segundos; quando o banco
+ * confirma, chama onPago e a venda fecha sozinha.
  */
-export default function PixPdv({ valor, clienteId, onPago, onFechar }: { valor: number; clienteId?: string | null; onPago: (cobrancaId: string) => void; onFechar: () => void }) {
+export default function PixPdv({ valor, clienteId, provedor = "PAGSEGURO", onPago, onFechar }: { valor: number; clienteId?: string | null; provedor?: ProvedorPix; onPago: (cobrancaId: string) => void; onFechar: () => void }) {
   const [pix, setPix] = useState<PixTela | null>(null);
   const [situacao, setSituacao] = useState("PENDENTE");
   const [aviso, setAviso] = useState("");
@@ -19,7 +19,7 @@ export default function PixPdv({ valor, clienteId, onPago, onFechar }: { valor: 
   const aoPagar = useRef(onPago);
   useEffect(() => { aoPagar.current = onPago; }, [onPago]);
 
-  useEffect(() => { void criarPixAcao(valor, clienteId).then(setPix); }, [valor, clienteId]);
+  useEffect(() => { void criarPixAcao(valor, clienteId, provedor).then(setPix); }, [valor, clienteId, provedor]);
 
   useEffect(() => {
     if (!pix?.ok) return;
@@ -29,9 +29,9 @@ export default function PixPdv({ valor, clienteId, onPago, onFechar }: { valor: 
       setSituacao(r.situacao);
       if (r.situacao === "PAGA" && !pago.current) { pago.current = true; clearInterval(t); aoPagar.current(pix.id); }
       if (r.situacao === "EXPIRADA" || r.situacao === "CANCELADA") clearInterval(t);
-    }, 3000);
+    }, provedor === "INTER" ? 4000 : 3000);
     return () => clearInterval(t);
-  }, [pix]);
+  }, [pix, provedor]);
 
   const fechar = async () => { if (pix?.ok && situacao === "PENDENTE") await cancelarPixAcao(pix.id); onFechar(); };
 
@@ -39,7 +39,7 @@ export default function PixPdv({ valor, clienteId, onPago, onFechar }: { valor: 
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-12">
       <div className="cartao w-full max-w-sm shadow-xl">
         <div className="flex items-center border-b px-4 py-3">
-          <h3 className="flex items-center gap-2 text-[16px]"><Icone nome="pix" size={16} /> PIX <b>PagSeguro</b></h3>
+          <h3 className="flex items-center gap-2 text-[16px]"><Icone nome="pix" size={16} /> PIX <b>{provedor === "INTER" ? "Banco Inter" : "PagSeguro"}</b></h3>
           {situacao !== "PAGA" && <button className="ml-auto text-slate-500 hover:text-black" onClick={fechar} aria-label="Fechar"><Icone nome="fechar" /></button>}
         </div>
         <div className="flex flex-col items-center gap-3 p-4 text-center">

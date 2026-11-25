@@ -32,7 +32,7 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
   const [pendente, startTransition] = useTransition();
   const [cliente, setCliente] = useState<PessoaBusca | null>(null);
   const campoCliente = useRef<HTMLDivElement>(null);
-  const [pixValor, setPixValor] = useState<number | null>(null); // PIX do PagSeguro: QR aberto
+  const [pixValor, setPixValor] = useState<{ valor: number; provedor: "PAGSEGURO" | "INTER" } | null>(null); // QR do PIX aberto
   const busca = useRef<HTMLInputElement>(null);
   const campoDesconto = useRef<HTMLInputElement>(null);
 
@@ -77,8 +77,10 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
 
   function fechar(cobrancaPixId?: string) {
     if (!itens.length || pendente || total <= 0) return;
-    const valorPix = Math.round(pagamentos.filter((p) => p.valor > 0 && formas.find((f) => f.id === p.formaPagamentoId)?.pix).reduce((s, p) => s + p.valor, 0) * 100) / 100;
-    if (valorPix > 0 && !cobrancaPixId) { setPixValor(valorPix); return; }
+    const soma = (ok: (f: Forma | undefined) => boolean | undefined) => Math.round(pagamentos.filter((p) => p.valor > 0 && ok(formas.find((f) => f.id === p.formaPagamentoId))).reduce((s, p) => s + p.valor, 0) * 100) / 100;
+    const valorPs = soma((f) => f?.pix), valorInter = soma((f) => f?.pixInter);
+    if (valorPs > 0 && valorInter > 0) { setResultado({ ok: false, mensagem: "Use só uma forma de PIX com QR na mesma venda" }); return; }
+    if (!cobrancaPixId && (valorPs > 0 || valorInter > 0)) { setPixValor(valorInter > 0 ? { valor: valorInter, provedor: "INTER" } : { valor: valorPs, provedor: "PAGSEGURO" }); return; }
     startTransition(async () => {
       const r = await fecharBalcao({
         clienteId: cliente?.id,
@@ -180,7 +182,7 @@ export default function Pdv({ formas, caixa, podeDesconto = true, podeSangria = 
         </aside>
       </div>
 
-      {pixValor != null && <PixPdv valor={pixValor} onPago={(id) => fechar(id)} onFechar={() => setPixValor(null)} />}
+      {pixValor != null && <PixPdv valor={pixValor.valor} provedor={pixValor.provedor} onPago={(id) => fechar(id)} onFechar={() => setPixValor(null)} />}
       <div className="mt-4 flex flex-wrap justify-center gap-x-6 gap-y-1 rounded-md border bg-white py-2 text-[12px] text-slate-600">
         <Tecla k="F2">Buscar produto</Tecla><Tecla k="F3">Cliente</Tecla><Tecla k="F4">Desconto</Tecla><Tecla k="F8">Finalizar venda</Tecla>
         <Tecla k="F10">Fechar caixa</Tecla><Tecla k="Esc">Limpar busca</Tecla>

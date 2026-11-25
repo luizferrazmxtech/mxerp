@@ -1657,6 +1657,9 @@ model IntegracaoInter {
   webhookMsg           String?
   ultimaSincBoletosEm  DateTime?
   ultimaSincBoletosMsg String?
+  // Pix no PDV (API Pix v2: cobrança imediata com QR, sem taxa)
+  pixPdv               Boolean        @default(false)
+  chavePix             String? // chave Pix da conta (CNPJ, e-mail, telefone ou aleatória)
   atualizadoEm         DateTime       @updatedAt
 }
 
@@ -2524,7 +2527,10 @@ model EnvioFrete {
 /// PIX dinâmico gerado no PDV pelo PagSeguro (API de pedidos). A venda só fecha depois de PAGA.
 model CobrancaPix {
   id        String    @id @default(cuid())
-  pedidoId  String    @unique // ORDE_… no PagSeguro
+  provedor  String    @default("PAGSEGURO") // PAGSEGURO | INTER
+  interId   String? // integração do Inter que gerou (Pix do Inter)
+  e2eId     String? // endToEndId do Pix pago (Inter): vem no extrato
+  pedidoId  String    @unique // ORDE_… no PagSeguro; txid no Inter
   qrId      String?
   texto     String // PIX copia e cola
   valor     Decimal   @db.Decimal(14, 2)
@@ -2536,6 +2542,8 @@ model CobrancaPix {
   pagaEm    DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  @@index([e2eId])
 }
 
 /// Linha do extrato EDI do PagSeguro (uma por parcela de cada venda na maquininha ou PIX), ligada à conta a receber.

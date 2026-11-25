@@ -10,6 +10,7 @@ import { lerNumero } from "@/lib/itens/tipos";
 import { abrirCaixa, caixaAberto, fecharCaixa, movimentarCaixa } from "@/lib/pdv/caixa";
 import { prisma } from "@/lib/db";
 import { conferirPixDaVenda, pixPagSeguroAtivo } from "@/lib/pagseguro/pagseguro";
+import { pixInterAtivo, receberVendaPeloPix } from "@/lib/financeiro/pixInter";
 
 const num = (x: FormDataEntryValue | null) => lerNumero(String(x ?? "")) ?? NaN;
 const msg = (e: unknown, padrao: string) => (e instanceof Error && !(e as { code?: string }).code ? e.message : padrao);
@@ -22,7 +23,7 @@ export async function fecharBalcao(dados: {
   itens: { produtoId: string; quantidade: number; valorUnit: number }[];
   pagamentos: Pagamento[];
   desconto?: number;
-  /** PIX do PagSeguro já pago (QR mostrado no caixa) */
+  /** PIX do PagSeguro ou do Inter já pago (QR mostrado no caixa) */
   cobrancaPixId?: string;
 }): Promise<ResultadoSimples> {
   const u = await exigirUsuario();
@@ -35,11 +36,20 @@ export async function fecharBalcao(dados: {
     const valorPix = dados.pagamentos.filter((p) => formasPix.includes(p.formaPagamentoId)).reduce((s, p) => s + p.valor, 0);
     if (valorPix > 0 && (await pixPagSeguroAtivo())) {
       if (!cobrancaPixId) return { ok: false, mensagem: "Mostre o QR do PIX ao cliente e espere o pagamento" };
-      await conferirPixDaVenda(cobrancaPixId, valorPix);
+      await conferirPixDaVenda(cobrancaPixId, valorPix, "PAGSEGURO");
+    }
+    // PIX do Banco Inter (formas PIX que não são do PagSeguro): idem, e a conta já fica recebida na conta do Inter
+    const inter = await pixInterAtivo();
+    const formasInter = inter ? (await prisma.formaPagamento.findMany({ where: { pagseguro: false, tPag: "17", id: { in: dados.pagamentos.map((p) => p.formaPagamentoId) } }, select: { id: true } })).map((f) => f.id) : [];
+    const valorInter = dados.pagamentos.filter((p) => formasInter.includes(p.formaPagamentoId)).reduce((s, p) => s + p.valor, 0);
+    if (valorInter > 0) {
+      if (!cobrancaPixId) return { ok: false, mensagem: "Mostre o QR do PIX ao cliente e espere o pagamento" };
+      await conferirPixDaVenda(cobrancaPixId, valorInter, "INTER");
     }
     if ((dados.desconto ?? 0) > 0 && !(await pode(u.papel, "pdv.desconto"))) return { ok: false, mensagem: "Sem permissão para dar desconto no PDV. Fale com o gerente." };
     const venda = await v.vendaBalcao({ ...venda0, usuarioId: u.id, caixaId: caixa.id });
     if (cobrancaPixId && valorPix > 0) await prisma.cobrancaPix.update({ where: { id: cobrancaPixId }, data: { vendaId: venda.id } });
+    if (cobrancaPixId && valorInter > 0) await receberVendaPeloPix(cobrancaPixId, venda.id, formasInter);
     revalidatePath("/vendas");
     return { ok: true, mensagem: `Venda ${venda.numero} concluída.`, vendaId: venda.id, numero: venda.numero };
   } catch (e) {

@@ -5,6 +5,7 @@ import { exigirUsuario } from "@/lib/auth/atual";
 import { prisma } from "@/lib/db";
 import { caixaAberto } from "@/lib/pdv/caixa";
 import { cancelarPix, conciliarTransacoes, consultarPix, criarPix, salvarConfigPagSeguro, sincronizarPagSeguro, testarPagSeguro } from "./pagseguro";
+import { cancelarPixInter, consultarPixInter, criarPixInter } from "@/lib/financeiro/pixInter";
 
 export type Resultado = { ok: boolean; mensagem: string } | null;
 const erro = (e: unknown) => ({ ok: false as const, mensagem: e instanceof Error ? e.message : String(e) });
@@ -57,11 +58,15 @@ export async function reconsiderarTransacaoAcao(id: string) {
 
 export type PixTela = { ok: true; id: string; texto: string; imagem: string; valor: number; expiraEm: string } | { ok: false; mensagem: string };
 
-export async function criarPixAcao(valor: number, clienteId?: string | null): Promise<PixTela> {
+export type ProvedorPix = "PAGSEGURO" | "INTER";
+
+/** QR do Pix no PDV: pelo PagSeguro ou pelo Banco Inter (sem taxa), conforme a forma escolhida. */
+export async function criarPixAcao(valor: number, clienteId?: string | null, provedor: ProvedorPix = "PAGSEGURO"): Promise<PixTela> {
   const u = await exigirUsuario();
   try {
     const caixa = await caixaAberto(u.id);
     if (!caixa) return { ok: false, mensagem: "Abra o caixa antes de vender" };
+    if (provedor === "INTER") return { ok: true, ...(await criarPixInter({ valor, caixaId: caixa.id, usuarioId: u.id })) };
     const cliente = clienteId ? await prisma.pessoa.findUnique({ where: { id: clienteId }, select: { nome: true, email: true, documento: true } }) : null;
     return { ok: true, ...(await criarPix({ valor, caixaId: caixa.id, usuarioId: u.id, cliente })) };
   } catch (e) { return erro(e); }
@@ -69,10 +74,17 @@ export async function criarPixAcao(valor: number, clienteId?: string | null): Pr
 
 export async function consultarPixAcao(id: string): Promise<{ ok: boolean; situacao: string; mensagem?: string }> {
   await exigirUsuario();
-  try { return { ok: true, situacao: (await consultarPix(id)).situacao }; } catch (e) { return { ok: false, situacao: "PENDENTE", mensagem: erro(e).mensagem }; }
+  try {
+    const cob = await prisma.cobrancaPix.findUniqueOrThrow({ where: { id }, select: { provedor: true } });
+    return { ok: true, situacao: (cob.provedor === "INTER" ? await consultarPixInter(id) : await consultarPix(id)).situacao };
+  } catch (e) { return { ok: false, situacao: "PENDENTE", mensagem: erro(e).mensagem }; }
 }
 
 export async function cancelarPixAcao(id: string) {
   await exigirUsuario();
-  try { await cancelarPix(id); return { ok: true, mensagem: "PIX cancelado" }; } catch (e) { return erro(e); }
+  try {
+    const cob = await prisma.cobrancaPix.findUniqueOrThrow({ where: { id }, select: { provedor: true } });
+    if (cob.provedor === "INTER") await cancelarPixInter(id); else await cancelarPix(id);
+    return { ok: true, mensagem: "PIX cancelado" };
+  } catch (e) { return erro(e); }
 }

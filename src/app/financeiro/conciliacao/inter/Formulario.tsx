@@ -10,6 +10,7 @@ function Msg({ e }: { e: Estado }) {
 type Atual = {
   clientId: string; contaCorrente: string | null; ambiente: string; escopos: string; contaBancariaId: string | null; sincronizarAuto: boolean;
   emitirBoletos: boolean; multaPct: number; jurosMesPct: number; diasBaixa: number; mensagemBoleto: string | null; urlPublica: string | null;
+  pixPdv: boolean; chavePix: string | null;
 } | null;
 type Forma = { id: string; nome: string; boletoInter: boolean };
 
@@ -44,12 +45,22 @@ export function FormInter({ atual, contas, formas }: { atual: Atual; contas: { i
           <input type="checkbox" name="cobranca" defaultChecked={atual ? atual.escopos.includes("boleto-cobranca") : true} />
           Emitir, consultar e cancelar boletos <code className="text-[11px] text-slate-500">boleto-cobranca.read boleto-cobranca.write</code>
         </label>
+        <p className="text-slate-500">Pix no PDV: ligado mais abaixo, em &quot;Pix no PDV&quot; <code className="text-[11px]">cob.read cob.write</code></p>
       </fieldset>
       <label className={rot}>Conta bancária no ERP que recebe o extrato
         <select name="contaBancariaId" defaultValue={atual?.contaBancariaId ?? ""} className="campo mt-1">
           <option value="">INTER MXTECH (cria se não existir)</option>
           {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
         </select>
+      </label>
+      <h2 className="mt-2 font-semibold md:col-span-2">Pix no PDV</h2>
+      <label className="flex items-center gap-2 text-sm md:col-span-2">
+        <input type="checkbox" name="pixPdv" defaultChecked={atual?.pixPdv ?? false} />
+        Gerar o QR do Pix pelo Inter no PDV (forma &quot;PIX&quot;): a venda fecha sozinha quando o Pix cai e já fica recebida na conta do Inter, sem taxa
+      </label>
+      <label className={`${rot} md:col-span-2`}>Chave Pix desta conta do Inter (CNPJ, e-mail, telefone ou chave aleatória)
+        <input name="chavePix" defaultValue={atual?.chavePix ?? ""} autoComplete="off" className="campo mt-1 font-mono" />
+        <span className="mt-1 block text-[11px]">A integração no Inter Empresas precisa das permissões de Pix &quot;Emitir cobranças imediatas&quot; e &quot;Consultar cobranças imediatas&quot; (cob.write e cob.read).</span>
       </label>
       <h2 className="mt-2 font-semibold md:col-span-2">Boletos (BolePix)</h2>
       <label className="flex items-center gap-2 text-sm md:col-span-2">

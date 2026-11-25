@@ -76,6 +76,7 @@ export default async function ConfigInterPagina() {
               atual={r && {
                 clientId: r.clientId, contaCorrente: r.contaCorrente, ambiente: r.ambiente, escopos: r.escopos, contaBancariaId: r.contaBancariaId, sincronizarAuto: r.sincronizarAuto,
                 emitirBoletos: r.emitirBoletos, multaPct: Number(r.multaPct), jurosMesPct: Number(r.jurosMesPct), diasBaixa: r.diasBaixa, mensagemBoleto: r.mensagemBoleto, urlPublica: r.urlPublica,
+                pixPdv: r.pixPdv, chavePix: r.chavePix,
               }}
             />
           ) : (

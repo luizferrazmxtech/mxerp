@@ -159,10 +159,10 @@ export async function cancelarPix(id: string) {
   return prisma.cobrancaPix.update({ where: { id }, data: { situacao: "CANCELADA" } });
 }
 
-/** Antes de fechar a venda com PIX do PagSeguro: a cobrança tem de estar paga, no mesmo valor e sem venda. */
-export async function conferirPixDaVenda(cobrancaId: string, valorPix: number) {
+/** Antes de fechar a venda com PIX (PagSeguro ou Inter): a cobrança tem de estar paga, no mesmo valor e sem venda. */
+export async function conferirPixDaVenda(cobrancaId: string, valorPix: number, provedor: "PAGSEGURO" | "INTER" = "PAGSEGURO") {
   const cob = await prisma.cobrancaPix.findUnique({ where: { id: cobrancaId } });
-  if (!cob || cob.situacao !== "PAGA") throw new PagSeguroError("O PIX ainda não foi pago");
+  if (!cob || cob.situacao !== "PAGA" || cob.provedor !== provedor) throw new PagSeguroError("O PIX ainda não foi pago");
   if (cob.vendaId) throw new PagSeguroError("Este PIX já foi usado em outra venda");
   if (Math.abs(Number(cob.valor) - valorPix) > 0.009) throw new PagSeguroError("O valor do PIX não confere com o da venda");
   return cob;
