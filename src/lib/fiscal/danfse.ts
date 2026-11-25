@@ -42,7 +42,7 @@ export async function danfseDaNota(id: string, deps: { oficial?: boolean; cert?:
   if (!n || n.modelo !== "NFSE") throw new Error("NFS-e não encontrada");
   if (!n.chave || !["AUTORIZADA", "CANCELADA"].includes(n.status)) throw new Error("A NFS-e ainda não foi autorizada");
   const e = n.empresaId ? await prisma.empresa.findUnique({ where: { id: n.empresaId } }) : null;
-  const nome = `DANFSe-${n.numero}-${n.chave}.pdf`;
+  const nome = `DANFSe-${n.numeroNfse ?? n.numero}-${n.chave}.pdf`;
   let motivo: string | undefined;
   if (deps.oficial || !n.xml) {
     try {
