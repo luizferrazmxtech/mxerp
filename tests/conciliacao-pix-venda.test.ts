@@ -10,7 +10,7 @@ const pix = (id: string, hora: string, valor: number) => ({
 const venda = (id: string, hora: string | null, valor: number, formaPix: boolean | null = true) => ({
   id, tipo: "RECEBER" as const, valor, vencimento: new Date("2026-11-23T00:00:00Z"), descricao: `Venda de nº ${id}`,
   pessoa: "CONSUMIDOR", pessoaId: "consumidor", pessoaNomes: ["CONSUMIDOR"], categoriaId: "rec", centroCustoId: null,
-  lancadaEm: hora ? new Date(`2026-11-23T${hora}:00-03:00`) : null, formaPix,
+  momentos: hora ? [new Date(`2026-11-23T${hora}:00-03:00`)] : [], formaPix,
 });
 const hoje = new Date("2026-11-25T00:00:00Z");
 
@@ -20,7 +20,21 @@ describe("Pix recebido × venda do balcão no mesmo horário", () => {
     expect(l.acao).toBe("BAIXAR");
     expect(l.lancamentoId).toBe("9228");
     expect(l.confianca).toBeGreaterThanOrEqual(80);
-    expect(l.motivos.join(" ")).toContain("venda lançada às 18:38");
+    expect(l.motivos.join(" ")).toContain("venda às 18:38 (Pix às 18:42)");
+  });
+
+  it("vale o momento da venda mais perto do Pix (a conta é refeita quando a venda é editada)", () => {
+    const v = { ...venda("9228", "20:15", 40), momentos: [new Date("2026-11-23T20:15:00-03:00"), new Date("2026-11-23T18:35:00-03:00")] };
+    const [l] = conc.analisar([pix("t1", "18:42", 40)], [v], vazio, [], hoje);
+    expect(l.confianca).toBeGreaterThanOrEqual(80);
+    expect(l.motivos.join(" ")).toContain("venda às 18:35");
+  });
+
+  it("perto mas fora da regra: diz o horário da venda para conferir", () => {
+    const [a] = conc.analisar([pix("t1", "18:42", 40)], [venda("a", "17:30", 40)], vazio, [], hoje);
+    expect(a.candidatos[0].motivos.join(" ")).toContain("venda às 17:30, 72 min do Pix");
+    const [b] = conc.analisar([pix("t1", "18:42", 40)], [venda("b", "18:40", 40, false)], vazio, [], hoje);
+    expect(b.candidatos[0].motivos.join(" ")).toContain("em outra forma de pagamento");
   });
 
   it("fora da tolerância, valor diferente, forma não Pix ou conta importada continua sem sugestão", () => {

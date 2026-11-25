@@ -10,6 +10,8 @@ import { normalizar } from "@/lib/migracao/planilha";
 import { desfazer } from "./actions";
 import { EnviarExtrato, PuxarInter } from "./Formularios";
 import TabelaConciliacao from "./TabelaConciliacao";
+import Navegando from "./Navegando";
+import { Suspense } from "react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Conciliação bancária" };
@@ -121,6 +123,7 @@ export default async function Conciliacao({ searchParams }: { searchParams: Prom
   return (
     <Pagina titulo="Conciliação bancária" icone="conciliacao" trilha={[{ rotulo: "Financeiro", href: "/financeiro" }, { rotulo: "Conciliação bancária" }]}>
       <div className="space-y-4">
+        <Suspense fallback={null}><Navegando /></Suspense>
         <div className="grid gap-3 md:grid-cols-2">
           <EnviarExtrato contas={contas.map((c) => ({ id: c.id, nome: c.nome }))} />
           <PuxarInter

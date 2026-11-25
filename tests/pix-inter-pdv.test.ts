@@ -119,6 +119,25 @@ describe("Pix do Inter no PDV", () => {
     expect(f.chamadas.some((x) => x.metodo === "PATCH" && (x.corpo as { status: string }).status === "REMOVIDA_PELO_USUARIO_RECEBEDOR")).toBe(true);
   });
 
+  it("conciliação: Pix casa pelo horário da venda (não só da conta), e a análise guardada é refeita quando algo muda", async () => {
+    const conc = await import("@/lib/financeiro/conciliacao");
+    await prisma.$executeRawUnsafe(`TRUNCATE "Venda" CASCADE`);
+    const v = await prisma.venda.create({ data: { numero: 9228, tipo: "BALCAO", situacao: "CONCLUIDA", data: new Date("2026-11-23T21:38:00Z"), createdAt: new Date("2026-11-23T21:38:00Z") } });
+    const dia = new Date("2026-11-23T00:00:00Z");
+    // conta refeita depois (venda editada às 20:30): a hora da conta não bate, a da venda sim
+    await prisma.lancamento.create({ data: { tipo: "RECEBER", descricao: "Venda de nº 9228", valor: 40, vencimento: dia, competencia: dia, categoriaId: cat, formaPagamentoId: pix, origemTipo: "VENDA", origemId: v.id, createdAt: new Date("2026-11-23T23:30:00Z") } });
+    await prisma.transacaoBancaria.create({ data: { contaBancariaId: contaInter, data: dia, dataHora: new Date("2026-11-23T21:42:00Z"), valor: 40, descricao: "Pix recebido - Matheus Guerrero Geremias", chave: "t9228" } });
+    conc.limparAnaliseConciliacao();
+    const [l] = await conc.analisarExtrato();
+    expect(l.confianca).toBeGreaterThanOrEqual(80);
+    expect(l.motivos.join(" ")).toContain("venda às 18:38 (Pix às 18:42)");
+    // guardada: mesma resposta sem refazer
+    expect(await conc.analisarExtrato()).toBe(await conc.analisarExtrato());
+    // nova linha do extrato: refaz
+    await prisma.transacaoBancaria.create({ data: { contaBancariaId: contaInter, data: dia, valor: -10, descricao: "Tarifa", chave: "t2" } });
+    expect((await conc.analisarExtrato()).length).toBe(2);
+  });
+
   it("QR vencido sem pagamento fica EXPIRADO", async () => {
     const f = interFalso();
     const c = f.cliente();

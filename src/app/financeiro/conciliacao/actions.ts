@@ -5,13 +5,13 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { conciliarLinhasTx, conciliarTx, desfazerTx, importarExtrato, lancarAvulsoTx, lerExtrato } from "@/lib/financeiro/extrato";
 import { sincronizarInter } from "@/lib/financeiro/inter";
-import { aprenderRegra, buscarRamos } from "@/lib/financeiro/conciliacao";
+import { aprenderRegra, buscarRamos, limparAnaliseConciliacao } from "@/lib/financeiro/conciliacao";
 import { normalizar } from "@/lib/migracao/planilha";
 import { sincronizarBoletos } from "@/lib/financeiro/boletos";
 
 export type Estado = { ok: boolean; mensagem: string } | null;
 const str = (x: FormDataEntryValue | null) => String(x ?? "").trim();
-const feito = (mensagem: string): Estado => { revalidatePath("/financeiro/conciliacao"); revalidatePath("/financeiro"); return { ok: true, mensagem }; };
+const feito = (mensagem: string): Estado => { limparAnaliseConciliacao(); revalidatePath("/financeiro/conciliacao"); revalidatePath("/financeiro"); return { ok: true, mensagem }; };
 const falha = (e: unknown): Estado => ({ ok: false, mensagem: e instanceof Error ? e.message : String(e) });
 
 const resumo = (r: { novas: number; repetidas: number; baixadas: number; boletos?: number; jaBaixadas?: number }) =>
@@ -86,7 +86,7 @@ export async function confirmarLote(itens: ItemLote[]): Promise<Estado> {
     }
   }
   const partes = [baixadas && `${baixadas} conta${baixadas > 1 ? "s" : ""} baixada${baixadas > 1 ? "s" : ""}`, lancadas && `${lancadas} lançamento${lancadas > 1 ? "s" : ""} avulso${lancadas > 1 ? "s" : ""}`].filter(Boolean).join(" e ");
-  revalidatePath("/financeiro/conciliacao"); revalidatePath("/financeiro");
+  limparAnaliseConciliacao(); revalidatePath("/financeiro/conciliacao"); revalidatePath("/financeiro");
   return { ok: !erros.length, mensagem: `${partes || "Nada conciliado"}.${erros.length ? ` ${erros.length} com erro: ${[...new Set(erros)].slice(0, 2).join("; ")}` : ""}` };
 }
 

@@ -102,3 +102,9 @@ body {
   body { background: white; }
   main { margin: 0 !important; padding: 0 !important; }
 }
+
+/* faixa de carregamento no topo (BarraCarregando.tsx) */
+@keyframes faixa {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

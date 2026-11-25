@@ -91,7 +91,16 @@ export function favorecido(descricao: string): string {
 
 // palavras que aparecem em nome de muita empresa e não identificam ninguém sozinhas
 const PALAVRAS_VAZIAS = /^(ltda|eireli|epp|me|mei|sa|s a|cia|comercio|comercial|servicos|servico|transferencia|pagamento|recebido|enviado|boleto|compra|venda|ordem|cobranca|efetuado|pix|de|da|do|das|dos|e|em|organizacao|organizacoes|contabil|contabilidade|industria|industrial|solucoes|tecnologia|brasil|brasileira|grupo|empresa|empresas|associacao|condominio|residencial|residence|edificio|transportes|transporte|distribuidora|sistemas|consultoria|engenharia|administracao|administradora|servicos|holding|participacoes|representacoes|importacao|exportacao|nacional|sociedade|filho|junior|neto|sobrinho|santos|silva|souza|oliveira|pereira|costa|ferreira|rodrigues|almeida|lima|gomes|ribeiro|carvalho|martins)$/;
-const palavras = (s: string) => new Set(normalizar(s).split(" ").filter((p) => p.length >= 3 && !/^\d+$/.test(p) && !PALAVRAS_VAZIAS.test(p)));
+const cachePalavras = new Map<string, Set<string>>();
+/** Palavras próprias do texto (guardadas: o mesmo nome é comparado com centenas de linhas do extrato). */
+const palavras = (s: string) => {
+  let r = cachePalavras.get(s);
+  if (r) return r;
+  r = new Set(normalizar(s).split(" ").filter((p) => p.length >= 3 && !/^\d+$/.test(p) && !PALAVRAS_VAZIAS.test(p)));
+  if (cachePalavras.size > 50000) cachePalavras.clear();
+  cachePalavras.set(s, r);
+  return r;
+};
 
 /**
  * O nome do cliente/fornecedor está no extrato? Precisa de duas palavras próprias em comum (sobrenome comum e
@@ -425,25 +434,34 @@ export type AbertoAnalise = {
   pessoaDocumento?: string | null;
   /** nosso número e txid dos boletos da conta */
   boletos?: string[];
-  /** quando a conta de uma venda/OS feita no sistema foi lançada (o momento da venda no balcão/PDV) */
-  lancadaEm?: Date | null;
+  /**
+   * Momentos da venda/OS feita no sistema: lançamento da conta, cadastro e data da venda/OS. A conta é refeita
+   * quando a venda é editada, por isso vale o mais perto do Pix.
+   */
+  momentos?: Date[];
   /** forma de pagamento da conta: true = Pix, false = outra forma, null = sem forma */
   formaPix?: boolean | null;
 };
 
-/** Diferença máxima entre o horário do Pix no extrato e o lançamento da venda para casar pelo horário. */
-export const MINUTOS_PIX_VENDA = 20;
+/** Diferença máxima entre o horário do Pix no extrato e o da venda para casar pelo horário. */
+export const MINUTOS_PIX_VENDA = 30;
 
-/** Minutos entre o Pix recebido e o lançamento da venda, quando os dois têm horário e o Pix é de entrada. */
-export function minutosDaVenda(t: TransacaoAnalise, l: AbertoAnalise): number | null {
-  if (!t.dataHora || !l.lancadaEm || t.valor <= 0 || l.tipo !== "RECEBER") return null;
-  return Math.abs(t.dataHora.getTime() - l.lancadaEm.getTime()) / 60000;
+/** O momento da venda mais perto do Pix recebido e a distância em minutos (os dois precisam ter horário). */
+export function momentoDaVenda(t: TransacaoAnalise, l: AbertoAnalise): { minutos: number; quando: Date } | null {
+  if (!t.dataHora || !l.momentos?.length || t.valor <= 0 || l.tipo !== "RECEBER") return null;
+  let melhor: { minutos: number; quando: Date } | null = null;
+  for (const m of l.momentos) {
+    const minutos = Math.abs(t.dataHora.getTime() - m.getTime()) / 60000;
+    if (!melhor || minutos < melhor.minutos) melhor = { minutos, quando: m };
+  }
+  return melhor;
 }
 /** Ramo de atividade (CNAE) conhecido de cada favorecido, para sugerir a categoria das despesas. */
 export type RamoFavorecido = { cnae: string; documento: string | null };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
-const horaSP = (d: Date | null | undefined) => (d ? d.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }) : null);
+// Brasília é UTC-3 o ano todo desde 2019 (sem horário de verão); toLocaleTimeString era o que mais pesava na análise
+const horaSP = (d: Date | null | undefined) => (d ? new Date(d.getTime() - 3 * 3600000).toISOString().slice(11, 16) : null);
 const nivelDe = (c: number): Nivel => (c >= 80 ? "alta" : c >= 60 ? "media" : "baixa");
 
 /** Pontua um par extrato × conta em aberto (0 a 99) e diz por quê. Null quando o valor não serve. */
@@ -472,9 +490,11 @@ export function pontuar(t: TransacaoAnalise, l: AbertoAnalise, h: Historico, f: 
   else if (!l.pessoaId && palavrasEmComum(t.descricao, l.descricao) >= 2) ident = "descrição confere";
   // venda no balcão/PDV paga no Pix: quem paga muitas vezes não é o cliente da venda (consumidor final, parente),
   // mas o Pix do mesmo valor minutos depois da venda identifica a conta
-  const min = dif <= 0.009 && l.formaPix !== false ? minutosDaVenda(t, l) : null;
-  const horario = !ident && min !== null && min <= MINUTOS_PIX_VENDA;
-  if (horario) ident = `venda lançada às ${horaSP(l.lancadaEm)} (Pix às ${horaSP(t.dataHora)})`;
+  const mv = !ident && dif <= 0.009 ? momentoDaVenda(t, l) : null;
+  const horario = !!mv && mv.minutos <= MINUTOS_PIX_VENDA && l.formaPix !== false;
+  if (horario) ident = `venda às ${horaSP(mv.quando)} (Pix às ${horaSP(t.dataHora)})`;
+  // perto, mas fora da regra: mostra o porquê, para dar para conferir
+  else if (mv && mv.minutos <= 24 * 60) motivos.push(`venda às ${horaSP(mv.quando)}${l.formaPix === false ? " em outra forma de pagamento" : `, ${Math.round(mv.minutos)} min do Pix`}`);
   const nome = !!ident;
   if (ident === "nosso número do boleto" || ident === "CPF/CNPJ confere") p += 45;
   else if (ident) p += 35;
@@ -789,7 +809,48 @@ export async function documentosDosFavorecidos(linhas: { descricao: string; docu
   return out;
 }
 
+/**
+ * Análise pronta por empresa/conta: refeita só quando algo muda (contas, extrato, regras, funcionários) ou depois de
+ * 10 minutos. Trocar de aba, filtro ou ordem não refaz a análise (antes cada clique levava vários segundos).
+ */
+const cacheAnalise = new Map<string, { marca: string; ate: number; linhas: LinhaAnalise[] }>();
+const VALIDADE_ANALISE = 10 * 60000;
+
+/** Esquece as análises guardadas (depois de confirmar, ignorar ou desfazer na conciliação). */
+export function limparAnaliseConciliacao() {
+  cacheAnalise.clear();
+}
+
+/** O que, se mudar, muda a análise: contas (inclui baixas e exclusões), linhas do extrato, regras, funcionários e o dia. */
+async function marcaDaAnalise(contaBancariaId?: string) {
+  const [l, t, r, u, f] = await Promise.all([
+    prisma.lancamento.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+    prisma.transacaoBancaria.groupBy({ by: ["situacao"], where: contaBancariaId ? { contaBancariaId } : {}, _count: { _all: true }, _max: { createdAt: true } }),
+    prisma.regraConciliacao.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+    prisma.usuario.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+    prisma.cobrancaPix.aggregate({ _count: { _all: true }, _max: { updatedAt: true } }),
+  ]);
+  const ms = (d: Date | null | undefined) => d?.getTime() ?? 0;
+  return [
+    iso(diaSP()), l._count._all, ms(l._max.updatedAt), ...t.sort((a, b) => a.situacao.localeCompare(b.situacao)).map((x) => `${x.situacao}:${x._count._all}:${ms(x._max.createdAt)}`),
+    r._count._all, ms(r._max.updatedAt), u._count._all, ms(u._max.updatedAt), f._count._all, ms(f._max.updatedAt),
+  ].join("|");
+}
+
 export async function analisarExtrato(filtro: { contaBancariaId?: string } = {}) {
+  const { lojaAtualId } = await import("@/lib/empresa/loja");
+  const chave = `${(await lojaAtualId()) ?? ""}|${filtro.contaBancariaId ?? ""}`;
+  const antes = await marcaDaAnalise(filtro.contaBancariaId);
+  const guardada = cacheAnalise.get(chave);
+  if (guardada && guardada.marca === antes && guardada.ate > Date.now()) return guardada.linhas;
+  const linhas = await refazerAnalise(filtro);
+  // a análise pode amarrar boletos/Pix do PDV (muda a marca): guarda com a marca de depois
+  cacheAnalise.set(chave, { marca: await marcaDaAnalise(filtro.contaBancariaId), ate: Date.now() + VALIDADE_ANALISE, linhas });
+  if (cacheAnalise.size > 50) cacheAnalise.delete(cacheAnalise.keys().next().value!);
+  return linhas;
+}
+
+async function refazerAnalise(filtro: { contaBancariaId?: string }) {
   // FGTS, INSS, Simples Nacional e plano de saúde dos funcionários precisam existir para as sugestões pelo nome
   await prisma.$transaction((tx) => garantirCategoriasPessoal(tx));
   // boleto recebido não precisa de conciliação: amarra os do ERP e tira os outros da lista (regra do Luiz, 22/11)
@@ -808,7 +869,7 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
   const min = new Date(ts[0].data.getTime() - 90 * DIA);
   const max = new Date(ts[ts.length - 1].data.getTime() + 30 * DIA);
   // cada empresa tem as suas contas bancárias: procura e aprende nos lançamentos da empresa atual
-  const [abertos, conciliadas, comCentro, categorias] = await (Promise.all([
+  const [abertos, conciliadas, comCentro, categorias, pessoal, regras, contasPessoas] = await (Promise.all([
     prisma.lancamento.findMany({
       where: { pagoEm: null, transferenciaId: null, vencimento: { gte: min, lte: max } },
       include: { pessoa: { select: { nome: true, fantasia: true, documento: true } }, boletos: { select: { nossoNumero: true, txid: true } }, formaPagamento: { select: { tPag: true, nome: true } } },
@@ -819,18 +880,18 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
     }),
     prisma.lancamento.findMany({ where: { centroCustoId: { not: null } }, orderBy: { vencimento: "desc" }, take: 5000, select: { pessoaId: true, categoriaId: true, centroCustoId: true } }),
     prisma.categoriaFinanceira.findMany({ where: { ativa: true }, select: { id: true, nome: true, tipo: true } }),
+    carregarPessoal(),
+    prisma.regraConciliacao.findMany({ where: { ativa: true } }),
+    // categorias das contas de cada cliente/fornecedor (compras, vendas, despesas): ensinam a categoria do avulso
+    prisma.lancamento.findMany({
+      where: { pessoaId: { not: null }, transferenciaId: null }, orderBy: { vencimento: "desc" }, take: 8000,
+      select: { pessoaId: true, tipo: true, categoriaId: true, pessoa: { select: { nome: true, fantasia: true } } },
+    }),
   ]));
   const h = montarHistorico(
     conciliadas.map((t) => ({ descricao: t.descricao, lancamentos: t.lancamentos.map((l) => ({ ...l, avulso: l.idLegado === `extrato:${t.id}` })) })),
     comCentro,
   );
-  const pessoal = await carregarPessoal();
-  const regras = await prisma.regraConciliacao.findMany({ where: { ativa: true } });
-  // categorias das contas de cada cliente/fornecedor (compras, vendas, despesas): ensinam a categoria do avulso
-  const contasPessoas = await (prisma.lancamento.findMany({
-    where: { pessoaId: { not: null }, transferenciaId: null }, orderBy: { vencimento: "desc" }, take: 8000,
-    select: { pessoaId: true, tipo: true, categoriaId: true, pessoa: { select: { nome: true, fantasia: true } } },
-  }));
   const porPessoa = new Map<string, CategoriasDaPessoa>();
   for (const l of contasPessoas) {
     if (!l.pessoa) continue;
@@ -839,7 +900,17 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
     somar(e.categorias, l.categoriaId);
     porPessoa.set(k, e);
   }
-  const docs = await documentosDosFavorecidos([...ts, ...conciliadas]);
+  // momento das vendas/OS feitas no MXERP (as importadas do Gestão Click têm a hora da importação, não servem)
+  const idsDe = (tipo: string) => [...new Set(abertos.filter((l) => !l.idLegado && l.origemTipo === tipo && l.origemId).map((l) => l.origemId!))];
+  const [docs, vendas, oss] = await Promise.all([
+    documentosDosFavorecidos([...ts, ...conciliadas]),
+    prisma.venda.findMany({ where: { id: { in: idsDe("VENDA") }, idLegado: null }, select: { id: true, createdAt: true, data: true } }),
+    prisma.ordemServico.findMany({ where: { id: { in: idsDe("OS") }, idLegado: null }, select: { id: true, createdAt: true, saida: true } }),
+  ]);
+  const momentosDoc = new Map<string, Date[]>([
+    ...vendas.map((v): [string, Date[]] => [`VENDA|${v.id}`, [v.createdAt, v.data]]),
+    ...oss.map((o): [string, Date[]] => [`OS|${o.id}`, [o.createdAt, ...(o.saida ? [o.saida] : [])]]),
+  ]);
   const ramos = new Map<string, RamoFavorecido>();
   for (const [f, d] of docs) if (d.documento || d.cnae) ramos.set(f, { cnae: d.cnae ?? "", documento: d.documento });
   return analisar(
@@ -852,8 +923,7 @@ export async function analisarExtrato(filtro: { contaBancariaId?: string } = {})
       pessoa: l.pessoa ? [l.pessoa.nome, l.pessoa.fantasia].filter(Boolean).join(" / ") : null, pessoaId: l.pessoaId, categoriaId: l.categoriaId, centroCustoId: l.centroCustoId,
       pessoaNomes: l.pessoa ? [l.pessoa.nome, l.pessoa.fantasia].filter((x): x is string => !!x) : [], pessoaDocumento: l.pessoa?.documento ?? null,
       boletos: l.boletos.flatMap((b) => [b.nossoNumero, b.txid]).filter((x): x is string => !!x),
-      // só contas de venda/OS feitas no MXERP: a data de lançamento das importadas é a da importação
-      lancadaEm: !l.idLegado && (l.origemTipo === "VENDA" || l.origemTipo === "OS") ? l.createdAt : null,
+      momentos: l.idLegado || !l.origemId ? [] : [l.createdAt, ...(momentosDoc.get(`${l.origemTipo}|${l.origemId}`) ?? [])],
       formaPix: l.formaPagamento ? ehPix(l.formaPagamento) : null,
     })),
     h, categorias, diaSP(), ramos, pessoal, regras, [...porPessoa.values()],
