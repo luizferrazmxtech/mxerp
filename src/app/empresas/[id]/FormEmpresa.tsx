@@ -231,6 +231,8 @@ export default function FormEmpresa({ e, ultimos, certificadoServidor }: {
           {sel("nfseNatureza", "Natureza de operação", NATUREZAS_NFSE, cfg.natureza)}
           {sel("nfseApuracao", "Apuração dos tributos (Simples Nacional)", APURACOES_NFSE, cfg.apuracao)}
           {sel("nfseImunidade", "Tipo imunidade (natureza Imunidade)", IMUNIDADES_NFSE, cfg.tpImunidade, true)}
+          {t("nfsePTotTribSN", "% aproximado dos tributos do Simples", cfg.pTotTribSN == null ? "" : String(cfg.pTotTribSN).replace(".", ","), "", { inputMode: "decimal", placeholder: "6,00" })}
+          <p className="self-end text-[11px] text-slate-500 md:col-span-2">Vai na NFS-e de ME/EPP do Simples (a alíquota efetiva do DAS). Em branco, sai 6,00%.</p>
           <label className="flex items-start gap-2 text-[13px] md:col-span-3">
             <input type="checkbox" name="nfseEnviarIm" defaultChecked={cfg.enviarIm} className="mt-1" />
             <span>Enviar a inscrição municipal na NFS-e <span className="block text-[11px] text-slate-500">Desmarque se a NFS-e for recusada com E0120 (&quot;IM do prestador não deve ser informada&quot;): o município não tem o cadastro complementar no CNC NFS-e. A inscrição fica guardada no cadastro.</span></span>

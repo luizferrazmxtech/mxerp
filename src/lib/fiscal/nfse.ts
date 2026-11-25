@@ -40,6 +40,8 @@ export type DadosDps = {
     /** só para ME/EPP: 1 = todos os tributos pelo Simples */
     regApTribSN?: 1 | 2 | 3;
     regEspTrib?: number; // 0 nenhum
+    /** % aproximado dos tributos do Simples (pTotTribSN): ME/EPP não pode mandar indTotTrib (rejeição E0712) */
+    pTotTribSN?: number | null;
   };
   tomador?: {
     documento: string;
@@ -74,6 +76,9 @@ export function idDps(d: Pick<DadosDps, "prestador" | "serie" | "numero">) {
 }
 
 const dia = (d: Date) => new Date(d.getTime() - 3 * 3600000).toISOString().slice(0, 10);
+
+/** % aproximado dos tributos do Simples quando a empresa não informou (1ª faixa do Anexo III, serviços). */
+export const PERCENTUAL_SIMPLES_PADRAO = 6;
 
 export function montarDps(d: DadosDps): { id: string; xml: string } {
   if (!/^\d{6}$/.test(d.servico.cTribNac)) throw new Error("Código de tributação nacional do serviço deve ter 6 dígitos");
@@ -130,7 +135,8 @@ export function montarDps(d: DadosDps): { id: string; xml: string } {
           trib === 1 && (p.opSimpNac !== 3 || (p.regApTribSN ?? 1) !== 1 || d.servico.issRetido) && d.servico.aliquotaIss != null && t("pAliq", dec(d.servico.aliquotaIss)),
           t("tpRetISSQN", d.servico.issRetido ? 2 : 1),
         ]),
-        g("totTrib", t("indTotTrib", 0)),
+        // ME/EPP do Simples: a Sefin recusa o indTotTrib (E0712) e pede o percentual aproximado do Simples
+        g("totTrib", p.opSimpNac === 3 ? t("pTotTribSN", dec(Math.min(99.99, Math.max(0, p.pTotTribSN ?? PERCENTUAL_SIMPLES_PADRAO)))) : t("indTotTrib", 0)),
       ]),
     ]),
   ], { Id: id });

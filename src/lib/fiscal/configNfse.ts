@@ -18,6 +18,8 @@ export type ConfigNfse = {
   indicadorOperacao: string | null;
   /** manda a inscrição municipal na DPS (desligar quando a Sefin recusar com E0120: município sem cadastro complementar) */
   enviarIm: boolean;
+  /** % aproximado dos tributos do Simples na NFS-e (pTotTribSN, só ME/EPP); vazio = 6% */
+  pTotTribSN: number | null;
 };
 
 export const NATUREZAS_NFSE: [number, string][] = [
@@ -36,6 +38,10 @@ export const IMUNIDADES_NFSE: [number, string][] = [
 export const SUSPENSOES_NFSE: [number, string][] = [[1, "Exigibilidade suspensa por decisão judicial"], [2, "Exigibilidade suspensa por processo administrativo"]];
 
 const num = (v: unknown) => (v === null || v === undefined || v === "" ? null : Number(v));
+const pct = (v: unknown) => {
+  const n = typeof v === "string" ? Number(v.includes(",") ? v.replace(/\./g, "").replace(",", ".") : v) : num(v);
+  return n !== null && Number.isFinite(n) && n > 0 && n < 100 ? Math.round(n * 100) / 100 : null;
+};
 const txt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 /** Lê o JSON gravado (ou o formulário já convertido) com os padrões: tributável, tudo pelo Simples. */
@@ -54,6 +60,7 @@ export function lerConfigNfse(v: unknown): ConfigNfse {
     tipoOperacao: txt(o.tipoOperacao),
     indicadorOperacao: txt(o.indicadorOperacao),
     enviarIm: o.enviarIm !== false && o.enviarIm !== "0" && o.enviarIm !== "false",
+    pTotTribSN: pct(o.pTotTribSN),
   };
 }
 
