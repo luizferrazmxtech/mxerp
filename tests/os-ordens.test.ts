@@ -118,4 +118,23 @@ describe("ordens de serviço (situações configuráveis)", () => {
     expect(await prisma.osItemServico.count({ where: { osId: c.id } })).toBe(1);
     expect(await prisma.osEquipamento.count({ where: { osId: c.id } })).toBe(1);
   });
+
+  it("visita técnica no local: exige a descrição, não guarda equipamento e é achada pelo tipo e pela descrição", async () => {
+    await expect(ord.salvarOrdem(dados({ tipoAtendimento: "" }), u)).rejects.toThrow(/visita técnica no local ou equipamento/);
+    await expect(ord.salvarOrdem(dados({ tipoAtendimento: "VISITA", descricaoVisita: "  " }), u)).rejects.toThrow(/descrição da visita/);
+    const v = await ord.salvarOrdem(dados({ tipoAtendimento: "VISITA", descricaoVisita: "Instalar câmeras no galpão" }), u);
+    expect(v.tipoAtendimento).toBe("VISITA");
+    expect(await prisma.osEquipamento.count({ where: { osId: v.id } })).toBe(0);
+    const m = await ord.salvarOrdem(dados({ tipoAtendimento: "MANUTENCAO", descricaoVisita: "não vale" }), u);
+    expect(m).toMatchObject({ tipoAtendimento: "MANUTENCAO", descricaoVisita: null });
+    expect(await prisma.osEquipamento.count({ where: { osId: m.id } })).toBe(1);
+    const ids = async (sp: Record<string, string>) => (await prisma.ordemServico.findMany({ where: ord.whereOrdens(sp), select: { id: true } })).map((o) => o.id);
+    expect(await ids({ tipo: "VISITA" })).toEqual([v.id]);
+    expect(await ids({ tipo: "MANUTENCAO" })).toEqual([m.id]);
+    expect(await ids({ q: "galpão" })).toEqual([v.id]);
+    expect(await ids({ visita: "câmeras" })).toEqual([v.id]);
+    // cópia continua visita
+    const c = await ord.clonarOrdem(v.id, u);
+    expect(c).toMatchObject({ tipoAtendimento: "VISITA", descricaoVisita: "Instalar câmeras no galpão" });
+  });
 });

@@ -100,6 +100,10 @@ export async function juntarOrdens(idsEntrada: string[], u: Usuario, opts: { per
     const obs = ordens.filter((o) => o.observacoes?.trim()).map((o) => `OS nº ${o.numero}: ${o.observacoes!.trim()}`);
     const obsInt = [`Junção das OS nº ${lista}.`, ...ordens.filter((o) => o.observacaoInterna?.trim()).map((o) => `OS nº ${o.numero}: ${o.observacaoInterna!.trim()}`)];
     const finalizadas = ordens.map((o) => o.trabalhoFinalizadoEm);
+    // só visitas = visita com as descrições juntas; misturada com manutenção, as descrições vão para a observação interna
+    const soVisitas = ordens.every((o) => o.tipoAtendimento === "VISITA");
+    const visitas = ordens.filter((o) => o.descricaoVisita?.trim()).map((o) => `OS nº ${o.numero}: ${o.descricaoVisita!.trim()}`);
+    if (!soVisitas && visitas.length) obsInt.push(...visitas.map((v) => `Visita técnica da ${v}`));
 
     let numero: number;
     do numero = await proximoNumero(tx, "OS"); while (await tx.ordemServico.findUnique({ where: { numero } }));
@@ -109,7 +113,7 @@ export async function juntarOrdens(idsEntrada: string[], u: Usuario, opts: { per
         equipeId: primeiro((o) => o.equipeId), entrada: new Date(Math.min(...ordens.map((o) => o.entrada.getTime()))),
         saida: saidas.every((s) => s) ? new Date(Math.max(...saidas.map((s) => s!.getTime()))) : null,
         previsao: saidas.every((s) => s) ? new Date(Math.max(...saidas.map((s) => s!.getTime()))) : null,
-        prioridade, canal: ordens[0].canal, centroCusto: comum((o) => o.centroCusto) ?? primeiro((o) => o.centroCusto), transportadoraId: primeiro((o) => o.transportadoraId),
+        prioridade, canal: ordens[0].canal, tipoAtendimento: soVisitas ? "VISITA" : "MANUTENCAO", descricaoVisita: soVisitas ? visitas.join("\n") || null : null, centroCusto: comum((o) => o.centroCusto) ?? primeiro((o) => o.centroCusto), transportadoraId: primeiro((o) => o.transportadoraId),
         mostrarEntrega: ordens.some((o) => o.mostrarEntrega), enderecoEntregaId: primeiro((o) => (o.mostrarEntrega ? o.enderecoEntregaId : null)),
         totalProdutos: D(totalProdutos), totalServicos: D(totalServicos), desconto: D(desconto), frete: D(frete), outros: D(outros), total: D(total),
         exibirTotal: ordens.every((o) => o.exibirTotal), condicao, formaPagamentoId: parcelas[0].formaPagamentoId, intervaloDias: ordens[0].intervaloDias,

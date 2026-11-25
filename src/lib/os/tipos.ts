@@ -18,6 +18,10 @@ export type DadosOs = DadosOrcamento & {
   /** agendamento da visita (YYYY-MM-DDTHH:mm, Brasília) e duração em minutos: Agenda das equipes e Google Agenda */
   agendaInicio?: string;
   agendaDuracao?: string;
+  /** MANUTENCAO = equipamento veio para manutenção; VISITA = visita técnica no local (sem equipamento) */
+  tipoAtendimento?: string;
+  /** o que será feito na visita técnica (só quando tipoAtendimento = VISITA) */
+  descricaoVisita?: string;
   equipamentos: EquipamentoForm[];
   outros: string;
   /** empresa que fatura os serviços (NFS-e e conta a receber dela); vazio = a própria empresa da OS */
@@ -26,6 +30,10 @@ export type DadosOs = DadosOrcamento & {
 
 /** Durações do agendamento da OS (minutos). */
 export const DURACOES_AGENDA: [number, string][] = [[30, "30 min"], [60, "1 hora"], [90, "1h30"], [120, "2 horas"], [180, "3 horas"], [240, "4 horas"], [360, "6 horas"], [480, "Dia todo (8h)"]];
+
+/** Tipo de atendimento da OS. As OS antigas (e as importadas do Gestão Click) são manutenção. */
+export const TIPOS_ATENDIMENTO: [string, string][] = [["MANUTENCAO", "Equipamento para manutenção"], ["VISITA", "Visita técnica no local"]];
+export const rotuloTipoAtendimento = (t?: string | null) => (t === "VISITA" ? "Visita técnica" : "Manutenção");
 
 export const PRIORIDADES: [string, string][] = [["BAIXA", "Baixa"], ["MEDIA", "Média"], ["ALTA", "Alta"], ["URGENTE", "Urgente"], ["MUITO_URGENTE", "Muito urgente"]];
 export const rotuloPrioridade = (p?: string | null) => PRIORIDADES.find(([v]) => v === p)?.[1] ?? "";

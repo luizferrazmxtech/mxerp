@@ -14,7 +14,7 @@ import { divisaoOs, empresaDosServicos, servicosPorParcela, valorServicos } from
 import { proximoNumero } from "@/lib/sequencia";
 import { parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, lerNumero, subtotalProduto, subtotalServico } from "@/lib/orcamentos/tipos";
-import { dataLocalSP, totaisOs, type DadosOs } from "@/lib/os/tipos";
+import { dataLocalSP, rotuloTipoAtendimento, totaisOs, type DadosOs } from "@/lib/os/tipos";
 import { aposExcluirOs, aposMudarOs } from "@/lib/agenda/google";
 import { estadoEstoque } from "@/lib/os/os";
 import { resumoAlteracoes } from "@/lib/os/alteracoes";
@@ -210,7 +210,13 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
   const saidaEm = dataLocalSP(d.saida);
   if (saidaEm && saidaEm < entradaEm) throw new OsError("A saída não pode ser antes da entrada");
   if (!t(d.canal)) throw new OsError("Informe o canal de venda");
-  const equipamentos = d.equipamentos.filter((e) => Object.values(e).some((v) => v.trim()));
+  // vazio = o formulário não escolheu; sem o campo (cópia, junção, chamadas antigas) = manutenção
+  if (d.tipoAtendimento === "") throw new OsError("Informe se é visita técnica no local ou equipamento para manutenção");
+  const visita = d.tipoAtendimento === "VISITA";
+  const descricaoVisita = visita ? t(d.descricaoVisita ?? "") : null;
+  if (visita && !descricaoVisita) throw new OsError("Informe a descrição da visita técnica");
+  // visita no local não tem equipamento; manutenção segue como sempre
+  const equipamentos = visita ? [] : d.equipamentos.filter((e) => Object.values(e).some((v) => v.trim()));
   for (const [i, e] of equipamentos.entries()) if (!e.equipamento.trim()) throw new OsError(`Informe o nome do equipamento ${i + 1}`);
   const produtos = d.produtos.filter((l) => l.produtoId);
   const servicos = d.servicos.filter((l) => l.servicoId);
@@ -241,7 +247,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
     clienteId: d.clienteId, vendedorId: t(d.vendedorId), tecnicoId: tecnicoIds[0] ?? null, tecnicoIds, equipeId: t(d.equipeId),
     agendaInicio, agendaDuracaoMin: agendaInicio ? Math.trunc(n(d.agendaDuracao ?? "")) || null : null,
     entrada: entradaEm, saida: saidaEm, previsao: saidaEm, prioridade: prioridades.includes(d.prioridade) ? (d.prioridade as PrioridadeOs) : null,
-    canal: d.canal, centroCusto: t(d.centroCusto), transportadoraId: t(d.transportadoraId), frete: D(tot.frete), outros: D(tot.outros),
+    canal: d.canal, tipoAtendimento: visita ? "VISITA" : "MANUTENCAO", descricaoVisita, centroCusto: t(d.centroCusto), transportadoraId: t(d.transportadoraId), frete: D(tot.frete), outros: D(tot.outros),
     mostrarEntrega: d.mostrarEntrega, enderecoEntregaId: d.mostrarEntrega ? t(d.enderecoEntregaId) : null,
     totalProdutos: D(tot.produtos), totalServicos: D(tot.servicos), desconto: D(tot.desconto), descontoPercentual: d.descontoPct ? new Prisma.Decimal(n(d.desconto)) : null,
     total: D(tot.total), exibirTotal: d.exibirTotal, condicao: d.condicao, formaPagamentoId: t(d.formaPagamentoId), intervaloDias: Math.trunc(n(d.intervaloDias)) || 30,
@@ -313,12 +319,14 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
             ...servicosAntes.map((e) => ({ chave: `S${e.servicoId}`, nome: nomesItens.get(`S${e.servicoId}`) ?? "serviço", quantidade: Number(e.quantidade), valorUnit: Number(e.valorUnit) }))],
           total: Number(atual.total), tecnicos: (atual.tecnicoIds.length ? atual.tecnicoIds : [atual.tecnicoId]).filter((x): x is string => !!x).map((x) => nomesUsu.get(x) ?? "?"),
           equipe: atual.equipeId ? nomesEquipe.get(atual.equipeId) ?? null : null, saida: atual.saida, observacoes: atual.observacoes, equipamentos: equipAntes.map(nomeEquip),
+          tipo: rotuloTipoAtendimento(atual.tipoAtendimento), descricaoVisita: atual.descricaoVisita,
         },
         {
           itens: [...produtos.map((l) => ({ chave: `P${l.produtoId}`, nome: nomesItens.get(`P${l.produtoId}`) ?? "produto", quantidade: n(l.quantidade), valorUnit: n(l.valorUnit) })),
             ...servicos.map((l) => ({ chave: `S${l.servicoId}`, nome: nomesItens.get(`S${l.servicoId}`) ?? "serviço", quantidade: n(l.quantidade), valorUnit: n(l.valorUnit) }))],
           total: tot.total, tecnicos: tecnicoIds.map((x) => nomesUsu.get(x) ?? "?"), equipe: dados.equipeId ? nomesEquipe.get(dados.equipeId) ?? null : null,
           saida: saidaEm, observacoes: dados.observacoes, equipamentos: equipamentos.map((e) => nomeEquip({ equipamento: e.equipamento.trim(), marca: t(e.marca), modelo: t(e.modelo) })),
+          tipo: rotuloTipoAtendimento(dados.tipoAtendimento), descricaoVisita: dados.descricaoVisita,
         },
       );
       await tx.ordemServico.update({ where: { id }, data: { ...dados, numero } });
@@ -408,6 +416,7 @@ export async function clonarOrdem(id: string, u: Usuario) {
     desconto: f(o.desconto), descontoPct: false, exibirTotal: o.exibirTotal, gerarCondicoes: true, condicao: "AVISTA", formaPagamentoId: o.formaPagamentoId ?? "", vencimento: "",
     intervaloDias: String(o.intervaloDias), numParcelas: "1", primeiraParcela: "", parcelas: [], observacoes: o.observacoes ?? "", observacaoInterna: o.observacaoInterna ?? "",
     camposExtras: (o.camposExtras ?? {}) as Record<string, string>,
+    tipoAtendimento: o.tipoAtendimento, descricaoVisita: o.descricaoVisita ?? "",
     entrada: agora, saida: "", prioridade: o.prioridade ?? "", tecnicoIds: o.tecnicoIds, equipeId: o.equipeId ?? "", outros: f(o.outros), empresaServicosId: o.empresaServicosId ?? "",
     equipamentos: o.equipamentos.map((e) => ({ equipamento: e.equipamento, marca: e.marca ?? "", modelo: e.modelo ?? "", serie: e.serie ?? "", condicoes: e.condicoes ?? "", defeitos: e.defeitos ?? "", acessorios: e.acessorios ?? "", solucao: "", laudo: "", garantia: e.garantia ?? "" })),
   }, u);
@@ -420,17 +429,18 @@ export type ParamsOs = Record<string, string | undefined>;
 /** Filtros da lista e do kanban: período (pela entrada), busca simples e busca avançada do Gestão Click. */
 export function whereOrdens(sp: ParamsOs): Prisma.OrdemServicoWhereInput {
   const w: Prisma.OrdemServicoWhereInput[] = [];
-  const buscando = !!(sp.s === "abertas" || sp.q || sp.codigo || sp.de || sp.ate || sp.sde || sp.sate || sp.cli || sp.eq || sp.marca || sp.modelo || sp.serie);
+  const buscando = !!(sp.s === "abertas" || sp.q || sp.codigo || sp.de || sp.ate || sp.sde || sp.sate || sp.cli || sp.eq || sp.marca || sp.modelo || sp.serie || sp.visita);
   const per = buscando && !sp.periodo ? null : periodoDia(sp.periodo, sp.pde, sp.pate);
   const H = 3 * 3600_000;
   if (per) w.push({ entrada: { gte: new Date(per.de.getTime() + H), lt: new Date(per.ate.getTime() + 86400_000 + H) } });
   const ini = (s: string) => new Date(`${s}T00:00:00-03:00`), fim = (s: string) => new Date(`${s}T23:59:59.999-03:00`);
-  // cada palavra em qualquer ordem: nº da OS, cliente, equipamento (nome, marca, modelo, série)
+  // cada palavra em qualquer ordem: nº da OS, cliente, equipamento (nome, marca, modelo, série) e descrição da visita
   w.push(...cadaPalavra(sp.q, (p): Prisma.OrdemServicoWhereInput[] => {
     const num = numeroPalavra(p), d = p.replace(/\D/g, "");
     return [...(num ? [{ numero: num }] : []), { cliente: { nome: contem(p) } }, { cliente: { fantasia: contem(p) } },
       ...(d.length >= 3 ? [{ cliente: { documento: { contains: d } } }] : []),
-      { equipamentos: { some: { OR: [{ equipamento: contem(p) }, { marca: contem(p) }, { modelo: contem(p) }, { serie: contem(p) }] } } }];
+      { equipamentos: { some: { OR: [{ equipamento: contem(p) }, { marca: contem(p) }, { modelo: contem(p) }, { serie: contem(p) }] } } },
+      { descricaoVisita: contem(p) }];
   }));
   if (sp.codigo) w.push({ numero: Number(sp.codigo) || -1 });
   if (sp.de || sp.ate) w.push({ entrada: { ...(sp.de ? { gte: ini(sp.de) } : {}), ...(sp.ate ? { lte: fim(sp.ate) } : {}) } });
@@ -439,6 +449,8 @@ export function whereOrdens(sp: ParamsOs): Prisma.OrdemServicoWhereInput {
   if (sp.pri) w.push({ prioridade: sp.pri as PrioridadeOs });
   for (const [k, campo] of [["eq", "equipamento"], ["marca", "marca"], ["modelo", "modelo"], ["serie", "serie"]] as const)
     if (sp[k]) w.push({ equipamentos: { some: { [campo]: { contains: sp[k], mode: "insensitive" } } } });
+  if (sp.tipo === "VISITA" || sp.tipo === "MANUTENCAO") w.push({ tipoAtendimento: sp.tipo });
+  if (sp.visita) w.push(...cadaPalavra(sp.visita, (p): Prisma.OrdemServicoWhereInput[] => [{ descricaoVisita: contem(p) }]));
   if (sp.prod) w.push({ produtos: { some: { produtoId: sp.prod } } });
   if (sp.serv) w.push({ servicos: { some: { servicoId: sp.serv } } });
   if (sp.vend) w.push({ vendedorId: sp.vend });

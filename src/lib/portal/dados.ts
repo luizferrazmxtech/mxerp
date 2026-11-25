@@ -56,7 +56,7 @@ export async function verOs(pessoaId: string, id: string) {
   const o = await prisma.ordemServico.findFirst({
     where: { id, clienteId: pessoaId },
     select: {
-      id: true, numero: true, entrada: true, previsao: true, saida: true, situacao: true, observacoes: true, token: true, empresaId: true,
+      id: true, numero: true, entrada: true, previsao: true, saida: true, situacao: true, observacoes: true, token: true, empresaId: true, tipoAtendimento: true, descricaoVisita: true,
       exibirTotal: true, totalProdutos: true, totalServicos: true, desconto: true, frete: true, outros: true, total: true,
       situacaoCfg: { select: { nome: true, cor: true } },
       tecnico: { select: { nome: true } },
@@ -81,6 +81,7 @@ export async function verOs(pessoaId: string, id: string) {
   const tempoExecucao = trabalho.estado === "NAO_INICIADO" ? null : `${duracao(tempoMs)}${trabalho.estado === "FINALIZADO" ? "" : " (em andamento)"}`;
   return {
     id: o.id, numero: o.numero, entrada: o.entrada, previsao: o.previsao, saida: o.saida, observacoes: o.observacoes, token: o.token,
+    visita: o.tipoAtendimento === "VISITA" ? o.descricaoVisita : null,
     situacao: situacaoOs(o), cancelada: o.situacao === "CANCELADA", tecnico: o.tecnico?.nome ?? null, tempoExecucao,
     loja: o.empresaId ? ls.get(o.empresaId) ?? null : null,
     equipamentos: o.equipamentos,

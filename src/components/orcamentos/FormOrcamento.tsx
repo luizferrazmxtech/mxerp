@@ -17,7 +17,7 @@ import CotarFrete from "@/components/frete/CotarFrete";
 import { salvarOrcamentoForm, type Resultado } from "@/lib/orcamentos/acoes";
 import { salvarPedidoForm } from "@/lib/vendas/acoes";
 import { salvarOsForm } from "@/lib/os/acoes";
-import { CAMPOS_OS, DURACOES_AGENDA, PRIORIDADES, equipamentoVazio, totaisOs, type DadosOs, type EquipamentoForm } from "@/lib/os/tipos";
+import { CAMPOS_OS, DURACOES_AGENDA, PRIORIDADES, TIPOS_ATENDIMENTO, equipamentoVazio, totaisOs, type DadosOs, type EquipamentoForm } from "@/lib/os/tipos";
 import { BANDEIRAS, calcularTaxa, maxVezes, pct, temTabela, tipoCartao } from "@/lib/financeiro/taxasCartao";
 import { CAMPOS_DADOS, CAMPOS_VENDA, COLUNAS_ITENS, gerarParcelas, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento, type LinhaProduto, type LinhaServico } from "@/lib/orcamentos/tipos";
 
@@ -275,6 +275,24 @@ export default function FormOrcamento({ inicial, op, vis, modo = "orcamento" }: 
       )}
 
       {os && (
+        <Bloco icone="os" titulo={<>Informe o <b>tipo de atendimento</b> da ordem de serviço</>} subtitulo="Visita técnica no local (sem equipamento) ou equipamento que veio para manutenção.">
+          <div className="flex flex-wrap gap-2">
+            {TIPOS_ATENDIMENTO.map(([v, r]) => (
+              <label key={v} className={`flex cursor-pointer items-center gap-2 rounded border px-3 py-2 text-[14px] ${d.tipoAtendimento === v ? "border-marca bg-marca/5 font-semibold text-marca" : "border-slate-300 text-slate-700"}`}>
+                <input type="radio" name="tipoAtendimento" value={v} checked={d.tipoAtendimento === v} onChange={() => set("tipoAtendimento", v)} /> {r}
+              </label>
+            ))}
+          </div>
+          {!d.tipoAtendimento && <p className="mt-2 text-[12px] text-red-600">Escolha o tipo de atendimento para continuar.</p>}
+          {d.tipoAtendimento === "VISITA" && (
+            <Campo rotulo="Descrição da visita técnica" obrigatorio className="mt-3">
+              <textarea rows={4} className="campo" placeholder="Ex.: Instalação de 4 câmeras no galpão e configuração do DVR" value={d.descricaoVisita ?? ""} onChange={(e) => set("descricaoVisita", e.target.value)} />
+            </Campo>
+          )}
+        </Bloco>
+      )}
+
+      {os && d.tipoAtendimento === "MANUTENCAO" && (
         <Bloco icone="os" titulo={<>Descreva os <b>equipamentos</b> da ordem de serviço</>} subtitulo="Equipamento, marca, modelo, série, defeitos, solução e laudo.">
           {(d.equipamentos ?? []).map((e, i) => {
             const up = (m: Partial<EquipamentoForm>) => set("equipamentos", (d.equipamentos ?? []).map((x, j) => (j === i ? { ...x, ...m } : x)));

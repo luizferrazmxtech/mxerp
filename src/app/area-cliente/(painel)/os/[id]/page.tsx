@@ -26,6 +26,11 @@ export default async function VerOsPortal({ params }: { params: Promise<{ id: st
 
       <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
         <div>
+          {o.visita && (
+            <Secao titulo="Visita técnica no local" icone="os">
+              <p className="whitespace-pre-line text-[14px]">{o.visita}</p>
+            </Secao>
+          )}
           {o.equipamentos.map((e, i) => (
             <Secao key={e.id} titulo={o.equipamentos.length > 1 ? `Equipamento ${i + 1}: ${e.equipamento}` : e.equipamento} icone="os">
               <Dados itens={[["Marca", e.marca], ["Modelo", e.modelo], ["Nº de série", e.serie], ["Acessórios", e.acessorios]]} />

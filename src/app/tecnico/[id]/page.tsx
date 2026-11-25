@@ -106,6 +106,13 @@ export default async function OsDoTecnico({ params }: { params: Promise<{ id: st
         {equipe && <div className="mt-2 text-[12px] text-slate-500"><Icone nome="equipe" size={12} className="mr-1 inline" />{o.equipe ? `${o.equipe.nome}: ` : "Técnicos: "}{equipe}</div>}
       </section>
 
+      {o.tipoAtendimento === "VISITA" && o.descricaoVisita && (
+        <section className="mb-3 rounded-lg border bg-white p-3">
+          <h2 className="mb-1 text-[13px] font-semibold uppercase text-slate-500">Visita técnica no local</h2>
+          <p className="whitespace-pre-line text-[14px]">{o.descricaoVisita}</p>
+        </section>
+      )}
+
       {o.equipamentos.length > 0 && (
         <section className="mb-3 rounded-lg border bg-white p-3">
           <h2 className="mb-1 text-[13px] font-semibold uppercase text-slate-500">Equipamentos</h2>

@@ -4,7 +4,7 @@ import { usuarioAtual } from "@/lib/auth/atual";
 import { pode } from "@/lib/auth/permissoesAcao";
 import { cor } from "@/lib/orcamentos/tipos";
 import { ordemOrdens, whereOrdens, type ParamsOs } from "@/lib/os/ordens";
-import { avisoSituacaoOs, PRIORIDADES } from "@/lib/os/tipos";
+import { avisoSituacaoOs, PRIORIDADES, TIPOS_ATENDIMENTO } from "@/lib/os/tipos";
 import { alterarSituacaoOsAcao, clonarOsAcao, emitirNotaOsAcao, excluirOsAcao, excluirVariasOsAcao, juntarOsAcao, nfseEmMassaAcao, situacaoOsEmMassaAcao } from "@/lib/os/acoes";
 import { colunasVisiveis } from "@/lib/ui/colunas";
 import { dataSP, horaSP, num2 } from "@/lib/ui/format";
@@ -30,8 +30,10 @@ export const metadata = { title: "Ordens de serviços" };
 
 const COLUNAS = [
   { chave: "numero", rotulo: "Nº" }, { chave: "nfse", rotulo: "NFS-e" }, { chave: "nfe", rotulo: "NF-e" }, { chave: "cliente", rotulo: "Cliente" }, { chave: "entrada", rotulo: "Entrada" }, { chave: "saida", rotulo: "Saída" },
-  { chave: "equipamentos", rotulo: "Equipamentos" }, { chave: "situacao", rotulo: "Situação" }, { chave: "valor", rotulo: "Valor" }, { chave: "loja", rotulo: "Loja" },
+  { chave: "equipamentos", rotulo: "Equipamento / visita" }, { chave: "situacao", rotulo: "Situação" }, { chave: "valor", rotulo: "Valor" }, { chave: "loja", rotulo: "Loja" },
 ];
+/** Descrição da visita numa linha da lista (o texto inteiro fica no title). */
+const resumoVisita = (t: string | null) => { const x = (t ?? "").replace(/\s+/g, " ").trim(); return x.length > 80 ? `${x.slice(0, 80)}…` : x; };
 const ORDENS_KANBAN: [string, string][] = [["-numero", "Nº"], ["cliente", "Cliente"], ["-entrada", "Data de abertura"], ["-valor", "Valor total"], ["tecnico", "Responsável"]];
 
 /** Gerenciar O.S. (padrão Gestão Click): lista ou kanban por situação. */
@@ -138,7 +140,7 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
           {tem("cliente") && <Ordenar base={base} params={sp} campo="cliente">Cliente</Ordenar>}
           {tem("entrada") && <Ordenar base={base} params={sp} campo="entrada" className="w-28">Entrada</Ordenar>}
           {tem("saida") && <Ordenar base={base} params={sp} campo="saida" className="w-28">Saída</Ordenar>}
-          {tem("equipamentos") && <th>Equipamentos</th>}
+          {tem("equipamentos") && <th>Equipamento / visita</th>}
           {tem("situacao") && <Ordenar base={base} params={sp} campo="situacao" className="w-48">Situação</Ordenar>}
           {tem("valor") && <Ordenar base={base} params={sp} campo="valor" className="w-32 text-right">Valor</Ordenar>}
           {tem("loja") && <th className="w-32">Loja</th>}
@@ -154,7 +156,9 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
               {tem("cliente") && <td><Link href={`/os/${o.id}`} className="uppercase sublinhado">{o.cliente.nome}</Link>{o.cliente.fantasia && o.cliente.fantasia !== o.cliente.nome && <i className="block text-[11px] uppercase text-slate-500">({o.cliente.fantasia})</i>}</td>}
               {tem("entrada") && <td>{dataSP(o.entrada)}<div className="text-[11px] text-slate-400">{horaSP(o.entrada)}</div></td>}
               {tem("saida") && <td>{o.saida ? <>{dataSP(o.saida)}<div className="text-[11px] text-slate-400">{horaSP(o.saida)}</div></> : <span className="text-slate-400">—</span>}</td>}
-              {tem("equipamentos") && <td className="text-[12px]">{o.equipamentos.map((e) => e.equipamento).join(", ")}</td>}
+              {tem("equipamentos") && <td className="text-[12px]">{o.tipoAtendimento === "VISITA"
+                ? <><span className="pilula mr-1 border-sky-300 bg-sky-50 text-sky-700">Visita</span><span className="text-slate-600" title={o.descricaoVisita ?? ""}>{resumoVisita(o.descricaoVisita)}</span></>
+                : o.equipamentos.map((e) => e.equipamento).join(", ")}</td>}
               {tem("situacao") && <td><div className="flex flex-wrap gap-1">{pilula(o)}{comFalta.has(o.id) && <span className="pilula border-red-300 bg-red-50 text-red-700">Peça em falta</span>}</div></td>}
               {tem("valor") && <td className="text-right">{num2(o.total)}</td>}
               {tem("loja") && <td className="text-[12px] uppercase">{loja()}</td>}
@@ -193,7 +197,8 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
                     <Link href={`/os/${o.id}`} className="font-semibold uppercase text-slate-800 hover:text-marca">{o.cliente.nome}</Link>
                     <span className="ml-auto">{menuLinha(o)}</span>
                   </div>
-                  <div className="text-slate-500">OS #{o.numero} · {dataSP(o.entrada)}</div>
+                  <div className="text-slate-500">OS #{o.numero} · {dataSP(o.entrada)}{o.tipoAtendimento === "VISITA" && <span className="pilula ml-1 border-sky-300 bg-sky-50 text-sky-700">Visita</span>}</div>
+                  {o.tipoAtendimento === "VISITA" && o.descricaoVisita && <div className="mt-1 text-slate-600">{resumoVisita(o.descricaoVisita)}</div>}
                   <div className="mt-1 flex items-center gap-1 text-slate-600"><Icone nome="pessoa" size={12} /> {o.tecnico?.nome ?? "Sem técnico"}</div>
                   <div className="mt-1 flex items-center gap-1"><b>R$ {num2(o.total)}</b>{comFalta.has(o.id) && <span className="pilula ml-auto border-red-300 bg-red-50 text-red-700">Peça em falta</span>}</div>
                 </div>
@@ -229,7 +234,7 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
           <SeletorPeriodo base={base} params={sp} />
           <form action={base} className="flex">
             {Object.entries(sp).filter(([k, v]) => v && !["q", "p"].includes(k)).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
-            <input name="q" defaultValue={sp.q} placeholder="Buscar por nº, cliente ou equipamento" className="campo w-64 rounded-r-none" />
+            <input name="q" defaultValue={sp.q} placeholder="Buscar por nº, cliente, equipamento ou visita" className="campo w-64 rounded-r-none" />
             <button className="btn rounded-l-none px-2.5" title="Buscar"><Icone nome="buscar" size={15} /></button>
           </form>
           <Link href={urlCom(base, sp, { busca: sp.busca === "1" ? undefined : "1" })} className={sp.busca === "1" ? "btn-sec" : "btn"} title="Busca avançada"><Icone nome="filtro" size={15} /></Link>
@@ -248,6 +253,8 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
             <div><span className="rotulo">Cliente</span><BuscaPessoa nome="cli" papel="cliente" inicial={cliente} /></div>
             <label><span className="rotulo">Situação</span><select name="s" defaultValue={sp.s ?? ""} className="campo"><option value="">Todos</option>{situacoes.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}</select></label>
             <label><span className="rotulo">Prioridade</span><select name="pri" defaultValue={sp.pri ?? ""} className="campo"><option value="">Todos</option>{PRIORIDADES.map(([v, r]) => <option key={v} value={v}>{r}</option>)}</select></label>
+            <label><span className="rotulo">Tipo de atendimento</span><select name="tipo" defaultValue={sp.tipo ?? ""} className="campo"><option value="">Todos</option>{TIPOS_ATENDIMENTO.map(([v, r]) => <option key={v} value={v}>{r}</option>)}</select></label>
+            <label><span className="rotulo">Descrição da visita</span><input name="visita" defaultValue={sp.visita} className="campo" /></label>
             <label><span className="rotulo">Equipamento</span><input name="eq" defaultValue={sp.eq} className="campo" /></label>
             <label><span className="rotulo">Marca</span><input name="marca" defaultValue={sp.marca} className="campo" /></label>
             <label><span className="rotulo">Modelo</span><input name="modelo" defaultValue={sp.modelo} className="campo" /></label>

@@ -120,6 +120,13 @@ export default async function DocumentoOs({ id, token, cobranca, modo: modoPedid
         <div>{[c.logradouro, c.numero, c.complemento, c.bairro, [c.cidade, c.uf].filter(Boolean).join("/"), c.cep && `CEP ${c.cep}`].filter(Boolean).join(", ")}</div>
       </section>
 
+      {os.tipoAtendimento === "VISITA" && os.descricaoVisita && (
+        <section className="mt-2 rounded border border-slate-300 p-2.5">
+          <div className="mb-1 text-[10px] font-semibold uppercase text-slate-500">Visita técnica no local</div>
+          <div className="whitespace-pre-line">{os.descricaoVisita}</div>
+        </section>
+      )}
+
       {os.equipamentos.map((e) => (
         <section key={e.id} className="mt-2 rounded border border-slate-300 p-2.5">
           <div className="mb-1 text-[10px] font-semibold uppercase text-slate-500">Equipamento</div>
