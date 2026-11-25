@@ -29,7 +29,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Ordens de serviços" };
 
 const COLUNAS = [
-  { chave: "numero", rotulo: "Nº" }, { chave: "nfse", rotulo: "NFS-e" }, { chave: "cliente", rotulo: "Cliente" }, { chave: "entrada", rotulo: "Entrada" }, { chave: "saida", rotulo: "Saída" },
+  { chave: "numero", rotulo: "Nº" }, { chave: "nfse", rotulo: "NFS-e" }, { chave: "nfe", rotulo: "NF-e" }, { chave: "cliente", rotulo: "Cliente" }, { chave: "entrada", rotulo: "Entrada" }, { chave: "saida", rotulo: "Saída" },
   { chave: "equipamentos", rotulo: "Equipamento / visita" }, { chave: "situacao", rotulo: "Situação" }, { chave: "valor", rotulo: "Valor" }, { chave: "loja", rotulo: "Loja" },
 ];
 /** Descrição da visita numa linha da lista (o texto inteiro fica no title). */
@@ -66,16 +66,31 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
   // melhoria sobre o Gestão Click: mostra as OS com peça em falta
   const comFalta = new Set((await prisma.reserva.findMany({ where: { origemTipo: "OS", status: "ATIVA", localId: null, origemId: { in: lista.map((o) => o.id) } }, select: { origemId: true } })).map((r) => r.origemId));
   const centros = (await prisma.ordemServico.findMany({ where: { centroCusto: { not: null } }, distinct: ["centroCusto"], select: { centroCusto: true } })).map((x) => x.centroCusto!);
-  const vis = colunasVisiveis(u?.preferencias, base, COLUNAS, ["numero", "nfse", "cliente", "entrada", "saida", "situacao", "valor"]);
+  const visSalvas = colunasVisiveis(u?.preferencias, base, COLUNAS, ["numero", "nfse", "nfe", "cliente", "entrada", "saida", "situacao", "valor"]);
+  // coluna NF-e (nova): quem já tinha a NFS-e na lista passa a ver a NF-e ao lado
+  const vis = visSalvas.includes("nfse") && !visSalvas.includes("nfe") ? visSalvas.flatMap((c) => (c === "nfse" ? ["nfse", "nfe"] : [c])) : visSalvas;
   // NFS-e de cada OS e cartões de resumo do período (por situação, sem o filtro de situação)
   const [nfses, porSituacao, faltaTotal] = await Promise.all([
-    prisma.notaFiscal.findMany({ where: { origemTipo: "OS", origemId: { in: lista.map((o) => o.id) }, modelo: "NFSE", status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, modelo: true, numero: true, numeroNfse: true } }),
+    // notas das OS listadas, de qualquer empresa do grupo (a NFS-e dos serviços pode ter saído pela VFX): cada
+    // origemId exato é referência, então a consulta não fica presa à loja atual
+    lista.length ? prisma.notaFiscal.findMany({ where: { origemTipo: "OS", OR: lista.map((o) => ({ origemId: o.id })), modelo: { in: ["NFSE", "NFE"] }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, orderBy: { createdAt: "asc" }, select: { id: true, origemId: true, modelo: true, numero: true, numeroNfse: true, empresaId: true } }) : [],
     prisma.ordemServico.groupBy({ by: ["situacao"], where: whereOrdens({ ...sp, s: undefined }), _sum: { total: true }, _count: true }),
     // OS da empresa atual com peça em falta (a reserva não tem empresa: filtra pela OS)
     prisma.reserva.findMany({ where: { origemTipo: "OS", status: "ATIVA", localId: null }, select: { origemId: true }, distinct: ["origemId"] })
       .then((rs) => prisma.ordemServico.findMany({ where: { id: { in: rs.map((r) => r.origemId) } }, select: { id: true } })),
   ]);
-  const nfseDe = new Map(nfses.map((n) => [n.origemId, n]));
+  const notasDe = (osId: string, modelo: string) => nfses.filter((n) => n.origemId === osId && n.modelo === modelo);
+  const nomeEmpresa = new Map(empresas.map((e) => [e.id, e.nomeFantasia || e.razaoSocial]));
+  const celulaNotas = (o: { id: string; empresaId: string | null }, modelo: string) => {
+    const ns = notasDe(o.id, modelo);
+    if (!ns.length) return <span className="text-slate-400">—</span>;
+    return ns.map((n) => (
+      <div key={n.id} className="whitespace-nowrap">
+        <Link href={`/fiscal/${n.id}`} className="sublinhado">#{numeroDaNota(n)}</Link>
+        {n.empresaId && nomeEmpresa.get(n.empresaId) && <span className={`ml-1 rounded border px-1 py-px text-[10px] font-semibold ${n.empresaId === o.empresaId ? "border-slate-300 text-slate-600" : "border-violet-300 bg-violet-50 text-violet-700"}`} title="Empresa que emitiu a nota">{nomeEmpresa.get(n.empresaId)}</span>}
+      </div>
+    ));
+  };
   const grupo = (sits: string[]) => porSituacao.filter((g) => sits.includes(g.situacao)).reduce((a, g) => ({ n: a.n + g._count, v: a.v + Number(g._sum.total ?? 0) }), { n: 0, v: 0 });
   const tudo = grupo(porSituacao.map((g) => g.situacao));
   const abertas = grupo(["ABERTA", "EM_ANDAMENTO", "AGUARDANDO_PECA", "AGUARDANDO_APROVACAO"]);
@@ -120,7 +135,8 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
         <thead><tr>
           {selecao && <th className="w-8"></th>}
           {tem("numero") && <Ordenar base={base} params={sp} campo="numero" className="w-20">Nº</Ordenar>}
-          {tem("nfse") && <th className="w-20">NFS-e</th>}
+          {tem("nfse") && <th className="w-28">NFS-e</th>}
+          {tem("nfe") && <th className="w-28">NF-e</th>}
           {tem("cliente") && <Ordenar base={base} params={sp} campo="cliente">Cliente</Ordenar>}
           {tem("entrada") && <Ordenar base={base} params={sp} campo="entrada" className="w-28">Entrada</Ordenar>}
           {tem("saida") && <Ordenar base={base} params={sp} campo="saida" className="w-28">Saída</Ordenar>}
@@ -135,7 +151,8 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
             <tr key={o.id}>
               {selecao && <td><input type="checkbox" name="ids" value={o.id} /></td>}
               {tem("numero") && <td>{o.numero}{o.juntadaEmId && <span className="block text-[10px] text-slate-500" title="OS juntada com outras numa OS nova">juntada</span>}</td>}
-              {tem("nfse") && <td>{nfseDe.get(o.id) ? <Link href={`/fiscal/${nfseDe.get(o.id)!.id}`} className="sublinhado">#{numeroDaNota(nfseDe.get(o.id)!)}</Link> : <span className="text-slate-400">—</span>}</td>}
+              {tem("nfse") && <td>{celulaNotas(o, "NFSE")}</td>}
+              {tem("nfe") && <td>{celulaNotas(o, "NFE")}</td>}
               {tem("cliente") && <td><Link href={`/os/${o.id}`} className="uppercase sublinhado">{o.cliente.nome}</Link>{o.cliente.fantasia && o.cliente.fantasia !== o.cliente.nome && <i className="block text-[11px] uppercase text-slate-500">({o.cliente.fantasia})</i>}</td>}
               {tem("entrada") && <td>{dataSP(o.entrada)}<div className="text-[11px] text-slate-400">{horaSP(o.entrada)}</div></td>}
               {tem("saida") && <td>{o.saida ? <>{dataSP(o.saida)}<div className="text-[11px] text-slate-400">{horaSP(o.saida)}</div></> : <span className="text-slate-400">—</span>}</td>}
