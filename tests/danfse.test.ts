@@ -34,7 +34,7 @@ beforeEach(async () => {
 describe("DANFSe", () => {
   it("baixa o PDF oficial do ADN com o certificado da empresa emissora", async () => {
     let url = "", usado: unknown = null;
-    const d = await danfseDaNota(notaId, { cert, transporte: async (u, c) => { url = u; usado = c; return { status: 200, tipo: "application/pdf", corpo: Buffer.from("%PDF-1.7 oficial") }; } });
+    const d = await danfseDaNota(notaId, { oficial: true, cert, transporte: async (u, c) => { url = u; usado = c; return { status: 200, tipo: "application/pdf", corpo: Buffer.from("%PDF-1.7 oficial") }; } });
     expect(url).toBe(`https://adn.nfse.gov.br/danfse/${CHAVE}`);
     expect(usado).toBe(cert);
     expect(d).toMatchObject({ oficial: true, nome: `DANFSe-279-${CHAVE}.pdf` });
@@ -42,12 +42,20 @@ describe("DANFSe", () => {
   });
 
   it("ADN fora do ar (503) ou com erro de rede: gera a representação do XML", async () => {
-    const d = await danfseDaNota(notaId, { cert, transporte: async () => ({ status: 503, tipo: "text/html", corpo: Buffer.from("<h1>503 Service Unavailable</h1>") }) });
+    const d = await danfseDaNota(notaId, { oficial: true, cert, transporte: async () => ({ status: 503, tipo: "text/html", corpo: Buffer.from("<h1>503 Service Unavailable</h1>") }) });
     expect(d.oficial).toBe(false);
     expect(d.motivo).toMatch(/indisponível \(HTTP 503\)/);
     expect(d.pdf.subarray(0, 5).toString()).toBe("%PDF-");
-    const r = await danfseDaNota(notaId, { cert, transporte: async () => { throw new Error("ECONNRESET"); } });
+    const r = await danfseDaNota(notaId, { oficial: true, cert, transporte: async () => { throw new Error("ECONNRESET"); } });
     expect(r).toMatchObject({ oficial: false, motivo: "ECONNRESET" });
+  });
+
+  it("por padrão monta o DANFSe do MXERP sem ir ao portal", async () => {
+    let chamou = false;
+    const d = await danfseDaNota(notaId, { cert, transporte: async () => { chamou = true; return { status: 200, tipo: "application/pdf", corpo: Buffer.from("%PDF-x") }; } });
+    expect(chamou).toBe(false);
+    expect(d).toMatchObject({ oficial: false, motivo: undefined });
+    expect(d.pdf.subarray(0, 5).toString()).toBe("%PDF-");
   });
 
   it("lê os dados da NFS-e autorizada", () => {

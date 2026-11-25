@@ -47,6 +47,7 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
         <div className="flex gap-2">
           {n.xml && <a href={`/api/notas/${n.id}/xml`} className="btn-sec">Baixar XML</a>}
           {n.modelo === "NFSE" && n.chave && <a href={`/fiscal/${n.id}/danfse`} target="_blank" rel="noreferrer" className="btn-sec">DANFSe (PDF)</a>}
+          {n.modelo === "NFSE" && n.chave && <a href={`/fiscal/${n.id}/danfse?oficial=1`} target="_blank" rel="noreferrer" className="btn-sec">DANFSe do portal nacional</a>}
           {n.modelo === "NFE" && n.xml && <a href={`/fiscal/${n.id}/danfe`} target="_blank" rel="noreferrer" className="btn">Abrir DANFE (PDF A4)</a>}
           {n.modelo === "NFE" && n.xml && <a href={`/fiscal/${n.id}/danfe?baixar=1`} className="btn-sec">Baixar PDF</a>}
           {n.modelo === "NFE" && n.xml && <Link href={`/fiscal/${n.id}/imprimir?formato=simplificado`} className="btn-sec">DANFE simplificado</Link>}
