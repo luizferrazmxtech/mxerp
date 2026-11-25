@@ -6,6 +6,7 @@ import { diaSP, somarDias } from "@/lib/datas";
 import { baixarLancamento } from "./lancamentos";
 import { ClienteInter, ESCOPOS_COBRANCA, explicar, idInterAtual, idInterDaEmpresa, lerConfigInter, mensagemErro, temCobranca, type ConfigInter, type RespostaInter } from "./inter";
 import { LOJA_ATUAL } from "@/lib/empresa/loja";
+import { resolverAvisosJaLancados } from "./avisoJaLancado";
 
 /**
  * Boletos (BolePix) do Banco Inter pela API de Cobrança v3.
@@ -243,7 +244,7 @@ async function registrarAviso(motivo: keyof typeof MOTIVO_AVISO, d: DetalheInter
   const c = d.cobranca ?? {};
   if (!c.codigoSolicitacao) return null;
   const num = (v: string | number | undefined) => (v == null || v === "" || isNaN(Number(v)) ? null : D(Number(v)));
-  return prisma.avisoBoleto.upsert({
+  const aviso = await prisma.avisoBoleto.upsert({
     where: { codigoSolicitacao: c.codigoSolicitacao },
     update: {},
     create: {
@@ -254,6 +255,9 @@ async function registrarAviso(motivo: keyof typeof MOTIVO_AVISO, d: DetalheInter
       pagoEm: c.dataSituacao ? new Date(`${c.dataSituacao.slice(0, 10)}T00:00:00Z`) : null, origemRecebimento: c.origemRecebimento ?? null,
     },
   });
+  // boleto de fora (ex.: Gestão Click) cujo recebimento já está lançado aqui: o aviso já nasce resolvido
+  if (motivo === "NAO_EMITIDO") await resolverAvisosJaLancados([aviso.id]);
+  return aviso;
 }
 
 /** Grava o que o Inter disse do boleto e, se foi pago, baixa a conta a receber na data do pagamento. */
@@ -388,7 +392,7 @@ export async function sincronizarBoletos(opts: { dias?: number; cliente?: Client
   const ctx = await contextoBoletos(opts.cliente, opts.interId);
   if (!ctx) return null;
   const res = { consultados: 0, baixados: 0, emitidos: 0, cancelados: 0, avisos: 0, erros: [] as string[] };
-  const avisosAntes = await prisma.avisoBoleto.count();
+  const inicio0 = new Date();
   try {
     res.cancelados = await cancelarOrfaos(ctx, true);
 
@@ -438,7 +442,8 @@ export async function sincronizarBoletos(opts: { dias?: number; cliente?: Client
   } catch (e) {
     res.erros.unshift(e instanceof BoletoError ? e.message : mensagemErro(e));
   }
-  res.avisos = (await prisma.avisoBoleto.count()) - avisosAntes;
+  // os que nasceram resolvidos (recebimento já lançado) não contam
+  res.avisos = await prisma.avisoBoleto.count({ where: { createdAt: { gte: inicio0 }, resolvidoEm: null } });
   const msg = `${res.baixados} pago(s) baixado(s), ${res.emitidos} emitido(s), ${res.cancelados} cancelado(s)${res.avisos ? `, ${res.avisos} pago(s) sem conta no sistema` : ""}${res.erros.length ? ` · Erro: ${res.erros[0]}` : ""}`;
   await prisma.integracaoInter.updateMany({ where: { id: ctx.interId }, data: { ultimaSincBoletosEm: new Date(), ultimaSincBoletosMsg: msg.slice(0, 500) } });
   return res;

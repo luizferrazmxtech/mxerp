@@ -2,7 +2,7 @@
 
 import { exigirUsuario } from "@/lib/auth/atual";
 import { lerPlanilha } from "@/lib/migracao/planilha";
-import { importarBackupGestaoClick, lerBackupGestaoClick } from "@/lib/migracao/gestaoclick";
+import { importarBackupGestaoClick, ligarNotasDoGestaoClick, lerBackupGestaoClick } from "@/lib/migracao/gestaoclick";
 import { registrarAuditoria, semAuditoria } from "@/lib/auditoria/registro";
 import { importarPessoas, importarProdutos, importarServicos, type Resultado, type Tipo } from "@/lib/migracao/importar";
 
@@ -46,6 +46,19 @@ export async function importarBackup(_: EstadoBackup, form: FormData): Promise<E
     }));
     if (!simular) await registrarAuditoria(u, { entidade: "Migracao", acao: "CRIAR", descricao: `Importou o backup do Gestão Click: ${resultados.map((r) => `${r.tipo} ${r.criados}`).join(", ")}` });
     return { ok: true, mensagem: simular ? "Simulação concluída, nada foi gravado" : "Backup importado", resultados };
+  } catch (e) {
+    return { ok: false, mensagem: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Liga às vendas/OS as notas do Gestão Click que ficaram sem origem (só com o que já está no ERP). */
+export async function ligarNotasAcao(_: { ok: boolean; mensagem: string } | null, form: FormData): Promise<{ ok: boolean; mensagem: string }> {
+  const u = await exigirUsuario(["ADMIN"]);
+  const simular = form.get("modo") !== "gravar";
+  try {
+    const r = await semAuditoria(() => ligarNotasDoGestaoClick(simular));
+    if (!simular && r.ligadas) await registrarAuditoria(u, { entidade: "Migracao", acao: "EDITAR", descricao: `Ligou ${r.ligadas} notas do Gestão Click às vendas/OS` });
+    return { ok: true, mensagem: `${r.semOrigem} notas do Gestão Click sem venda/OS; ${r.ligadas} ${simular ? "podem ser ligadas (simulação, nada foi gravado)" : "foram ligadas"}.` };
   } catch (e) {
     return { ok: false, mensagem: e instanceof Error ? e.message : String(e) };
   }

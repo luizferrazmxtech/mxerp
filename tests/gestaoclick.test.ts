@@ -369,6 +369,42 @@ describe("origem das notas do Gestão Click", () => {
   });
 });
 
+describe("ligar notas do Gestão Click às OS", () => {
+  it("usa entrada e saída da OS, liga duas notas a duas OS iguais e não repete documento já ligado", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Empresa", "Venda", "OrdemServico" CASCADE`);
+    await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", nomeFantasia: "MXTECH", cnpj: "12965283000195" } });
+    const cli = await prisma.pessoa.create({ data: { nome: "T-POSTO BANDEIRA", documento: "50488238000186", cliente: true } });
+    const d = (s: string) => new Date(`${s}T12:00:00Z`);
+    // nota emitida 20 dias antes de a OS ser fechada (mas depois da entrada): antes ficava sem ligar
+    const longa = await prisma.ordemServico.create({ data: { numero: 990801, clienteId: cli.id, entrada: d("2025-11-01"), saida: d("2025-11-28"), total: 808, totalServicos: 808 } });
+    // duas OS do mesmo cliente, mesmo valor, mesmo dia: antes era "empate" e nenhuma ganhava nota
+    const a = await prisma.ordemServico.create({ data: { numero: 990802, clienteId: cli.id, entrada: d("2026-03-10"), saida: d("2026-03-10"), total: 220, totalServicos: 220 } });
+    const b = await prisma.ordemServico.create({ data: { numero: 990803, clienteId: cli.id, entrada: d("2026-03-10"), saida: d("2026-03-10"), total: 220, totalServicos: 220 } });
+    // OS que já tem a NFS-e dela: não recebe outra
+    const jaTem = await prisma.ordemServico.create({ data: { numero: 990804, clienteId: cli.id, entrada: d("2026-08-13"), saida: d("2026-08-13"), total: 60, totalServicos: 60 } });
+    await prisma.notaFiscal.create({ data: { modelo: "NFSE", serie: 1, numero: 86, ambiente: "PRODUCAO", status: "AUTORIZADA", valorTotal: 60, origemTipo: "OS", origemId: jaTem.id } });
+    const nota = (numero: number, valor: number, dia: string) => prisma.notaFiscal.create({ data: {
+      modelo: "NFSE", serie: 900, numero, ambiente: "PRODUCAO", status: "AUTORIZADA", valorTotal: valor, emitidaEm: d(dia), destinatarioNome: "T-POSTO BANDEIRA", idLegado: `nota:NFSE:900:${numero}:PRODUCAO`,
+    } });
+    const n1 = await nota(501, 808, "2025-11-08");
+    const n2 = await nota(502, 220, "2026-03-10");
+    const n3 = await nota(503, 220, "2026-03-11");
+    const n4 = await nota(504, 60, "2026-08-14");
+
+    expect(await gc.ligarNotasDoGestaoClick(true)).toEqual({ semOrigem: 4, ligadas: 3 });
+    expect((await prisma.notaFiscal.findUniqueOrThrow({ where: { id: n1.id } })).origemId).toBeNull(); // simulação não grava
+    expect(await gc.ligarNotasDoGestaoClick(false)).toEqual({ semOrigem: 4, ligadas: 3 });
+    const origem = async (id: string) => (await prisma.notaFiscal.findUniqueOrThrow({ where: { id } })).origemId;
+    expect(await origem(n1.id)).toBe(longa.id);
+    expect(new Set([await origem(n2.id), await origem(n3.id)])).toEqual(new Set([a.id, b.id]));
+    expect(await origem(n4.id)).toBeNull();
+    // de novo: nada muda
+    expect(await gc.ligarNotasDoGestaoClick(false)).toEqual({ semOrigem: 1, ligadas: 0 });
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "OrdemServico" CASCADE`);
+    await prisma.pessoa.delete({ where: { id: cli.id } }).catch(() => null);
+  });
+});
+
 describe("segunda empresa (outro Gestão Click)", () => {
   it("entra na loja dela sem misturar números, estoque nem cadastros com a primeira", async () => {
     await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Empresa" CASCADE`);

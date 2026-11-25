@@ -172,12 +172,12 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
   ];
   const totalCards = soma(todos);
 
-  type Card = { id: string; icone: string; titulo: string; href?: string; origem?: { rotulo: string; href: string }; boleto?: string | null; pilula: { r: string; c: string }; extra?: string; data: Date; valor: number };
+  type Card = { id: string; icone: string; titulo: string; href?: string; origem?: { rotulo: string; href: string }; boleto?: string | null; pilula: { r: string; c: string }; extra?: string; data: Date; pago?: Date | null; valor: number };
   let lista: Card[] = [];
   const q = sp.qt?.trim();
   if (t === "recebimentos" || t === "pagamentos") {
     const w: Prisma.LancamentoWhereInput = { pessoaId: id, tipo: tipoLanc, ...(ini ? { vencimento: { gte: ini } } : {}), AND: cadaPalavra(q, (p): Prisma.LancamentoWhereInput[] => [{ descricao: contem(p) }]) };
-    const ls = await prisma.lancamento.findMany({ where: w, include: { formaPagamento: { select: { nome: true } }, boletos: { select: { id: true, situacao: true }, orderBy: { createdAt: "desc" } } }, orderBy: { vencimento: "desc" }, take: 100 });
+    const ls = await prisma.lancamento.findMany({ where: w, include: { formaPagamento: { select: { nome: true } }, boletos: { select: { id: true, situacao: true }, orderBy: { createdAt: "desc" } } }, orderBy: [{ vencimento: "desc" }, { createdAt: "desc" }], take: 100 });
     const nums = new Map<string, string>();
     const os = await prisma.ordemServico.findMany({ where: { id: { in: ls.filter((l) => l.origemTipo === "OS").map((l) => l.origemId!) } }, select: { id: true, numero: true } });
     const vs = await prisma.venda.findMany({ where: { id: { in: ls.filter((l) => l.origemTipo === "VENDA").map((l) => l.origemId!) } }, select: { id: true, numero: true } });
@@ -194,7 +194,9 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
       boleto: l.tipo === "RECEBER" ? boletoAbrivel(l.boletos.find((b) => ATIVOS.includes(b.situacao))) : null,
       pilula: l.pagoEm ? { r: "Confirmado", c: "border-emerald-300 bg-emerald-50 text-emerald-700" } : l.vencimento < hoje ? { r: "Atrasado", c: "border-red-300 bg-red-50 text-red-700" } : { r: "Em aberto", c: "border-slate-300 bg-white text-slate-600" },
       extra: l.formaPagamento?.nome ?? undefined,
-      data: l.pagoEm ?? l.vencimento,
+      // a lista é por vencimento: a data mostrada é ele (a do recebimento vem ao lado), senão a ordem parece embaralhada
+      data: l.vencimento,
+      pago: l.pagoEm,
       valor: Number(l.pagoEm ? l.valorPago ?? l.valor : l.valor),
     }));
   } else if (t === "vendas") {
@@ -240,6 +242,7 @@ async function Transacoes({ papel, id, sp, base, tipoLanc }: { papel: PapelPesso
                 <Pilula rotulo={c.pilula.r} cor={c.pilula.c} />
                 {c.extra && <span className="flex items-center gap-1"><Icone nome="cartao" size={11} /> {c.extra}</span>}
                 <span className="flex items-center gap-1"><Icone nome="calendario" size={11} /> {data(c.data)}</span>
+                {c.pago && <span className="text-emerald-700">{tipoLanc === "PAGAR" ? "pago" : "recebido"} {data(c.pago)}</span>}
                 <span className="flex items-center gap-1"><Icone nome="dinheiro" size={11} /> {brl(c.valor)}</span>
                 {c.origem && <Link href={c.origem.href} className="flex items-center gap-1 text-marca hover:underline"><Icone nome="vendas" size={11} /> {c.origem.rotulo.replace("Abrir a ", "")}</Link>}
                 {c.boleto && <a href={c.boleto} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-marca hover:underline"><Icone nome="boleto" size={11} /> boleto</a>}

@@ -88,10 +88,10 @@ export function ordemContas(o?: string): Prisma.LancamentoOrderByWithRelationInp
   const desc = o?.startsWith("-");
   const dir = desc ? "desc" : "asc";
   switch (o?.replace(/^-/, "")) {
-    case "descricao": return [{ descricao: dir }];
-    case "entidade": return [{ pessoa: { nome: dir } }, { vencimento: "asc" }];
-    case "valor": return [{ valor: dir }];
-    case "vencimento": return [{ vencimento: dir }, { descricao: "asc" }];
-    default: return [{ vencimento: "asc" }, { descricao: "asc" }];
+    case "descricao": return [{ descricao: dir }, { vencimento: "asc" }, { id: "asc" }];
+    case "entidade": return [{ pessoa: { nome: dir } }, { vencimento: "asc" }, { id: "asc" }];
+    case "valor": return [{ valor: dir }, { vencimento: "asc" }, { id: "asc" }];
+    case "vencimento": return [{ vencimento: dir }, { pagoEm: dir }, { descricao: "asc" }, { id: "asc" }];
+    default: return [{ vencimento: "asc" }, { pagoEm: "asc" }, { descricao: "asc" }, { id: "asc" }];
   }
 }
