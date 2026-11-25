@@ -26,11 +26,13 @@ export default async function Migracao() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="font-semibold">Notas do Gestão Click sem venda ou OS</h2>
+        <h2 className="font-semibold">Contas e notas do Gestão Click sem venda ou OS</h2>
         <p className="max-w-3xl text-sm text-slate-600">
-          O backup não diz de qual venda ou OS cada nota saiu, e a nota que não foi ligada não aparece nas contas a receber.
-          Aqui o ERP procura de novo, pelo cliente, pelo valor e pela data (de 10 dias antes da entrada até 120 dias depois da
-          saída da OS). Só preenche as notas sem origem; nada é desligado. Não precisa enviar o backup.
+          Contas: grava na conta a venda, OS ou compra citada na descrição (&ldquo;Venda de nº 7066&rdquo;), para o &ldquo;Ver
+          financeiro&rdquo; do documento achar as contas, e numera as parcelas pelo vencimento. Notas: procura de novo a venda
+          ou OS pelo cliente, pelo valor e pela data (de 10 dias antes da entrada até 120 dias depois da saída). Para ligar pelo
+          número da nota que o Gestão Click mostra na venda e na conta, reimporte o backup só com &ldquo;Notas fiscais emitidas no Gestão Click&rdquo;
+          marcado. Só preenche o que está vazio; nada é desligado. Não precisa enviar o backup.
         </p>
         <LigarNotas />
       </section>

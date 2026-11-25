@@ -52,3 +52,36 @@ export async function origemPelaDescricao(contas: Conta[]): Promise<Map<string, 
   }
   return origem;
 }
+
+/**
+ * Grava de vez na conta trazida do Gestão Click a venda/OS/compra citada na descrição ("Venda de nº 7066"), para o
+ * "Ver financeiro" do documento achar as contas pelo id. Também numera as parcelas (1/4, 2/4…) pelo vencimento
+ * quando todas vieram como 1/1. Só mexe em contas da migração (idLegado) ainda sem documento.
+ */
+export async function ligarContasPelaDescricao(simular: boolean) {
+  const soltas = await prisma.lancamento.findMany({
+    where: { idLegado: { not: null }, origemId: null, OR: [{ origemTipo: null }, { origemTipo: "IMPLANTACAO" }] },
+    select: { id: true, descricao: true, origemTipo: true, origemId: true, empresaId: true },
+  });
+  const achadas = new Map<string, { origemTipo: TipoDoc; origemId: string }>();
+  for (let i = 0; i < soltas.length; i += 500) for (const [k, v] of await origemPelaDescricao(soltas.slice(i, i + 500))) achadas.set(k, v);
+  const docs = new Set<string>();
+  for (const [id, o] of achadas) {
+    docs.add(o.origemId);
+    if (!simular) await prisma.lancamento.update({ where: { id }, data: o });
+  }
+  let numeradas = 0;
+  for (const origemId of docs) {
+    const ls = await prisma.lancamento.findMany({
+      where: simular ? { OR: [{ origemId }, { id: { in: [...achadas].filter(([, o]) => o.origemId === origemId).map(([id]) => id) } }] } : { origemId },
+      select: { id: true, tipo: true, totalParcelas: true, idLegado: true }, orderBy: [{ vencimento: "asc" }, { createdAt: "asc" }],
+    });
+    for (const tipo of ["RECEBER", "PAGAR"] as const) {
+      const doTipo = ls.filter((l) => l.tipo === tipo);
+      if (doTipo.length < 2 || doTipo.some((l) => l.totalParcelas !== 1 || !l.idLegado)) continue;
+      numeradas += doTipo.length;
+      if (!simular) for (const [i, l] of doTipo.entries()) await prisma.lancamento.update({ where: { id: l.id }, data: { parcela: i + 1, totalParcelas: doTipo.length } });
+    }
+  }
+  return { soltas: soltas.length, ligadas: achadas.size, numeradas };
+}
