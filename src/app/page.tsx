@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { usuarioAtual } from "@/lib/auth/atual";
 import { podeAcessar } from "@/lib/auth/permissoes";
+import { pode } from "@/lib/auth/permissoesAcao";
 import { dadosPainel } from "@/lib/inicio/painel";
 import { avisosPendentes } from "@/lib/financeiro/avisosBoleto";
 import { melhorPior, percentual, saudacao } from "@/lib/inicio/escala";
@@ -18,6 +19,15 @@ export const metadata = { title: "Início" };
 
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const C = { verde: "#1fa855", vermelho: "#dc2626", azul: "#2f6fd6", marca: "#018e83", laranja: "#e8730c", cinza: "#475569" };
+/** Atalhos de quem não vê os números do Início (atendente, técnico, caixa): o que se faz no dia a dia. */
+const ATALHOS = [
+  { rotulo: "Nova OS", href: "/os/adicionar", icone: "os" },
+  { rotulo: "Novo orçamento", href: "/orcamentos/adicionar", icone: "gerenciar" },
+  { rotulo: "Nova venda", href: "/vendas/adicionar", icone: "vendas" },
+  { rotulo: "PDV", href: "/pdv", icone: "pdv" },
+  { rotulo: "Painel de OS", href: "/os/painel", icone: "painel" },
+  { rotulo: "Clientes", href: "/clientes", icone: "clientes" },
+];
 const plural = (n: number, um: string, varios: string) => `${n.toLocaleString("pt-BR")} ${n === 1 ? um : varios}`;
 
 /** Cartão de número (KPI) no padrão do Gestão Click: ícone colorido, título, valor grande e legenda. */
@@ -72,8 +82,10 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
   const sp = await searchParams;
   const u = await usuarioAtual();
   const papel = u?.papel ?? "OPERADOR";
-  const verFin = podeAcessar(papel, "/financeiro");
-  const verVendas = podeAcessar(papel, "/vendas");
+  // números (saldo, financeiro, vendas, valores e gráficos) só para quem tem "inicio.indicadores" (padrão: administrador)
+  const numeros = await pode(papel, "inicio.indicadores");
+  const verFin = numeros && podeAcessar(papel, "/financeiro");
+  const verVendas = numeros && podeAcessar(papel, "/vendas");
   const d = await dadosPainel({ financeiro: verFin, vendas: verVendas });
   const rotulos = d.meses.map((m) => m.rotulo);
   const mesAtual = MESES[Number(d.meses[d.meses.length - 1].chave.slice(5)) - 1];
@@ -125,15 +137,26 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
       )}
 
       {/* o que precisa de atenção (melhoria sobre o Gestão Click) */}
+      {!numeros && (
+        <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+          {ATALHOS.filter((a) => podeAcessar(papel, a.href.split("?")[0])).map((a) => (
+            <Link key={a.href} href={a.href} className="cartao flex items-center gap-2 p-3 text-[13px] font-semibold text-slate-700 hover:border-slate-300">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-marca/10 text-marca"><Icone nome={a.icone} size={15} /></span>
+              {a.rotulo}
+            </Link>
+          ))}
+        </div>
+      )}
+
       <div className={`mb-4 grid gap-3 sm:grid-cols-2 ${fin ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
         <Kpi icone="os" cor={C.marca} titulo="OS em aberto" valor={d.os.abertas.toLocaleString("pt-BR")} href="/os?s=abertas"
-          legenda={`${brl(d.os.valorAbertas)} a faturar`} />
+          legenda={numeros ? `${brl(d.os.valorAbertas)} a faturar` : "ainda não concluídas"} />
         <Kpi icone="relogio" cor={d.os.atrasadas ? C.laranja : C.cinza} titulo="OS atrasadas" valor={d.os.atrasadas.toLocaleString("pt-BR")} href="/os/painel"
           legenda="a saída prevista já passou" />
         <Kpi icone="alerta" cor={d.os.comFalta ? C.vermelho : C.cinza} titulo="OS com peça em falta" valor={d.os.comFalta.toLocaleString("pt-BR")} href="/os?periodo=todos&falta=1"
           legenda={`${plural(d.estoque.falta.length, "produto para comprar", "produtos para comprar")}`} />
         <Kpi icone="gerenciar" cor={C.azul} titulo="Orçamentos em aberto" valor={d.orcamentos.n30.toLocaleString("pt-BR")} href="/orcamentos"
-          legenda={`${brl(d.orcamentos.total30)} nos últimos 30 dias`} />
+          legenda={numeros ? `${brl(d.orcamentos.total30)} nos últimos 30 dias` : "dos últimos 30 dias"} />
         {fin && (
           <Kpi icone="prazo" cor={fin.receber.vencido ? C.vermelho : C.cinza} titulo="Contas vencidas" href="/financeiro?tipo=RECEBER&periodo=todos&f=vencidos"
             valor={brl(fin.receber.vencido)} legenda={`a receber · a pagar vencido: ${brl(fin.pagar.vencido)}`} />
@@ -181,7 +204,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
           );
         })()}
 
-        <Quadro icone="os" titulo={<>Movimento das <b>ordens de serviço</b></>} subtitulo="Quantas OS entraram e quantas foram concluídas em cada mês."
+        {numeros && <Quadro icone="os" titulo={<>Movimento das <b>ordens de serviço</b></>} subtitulo="Quantas OS entraram e quantas foram concluídas em cada mês."
           acoes={<Link href="/os/painel" className="btn-sec !py-1 text-[12px]"><Icone nome="painel" size={13} /> Painel de OS</Link>}>
           <Resumo itens={[
             ["Entradas no período", d.os.porMes.reduce((s, m) => s + m.entradas, 0).toLocaleString("pt-BR")],
@@ -192,7 +215,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
             { nome: "Entradas", cor: C.azul, valores: d.os.porMes.map((m) => m.entradas) },
             { nome: "Concluídas", cor: C.marca, valores: d.os.porMes.map((m) => m.concluidas) },
           ]} />
-        </Quadro>
+        </Quadro>}
 
         <Quadro icone="gerenciar" titulo={<>OS por <b>situação</b></>} subtitulo="Ordens de serviço que ainda não foram faturadas nem canceladas. Clique para ver a lista.">
           {d.os.situacoes.length ? (() => {
@@ -206,7 +229,7 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
                       <span className={`pilula ${c.pilula} justify-self-start`}>{s.nome}</span>
                       <span className="flex items-center gap-2">
                         <span className={`h-4 rounded-sm ${c.ponto}`} style={{ width: `${Math.max((s.n / max) * 70, 1.5)}%` }} />
-                        <span className="whitespace-nowrap text-slate-700"><b>{s.n}</b> · {brl(s.total)}</span>
+                        <span className="whitespace-nowrap text-slate-700"><b>{s.n}</b>{numeros && <> · {brl(s.total)}</>}</span>
                       </span>
                     </Link>
                   );
@@ -253,19 +276,19 @@ export default async function Inicio({ searchParams }: { searchParams: Promise<{
           {d.orcamentos.ultimos.length ? (
             <>
               <table className="tabela -mx-4 -mt-4 w-[calc(100%+2rem)]">
-                <thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th className="text-right">Valor</th></tr></thead>
+                <thead><tr><th>Nº</th><th>Cliente</th><th>Data</th>{numeros && <th className="text-right">Valor</th>}</tr></thead>
                 <tbody>
                   {d.orcamentos.ultimos.map((o) => (
                     <tr key={o.id}>
                       <td><Link href={`/orcamentos/${o.id}`} className="text-marca hover:underline">{o.numero}</Link></td>
                       <td className="max-w-56 truncate">{o.cliente.fantasia || o.cliente.nome}</td>
                       <td>{data(o.data)}</td>
-                      <td className="whitespace-nowrap text-right">{brl(o.total)}</td>
+                      {numeros && <td className="whitespace-nowrap text-right">{brl(o.total)}</td>}
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <p className="mt-3 text-[12px] text-slate-500">{plural(d.orcamentos.n, "orçamento em aberto", "orçamentos em aberto")} no total, somando {brl(d.orcamentos.total)}.</p>
+              <p className="mt-3 text-[12px] text-slate-500">{plural(d.orcamentos.n, "orçamento em aberto", "orçamentos em aberto")} no total{numeros ? `, somando ${brl(d.orcamentos.total)}` : ""}.</p>
             </>
           ) : <Vazio>Nenhum orçamento em aberto.</Vazio>}
         </Quadro>

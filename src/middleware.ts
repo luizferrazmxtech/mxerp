@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { COOKIE, usuarioDoToken } from "@/lib/auth/sessao";
-import { podeAcessar } from "@/lib/auth/permissoes";
+import { acaoDaArea, podeAcessar } from "@/lib/auth/permissoes";
+import { acoesLiberadas, type ChaveAcao } from "@/lib/auth/permissoesAcao";
 import { COOKIE_CLIENTE, clienteDoToken } from "@/lib/portal/sessao";
 import { licencaAtual } from "@/lib/licenca/licenca";
 
@@ -50,7 +51,10 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL("/licenca", req.url));
   }
   // "só leitura" é barrado na gravação do banco (extensão em src/lib/db.ts), para a consulta e a troca de loja seguirem
-  if (!podeAcessar(usuario.papel, caminho)) {
+  // áreas decididas por permissão por ação (ex.: Relatórios) consultam Usuários › Permissões
+  const acao = acaoDaArea(caminho);
+  const acoes = acao && usuario.papel !== "ADMIN" ? await acoesLiberadas(usuario.papel, [acao as ChaveAcao]) : undefined;
+  if (!podeAcessar(usuario.papel, caminho, acoes)) {
     if (api || req.method !== "GET") return NextResponse.json({ erro: "sem permissão" }, { status: 403 });
     return NextResponse.redirect(new URL("/?negado=1", req.url));
   }

@@ -42,9 +42,7 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   // contratos mexem com cobrança e financeiro
   { prefixo: "/contratos", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/financeiro", papeis: ["ADMIN", "GERENTE"] },
-  // relatórios mostram custo, lucro e comissões: gerência
-  { prefixo: "/relatorios", papeis: ["ADMIN", "GERENTE"] },
-  { prefixo: "/api/relatorios", papeis: ["ADMIN", "GERENTE"] },
+  // relatórios (custo, lucro, comissões, DRE, painéis): ver AREAS_ACAO, decidido pela permissão "relatorios.ver"
   // ver/imprimir uma nota (DANFCE) é de quem vende; a configuração fiscal e a lista ficam com a gerência
   { prefixo: "/fiscal/inutilizacao", papeis: ["ADMIN", "GERENTE"] },
   { prefixo: "/fiscal/impostos", papeis: ["ADMIN", "GERENTE"] },
@@ -68,8 +66,28 @@ const REGRAS: { prefixo: string; papeis: PapelUsuario[] }[] = [
   { prefixo: "/api/vendas", papeis: ["ADMIN", "GERENTE", "OPERADOR", "CAIXA"] },
 ];
 
-export function podeAcessar(papel: PapelUsuario, caminho: string) {
-  const r = REGRAS.find((x) => caminho === x.prefixo || caminho.startsWith(x.prefixo.endsWith("/") ? x.prefixo : x.prefixo + "/"));
+/**
+ * Áreas decididas por uma permissão por ação (Usuários › Permissões), para o administrador poder liberar a outro papel.
+ * A chave é a de ACOES em permissoesAcao.ts (este arquivo não importa o banco: o menu usa no navegador).
+ */
+export const AREAS_ACAO: { prefixo: string; acao: string }[] = [
+  { prefixo: "/relatorios", acao: "relatorios.ver" },
+  { prefixo: "/api/relatorios", acao: "relatorios.ver" },
+];
+
+const bate = (caminho: string, prefixo: string) => caminho === prefixo || caminho.startsWith(prefixo.endsWith("/") ? prefixo : prefixo + "/");
+
+/** Permissão por ação que decide este caminho (ou null). */
+export const acaoDaArea = (caminho: string) => AREAS_ACAO.find((a) => bate(caminho, a.prefixo))?.acao ?? null;
+
+/**
+ * O papel entra neste caminho? `acoes` = permissões por ação liberadas para o papel (acoesLiberadas em
+ * permissoesAcao.ts). Sem `acoes`, uma área decidida por ação só abre para o ADMIN (na dúvida, fecha).
+ */
+export function podeAcessar(papel: PapelUsuario, caminho: string, acoes?: ReadonlySet<string>) {
+  const a = acaoDaArea(caminho);
+  if (a && papel !== "ADMIN" && !acoes?.has(a)) return false;
+  const r = REGRAS.find((x) => bate(caminho, x.prefixo));
   return !r || r.papeis.includes(papel);
 }
 

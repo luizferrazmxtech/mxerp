@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { SituacaoOs } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { usuarioAtual } from "@/lib/auth/atual";
+import { pode } from "@/lib/auth/permissoesAcao";
 import { PRIORIDADES_OS } from "@/lib/os/os";
 import { mesesRecentes, rotuloMesCurto } from "@/lib/datas";
 import { brl, num2 } from "@/lib/ui/format";
@@ -40,6 +42,9 @@ function Cartao({ icone, cor, titulo, valor, legenda, pct, href }: { icone: stri
 }
 
 export default async function PainelOs() {
+  // valores e faturamento são da administração (permissão "inicio.indicadores"); prazos, prioridade e falta são de todos
+  const u = await usuarioAtual();
+  const numeros = !!u && (await pode(u.papel, "inicio.indicadores"));
   const hoje = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   const ini = (dia: string) => new Date(`${dia}T00:00:00-03:00`);
   const amanha = new Date(ini(hoje).getTime() + 86400000);
@@ -104,12 +109,12 @@ export default async function PainelOs() {
         })}
       </div>
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2">
+      <div className={`mb-5 grid gap-3 ${numeros ? "sm:grid-cols-2" : ""}`}>
         <Cartao icone="alerta" cor="#dc2626" titulo="Peças em falta" valor={falta.length} legenda="OS esperando compra de peça" pct={(falta.length / total) * 100} href="/os?falta=1" />
-        <Cartao icone="valor" cor="#018e83" titulo="Valor das OS em aberto" valor={brl(abertas.reduce((s, o) => s + Number(o.total), 0))} legenda={`${abertas.length} OS em aberto`} pct={100} />
+        {numeros && <Cartao icone="valor" cor="#018e83" titulo="Valor das OS em aberto" valor={brl(abertas.reduce((s, o) => s + Number(o.total), 0))} legenda={`${abertas.length} OS em aberto`} pct={100} />}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      {numeros && <div className="grid gap-4 lg:grid-cols-2">
         <section className="cartao p-4">
           <h3 className="flex items-center gap-1.5 text-[16px]"><Icone nome="grafico" size={15} /> Veja o <b>faturamento</b></h3>
           <p className="mb-3 text-[11px] text-slate-500">Total das OS concluídas e faturadas por mês (pela data de saída).</p>
@@ -139,7 +144,7 @@ export default async function PainelOs() {
             {!porTec.length && <p className="text-[13px] text-slate-500">Nenhuma OS concluída nos últimos 6 meses.</p>}
           </div>
         </section>
-      </div>
+      </div>}
     </Pagina>
   );
 }
