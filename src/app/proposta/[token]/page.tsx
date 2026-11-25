@@ -1,8 +1,9 @@
 import DocumentoOrcamento from "@/components/orcamentos/DocumentoOrcamento";
 import BotaoImprimir from "@/components/orcamentos/BotaoImprimir";
+import { tituloOrcamento } from "@/lib/documentos/nomeArquivo";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Proposta comercial" };
+export async function generateMetadata({ params }: { params: Promise<{ token: string }> }) { return tituloOrcamento({ token: (await params).token }, "Proposta comercial"); }
 
 /** Link público da proposta (o cliente abre sem login). */
 export default async function Proposta({ params }: { params: Promise<{ token: string }> }) {

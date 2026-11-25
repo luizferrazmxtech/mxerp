@@ -1,8 +1,9 @@
 import DocumentoOrcamento from "@/components/orcamentos/DocumentoOrcamento";
 import BotaoImprimir from "@/components/orcamentos/BotaoImprimir";
+import { tituloOrcamento } from "@/lib/documentos/nomeArquivo";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Imprimir orçamento" };
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) { return tituloOrcamento({ id: (await params).id }); }
 
 export default async function Imprimir({ params }: { params: Promise<{ id: string }> }) {
   return (

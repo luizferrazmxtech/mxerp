@@ -1,9 +1,10 @@
 import Link from "next/link";
 import DocumentoOs, { type ModoImpressao } from "@/components/os/DocumentoOs";
 import BotaoImprimir from "@/components/orcamentos/BotaoImprimir";
+import { tituloOs } from "@/lib/documentos/nomeArquivo";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Imprimir OS" };
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) { return tituloOs({ id: (await params).id }); }
 
 /** OS para imprimir ou salvar em PDF, com o cabeçalho da MXTECH. */
 export default async function ImprimirOs({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ modo?: string }> }) {

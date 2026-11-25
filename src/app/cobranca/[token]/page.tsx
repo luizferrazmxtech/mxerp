@@ -1,8 +1,9 @@
 import DocumentoVenda from "@/components/vendas/DocumentoVenda";
 import BotaoImprimir from "@/components/orcamentos/BotaoImprimir";
+import { tituloVenda } from "@/lib/documentos/nomeArquivo";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Pedido de venda" };
+export async function generateMetadata({ params }: { params: Promise<{ token: string }> }) { return tituloVenda({ token: (await params).token }, "Pedido de venda"); }
 
 /** Link de cobrança (o cliente abre sem login). */
 export default async function Cobranca({ params }: { params: Promise<{ token: string }> }) {

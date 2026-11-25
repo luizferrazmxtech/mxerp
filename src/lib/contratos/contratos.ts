@@ -4,6 +4,7 @@ import { naLoja } from "@/lib/empresa/loja";
 import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { diaSP, parseDia, somarDias } from "@/lib/datas";
 import { proximoNumero } from "@/lib/sequencia";
+import { nomeBoleto } from "@/lib/documentos/nomeArquivo";
 import { ATIVOS, boletosDoDocumento, pdfBoleto, contextoBoletos, baseLinks } from "@/lib/financeiro/boletos";
 import type { ClienteInter } from "@/lib/financeiro/inter";
 import { emitirNfseVenda, type DependenciasNfse } from "@/lib/fiscal/emissao";
@@ -266,7 +267,7 @@ export async function enviarCobranca(cobrancaId: string, tipo: "BOLETO" | "LEMBR
   };
   let pdf: { nome: string; conteudo: Buffer; tipo: string } | null = null;
   if (boleto?.codigoSolicitacao) {
-    try { pdf = { nome: `boleto-${boleto.seuNumero}.pdf`, conteudo: await pdfBoleto(boleto.id, ctx ?? (await contextoBoletos(deps.cliente))), tipo: "application/pdf" }; } catch { /* vai sem o PDF; a linha digitável e o Pix estão no texto */ }
+    try { pdf = { nome: `${(await nomeBoleto(boleto.id).catch(() => null)) ?? `Boleto ${boleto.seuNumero}`}.pdf`, conteudo: await pdfBoleto(boleto.id, ctx ?? (await contextoBoletos(deps.cliente))), tipo: "application/pdf" }; } catch { /* vai sem o PDF; a linha digitável e o Pix estão no texto */ }
   }
   const nome = tipo === "BOLETO" ? "Cobrança" : "Lembrete de pagamento";
   const erros: string[] = [];

@@ -1,8 +1,9 @@
 import DocumentoVenda from "@/components/vendas/DocumentoVenda";
 import BotaoImprimir from "@/components/orcamentos/BotaoImprimir";
+import { tituloVenda } from "@/lib/documentos/nomeArquivo";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Imprimir venda" };
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) { return tituloVenda({ id: (await params).id }); }
 
 export default async function Imprimir({ params }: { params: Promise<{ id: string }> }) {
   return (

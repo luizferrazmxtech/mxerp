@@ -1,8 +1,9 @@
 import DocumentoOs from "@/components/os/DocumentoOs";
 import BotaoImprimir from "@/components/orcamentos/BotaoImprimir";
+import { tituloOs } from "@/lib/documentos/nomeArquivo";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Ordem de serviço" };
+export async function generateMetadata({ params }: { params: Promise<{ token: string }> }) { return tituloOs({ token: (await params).token }, "Ordem de serviço"); }
 
 /** Link de cobrança da OS (o cliente abre sem login). */
 export default async function CobrancaOs({ params }: { params: Promise<{ token: string }> }) {
