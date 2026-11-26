@@ -5,13 +5,14 @@ const PREFIXO: Record<TipoDoc, string> = { VENDA: "venda", OS: "os", COMPRA: "co
 
 /**
  * Documento citado na descrição da conta, como o Gestão Click escreve: "Venda de nº 8558",
- * "Ordem de serviço de nº 6946", "Compra de nº 934 (FORNECEDOR)".
+ * "Venda de serviços nº 7279 - assinatura nº 14", "Ordem de serviço de nº 6946", "Compra de nº 934 (FORNECEDOR)".
  */
 export function documentoDaDescricao(descricao: string | null | undefined): { tipo: TipoDoc; numero: number } | null {
   const d = (descricao ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const m = /^(venda|ordem de servico|compra) de n\S{0,2}\s*(\d+)/.exec(d);
+  // "Venda de serviços nº 7279 - assinatura nº 14" é a venda gerada pelo contrato (serviço recorrente) no Gestão Click
+  const m = /^(venda de servicos|venda|ordem de servico|compra)(?: de)? n\S{0,2}\s*(\d+)/.exec(d);
   if (!m) return null;
-  return { tipo: m[1] === "venda" ? "VENDA" : m[1] === "compra" ? "COMPRA" : "OS", numero: Number(m[2]) };
+  return { tipo: m[1].startsWith("venda") ? "VENDA" : m[1] === "compra" ? "COMPRA" : "OS", numero: Number(m[2]) };
 }
 
 type Conta = { id: string; descricao: string; origemTipo: string | null; origemId: string | null; empresaId?: string | null };

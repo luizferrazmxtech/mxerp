@@ -55,7 +55,7 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
 
   const [lista, total, somaFiltro, totPeriodo, totVenc, totHoje, totAVencer, totPagos, vencAntes, contas, categorias, formas, centros, avisos, pessoa] = await Promise.all([
     prisma.lancamento.findMany({
-      where, orderBy: ordemContas(sp.o), skip, take,
+      where, orderBy: ordemContas(sp.o, !periodo), skip, take,
       include: {
         pessoa: { select: { id: true, nome: true, fantasia: true, cliente: true, fornecedor: true } }, formaPagamento: true, contaBancaria: { select: { nome: true } },
         categoria: { select: { nome: true, codigo: true } }, boletos: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, situacao: true } },

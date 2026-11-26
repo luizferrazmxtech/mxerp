@@ -84,7 +84,12 @@ export function whereSituacao(f: string | undefined, hoje = diaSP()): Prisma.Lan
   return {};
 }
 
-export function ordemContas(o?: string): Prisma.LancamentoOrderByWithRelationInput[] {
+/**
+ * Ordem da lista de contas. Sem ordem escolhida: dentro de um período (mês, semana…) do vencimento mais antigo para o
+ * mais novo, como o Gestão Click; em "Todo o período" (busca de um cliente, por exemplo) o vencimento mais recente
+ * primeiro, para as contas do ano passado não virem antes das deste mês.
+ */
+export function ordemContas(o?: string, todoPeriodo = false): Prisma.LancamentoOrderByWithRelationInput[] {
   const desc = o?.startsWith("-");
   const dir = desc ? "desc" : "asc";
   switch (o?.replace(/^-/, "")) {
@@ -92,6 +97,8 @@ export function ordemContas(o?: string): Prisma.LancamentoOrderByWithRelationInp
     case "entidade": return [{ pessoa: { nome: dir } }, { vencimento: "asc" }, { id: "asc" }];
     case "valor": return [{ valor: dir }, { vencimento: "asc" }, { id: "asc" }];
     case "vencimento": return [{ vencimento: dir }, { pagoEm: dir }, { descricao: "asc" }, { id: "asc" }];
-    default: return [{ vencimento: "asc" }, { pagoEm: "asc" }, { descricao: "asc" }, { id: "asc" }];
+    default: return todoPeriodo
+      ? [{ vencimento: "desc" }, { pagoEm: "desc" }, { descricao: "asc" }, { id: "asc" }]
+      : [{ vencimento: "asc" }, { pagoEm: "asc" }, { descricao: "asc" }, { id: "asc" }];
   }
 }

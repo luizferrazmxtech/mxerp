@@ -465,6 +465,41 @@ describe("vínculo exato das contas e notas do Gestão Click", () => {
     await prisma.pessoa.delete({ where: { id: cli.id } }).catch(() => null);
   });
 
+  it("venda de contrato: conta \"Venda de serviços nº N\" e NFS-e que cita a venda, data no dia certo", async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Venda", "Lancamento" CASCADE`);
+    // sem apagar a empresa: as situações de venda são dela
+    if (!(await prisma.empresa.findFirst({ where: { cnpj: "12965283000195" } }))) await prisma.empresa.create({ data: { razaoSocial: "MXTECH LTDA", nomeFantasia: "MXTECH", cnpj: "12965283000195" } });
+    await prisma.$transaction((tx) => garantirPadroesFin(tx));
+    const cat = await prisma.categoriaFinanceira.findFirstOrThrow({ where: { nome: "Venda de produtos" } });
+    (await import("@/lib/empresa/loja")).limparCacheLojas();
+    if (!(await prisma.situacaoVendaConfig.count())) await prisma.situacaoVendaConfig.create({ data: { nome: "Concretizada", estoque: "LANCAR", padrao: true } });
+    const cli = await prisma.pessoa.create({ data: { nome: "T-ESSENCE DENTAL", documento: "04008318000170", cliente: true } });
+    const t = await gc.lerBackupGestaoClick(await backup());
+    t.clientes = []; t.vendas_produtos = []; t.vendas_pagamentos = []; t.vendas_historicos = [];
+    t.vendas = [{ "n do pedido": "13", cliente: "T-ESSENCE DENTAL", data: "25/11/2026", "total do pedido": "2.000,00" }];
+    t.vendas_servicos = [{ "n do pedido": "13", servico: "MANUTENCAO MENSAL", quantidade: "1", "valor unitario": "2.000,00", "valor total": "2.000,00" }];
+    await gc.importarBackupGestaoClick(t, { simular: false, etapas: { vendas: true } });
+    const venda = await prisma.venda.findFirstOrThrow({ where: { idLegado: "venda:13" } });
+    // 25/11 em São Paulo (antes ficava à meia-noite UTC = 24/11 21h)
+    expect(venda.data.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" })).toBe("25/11/2026");
+
+    await prisma.lancamento.create({ data: {
+      tipo: "RECEBER", descricao: "Venda de serviços nº 13 - assinatura nº 14", valor: 2000, vencimento: new Date("2026-11-25T00:00:00Z"), competencia: new Date("2026-11-15T00:00:00Z"),
+      categoriaId: cat.id, pessoaId: cli.id, origemTipo: "IMPLANTACAO", idLegado: "receber:t-ess-13",
+    } });
+    expect(await ligarContasPelaDescricao(false)).toMatchObject({ ligadas: 1 });
+    expect(await prisma.lancamento.findFirstOrThrow({ where: { idLegado: "receber:t-ess-13" } })).toMatchObject({ origemTipo: "VENDA", origemId: venda.id });
+
+    // NFS-e de outro valor (não casa no palpite), mas a descrição cita a venda do contrato
+    t.vendas = [];
+    t.notas_fiscais_servicos = [{ loja: "MXTECH", numero: "428", rps: "599", serie: "1", ambiente: "Produção", "data de emissao": "30/11/2026", "hora de emissao": "10:47:00",
+      "razao social": "T-ESSENCE DENTAL", cnpj: "04.008.318/0001-70", "descricao do servico": "Venda de serviços nº 13 - assinatura nº 14 (1 parcela)", "valor do servico": "1.999,00" }];
+    await gc.importarBackupGestaoClick(t, { simular: false, etapas: { notas: true } });
+    expect(await prisma.notaFiscal.findFirstOrThrow({ where: { modelo: "NFSE", numero: 599 } })).toMatchObject({ origemTipo: "VENDA", origemId: venda.id, numeroNfse: 428 });
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaFiscal", "Venda", "Lancamento" CASCADE`);
+    await prisma.pessoa.delete({ where: { id: cli.id } }).catch(() => null);
+  });
+
   it("lê a coluna de nota em vários formatos", () => {
     expect(gc.notasDaLinha({ "nf e": "#6756", "n da nfs e": "98", valor: "10", nota: "" })).toEqual([{ grupo: "PROD", numero: 6756 }, { grupo: "SERV", numero: 98 }]);
     expect(gc.notasDaLinha({ "nota fiscal": "6756, 6757" }).map((n) => n.numero)).toEqual([6756, 6757]);
@@ -647,6 +682,9 @@ describe("documento citado na descrição da conta", () => {
     expect(gc.documentoDaConta("Venda de nº 8558")).toEqual({ tipo: "VENDA", numero: 8558 });
     expect(gc.documentoDaConta("Ordem de serviço de nº 6946")).toEqual({ tipo: "OS", numero: 6946 });
     expect(gc.documentoDaConta("Compra de nº 947 (JABU ELETRICA)")).toEqual({ tipo: "COMPRA", numero: 947 });
+    expect(gc.documentoDaConta("Venda de serviços nº 7279 - assinatura nº 14")).toEqual({ tipo: "VENDA", numero: 7279 });
+    expect(gc.documentoDaConta("Venda de serviços nº 13 - assinatura nº 14 (1 parcela)")).toEqual({ tipo: "VENDA", numero: 13 });
+    expect(gc.documentoDaConta("Nota fiscal de serviço nº 499")).toBeNull();
     expect(gc.documentoDaConta("Aluguel")).toBeNull();
     expect(gc.formaPara("MERCADO LIVRE - MXTECH")).toBe("Mercado Livre");
     expect(gc.formaPara("Dinheiro Parcelado")).toBe("Crediário / a prazo");

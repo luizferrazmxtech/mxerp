@@ -23,12 +23,13 @@ import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
 import Resumo from "@/components/ui/Resumo";
 import { brl } from "@/lib/ui/format";
+import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 import { caixaAberto } from "@/lib/pdv/caixa";
 import AvisoCaixa from "@/components/vendas/AvisoCaixa";
 
 export type TipoLista = "PEDIDO" | "SERVICO" | "BALCAO";
 const COLUNAS = [
-  { chave: "numero", rotulo: "Nº" }, { chave: "nfe", rotulo: "NF-e" }, { chave: "cliente", rotulo: "Cliente" }, { chave: "data", rotulo: "Data" },
+  { chave: "numero", rotulo: "Nº" }, { chave: "nfe", rotulo: "Nota fiscal" }, { chave: "cliente", rotulo: "Cliente" }, { chave: "data", rotulo: "Data" },
   { chave: "entrega", rotulo: "Entrega" }, { chave: "situacao", rotulo: "Situação" }, { chave: "conteudo", rotulo: "Conteúdo" }, { chave: "valor", rotulo: "Valor" }, { chave: "loja", rotulo: "Loja" },
 ];
 const dataBr = (d: Date | null) => (d ? d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "");
@@ -62,8 +63,10 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
     sp.prod ? prisma.produto.findUnique({ where: { id: sp.prod }, select: { id: true, nome: true } }) : null,
     sp.serv ? prisma.servico.findUnique({ where: { id: sp.serv }, select: { id: true, nome: true } }) : null,
   ]);
-  const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "VENDA", origemId: { in: lista.map((v) => v.id) }, modelo: { in: ["NFE", "NFCE"] }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, numero: true } });
-  const notaDe = new Map(notas.map((n) => [n.origemId, n]));
+  // NF-e/NFC-e e NFS-e da venda (venda de serviço, como as de contrato, só tem NFS-e)
+  const notas = await prisma.notaFiscal.findMany({ where: { origemTipo: "VENDA", origemId: { in: lista.map((v) => v.id) }, status: { in: ["AUTORIZADA", "ASSINADA", "ENVIADA"] } }, select: { id: true, origemId: true, modelo: true, numero: true, numeroNfse: true }, orderBy: { createdAt: "asc" } });
+  const notaDe = new Map(notas.filter((n) => n.modelo !== "NFSE").map((n) => [n.origemId, n]));
+  const nfseDe = new Map(notas.filter((n) => n.modelo === "NFSE").map((n) => [n.origemId, n]));
   // cartões de resumo do período, por situação (sem o filtro de situação)
   const porSituacao = await prisma.venda.groupBy({ by: ["situacao"], where: await whereVendas(tipo, { ...sp, s: undefined }, { todasSituacoes: true }), _sum: { total: true }, _count: true });
   const grupo = (sits: string[]) => porSituacao.filter((g) => sits.includes(g.situacao)).reduce((a, g) => ({ n: a.n + g._count, v: a.v + Number(g._sum.total ?? 0) }), { n: 0, v: 0 });
@@ -89,7 +92,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
         <thead><tr>
           {selecao && <th className="w-8"></th>}
           {tem("numero") && <Ordenar base={base} params={sp} campo="numero" className="w-20">Nº</Ordenar>}
-          {tem("nfe") && <th className="w-20">NF-e</th>}
+          {tem("nfe") && <th className="w-24">Nota fiscal</th>}
           {tem("cliente") && <Ordenar base={base} params={sp} campo="cliente">Cliente</Ordenar>}
           {tem("data") && <Ordenar base={base} params={sp} campo="data" className="w-28">Data</Ordenar>}
           {tem("entrega") && <th className="w-28">Entrega</th>}
@@ -102,12 +105,15 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
         <tbody>
           {lista.map((v) => {
             const c = cor(v.situacaoCfg?.cor ?? "cinza");
-            const nf = notaDe.get(v.id);
+            const nf = notaDe.get(v.id), ns = nfseDe.get(v.id);
             return (
               <tr key={v.id}>
                 {selecao && <td><input type="checkbox" name="ids" value={v.id} /></td>}
                 {tem("numero") && <td>{v.numero}{v.juntadaEmId && <span className="block text-[10px] text-slate-500" title="Venda juntada com outras numa venda nova">juntada</span>}</td>}
-                {tem("nfe") && <td>{nf ? <Link href={`/fiscal/${nf.id}`} className="text-marca hover:underline">#{nf.numero}</Link> : <span className="text-slate-400">—</span>}</td>}
+                {tem("nfe") && <td>{nf || ns ? <>
+                  {nf && <Link href={`/fiscal/${nf.id}`} className="block text-marca hover:underline">#{nf.numero}</Link>}
+                  {ns && <Link href={`/fiscal/${ns.id}`} className="block text-marca hover:underline" title="NFS-e">{nf && <span className="text-[10px] text-slate-500">NFS-e </span>}#{numeroDaNota(ns)}</Link>}
+                </> : <span className="text-slate-400">—</span>}</td>}
                 {tem("cliente") && <td>{v.cliente ? <><Link href={`/clientes/${v.cliente.id}`} className="sublinhado">{v.cliente.nome}</Link>{v.cliente.fantasia && <i className="block text-[11px] text-slate-500">{v.cliente.fantasia}</i>}</> : "Consumidor"}</td>}
                 {tem("data") && <td>{dataBr(v.data)}</td>}
                 {tem("entrega") && <td>{dataUtc(v.prazoEntrega)}</td>}
@@ -125,7 +131,7 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
                       <a href={`/vendas/${v.id}/imprimir`} target="_blank" className="flex items-center gap-2 px-3 py-[7px] hover:bg-slate-100"><Icone nome="imprimir" size={15} /> Imprimir</a>
                       <LinkSuspenso href={`/vendas/${v.id}?compartilhar=1`} icone="compartilhar">Compartilhar</LinkSuspenso>
                       {v.situacao === "CONCLUIDA" && !nf && Number(v.totalProdutos) > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, v.id, "NFE")} icone="notas" confirmar={`Emitir a NF-e da venda nº ${v.numero}?`}>Emitir NF-e</BotaoAcao>}
-                      {v.situacao === "CONCLUIDA" && Number(v.totalServicos) > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, v.id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da venda nº ${v.numero}?`}>Emitir NFS-e</BotaoAcao>}
+                      {v.situacao === "CONCLUIDA" && !ns && Number(v.totalServicos) > 0 && <BotaoAcao acao={emitirNotaVendaAcao.bind(null, v.id, "NFSE")} icone="notas" confirmar={`Emitir a NFS-e da venda nº ${v.numero}?`}>Emitir NFS-e</BotaoAcao>}
                       {!balcao && <BotaoAcao acao={clonarVendaAcao.bind(null, v.id)} icone="copiar">Gerar cópia</BotaoAcao>}
                       {verFinanceiro && <LinkSuspenso href={`/financeiro?tipo=RECEBER&periodo=todos&doc=${v.id}`} icone="financeiro">Ver no financeiro</LinkSuspenso>}
                       {podeCancelar && (balcao ? v.situacao === "CONCLUIDA" : v.situacao !== "CANCELADA") && <LinkSuspenso href={`/vendas/${v.id}?cancelar=1`} icone="fechar">Cancelar venda</LinkSuspenso>}

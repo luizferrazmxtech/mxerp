@@ -24,6 +24,21 @@ function celula(v: ExcelJS.CellValue): string {
   return String(v).trim();
 }
 
+/**
+ * Cabeçalho repetido fica com o primeiro: a NFS-e do Gestão Click tem "Numero" (da nota) e, mais adiante, "Número"
+ * (do endereço do tomador). Sem isso o endereço apagava o número da nota. Os seguintes viram "numero 2", "numero 3"…
+ */
+function repetidos(cabecalhos: string[]) {
+  const vistos = new Map<string, number>();
+  cabecalhos.forEach((c, i) => {
+    if (!c) return;
+    const n = (vistos.get(c) ?? 0) + 1;
+    vistos.set(c, n);
+    if (n > 1) cabecalhos[i] = `${c} ${n}`;
+  });
+  return cabecalhos;
+}
+
 export async function lerPlanilha(nome: string, conteudo: Buffer): Promise<{ cabecalhos: string[]; linhas: Linha[] }> {
   if (/\.csv$/i.test(nome) || /\.txt$/i.test(nome)) {
     let texto = conteudo.toString("utf8");
@@ -32,7 +47,7 @@ export async function lerPlanilha(nome: string, conteudo: Buffer): Promise<{ cab
     // cabeçalho = primeira linha com 3+ células preenchidas (extratos de banco trazem linhas de título antes)
     const iCab = Math.max(0, r.data.slice(0, 15).findIndex((l) => l.filter((c) => c.trim()).length >= 3));
     const [cab, ...resto] = r.data.slice(iCab);
-    const cabecalhos = cab.map((c) => normalizar(c));
+    const cabecalhos = repetidos(cab.map((c) => normalizar(c)));
     return { cabecalhos, linhas: resto.map((l) => Object.fromEntries(cabecalhos.map((c, i) => [c, (l[i] ?? "").trim()]))) };
   }
   const wb = new ExcelJS.Workbook();
@@ -48,6 +63,7 @@ export async function lerPlanilha(nome: string, conteudo: Buffer): Promise<{ cab
   const cabRow = ws.getRow(linhaCab);
   const cabecalhos: string[] = [];
   cabRow.eachCell({ includeEmpty: true }, (c, col) => (cabecalhos[col - 1] = normalizar(celula(c.value))));
+  repetidos(cabecalhos);
   const linhas: Linha[] = [];
   for (let i = linhaCab + 1; i <= ws.rowCount; i++) {
     const r = ws.getRow(i);
