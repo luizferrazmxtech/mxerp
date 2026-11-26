@@ -11,7 +11,7 @@ const { prisma } = await import("@/lib/db");
 const est = await import("@/lib/estoque/estoque");
 const gc = await import("@/lib/migracao/gestaoclick");
 const { garantirPadroes: garantirPadroesFin } = await import("@/lib/financeiro/padroes");
-const { ligarContasPelaDescricao } = await import("@/lib/financeiro/origem");
+const { ligarContasPelaDescricao, descricaoComNumero } = await import("@/lib/financeiro/origem");
 
 beforeAll(() => {
   execSync("npx prisma migrate deploy", { env: { ...process.env, DATABASE_URL: URL }, stdio: "ignore" });
@@ -685,6 +685,10 @@ describe("documento citado na descrição da conta", () => {
     expect(gc.documentoDaConta("Venda de serviços nº 7279 - assinatura nº 14")).toEqual({ tipo: "VENDA", numero: 7279 });
     expect(gc.documentoDaConta("Venda de serviços nº 13 - assinatura nº 14 (1 parcela)")).toEqual({ tipo: "VENDA", numero: 13 });
     expect(gc.documentoDaConta("Nota fiscal de serviço nº 499")).toBeNull();
+    // venda renumerada na migração: a conta cita o número do MXERP (o do boleto) e guarda o do Gestão Click
+    expect(descricaoComNumero("Venda de serviços nº 7285 - assinatura nº 40", 9203)).toBe("Venda de serviços nº 9203 - assinatura nº 40 (nº 7285 no Gestão Click)");
+    expect(descricaoComNumero("Venda de nº 6746", 8729)).toBe("Venda de nº 8729 (nº 6746 no Gestão Click)");
+    expect(descricaoComNumero("Venda de nº 6746", 6746)).toBe("Venda de nº 6746");
     expect(gc.documentoDaConta("Aluguel")).toBeNull();
     expect(gc.formaPara("MERCADO LIVRE - MXTECH")).toBe("Mercado Livre");
     expect(gc.formaPara("Dinheiro Parcelado")).toBe("Crediário / a prazo");

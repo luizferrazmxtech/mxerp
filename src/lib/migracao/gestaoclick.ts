@@ -6,7 +6,7 @@ import { baixarLancamento } from "@/lib/financeiro/lancamentos";
 import { enumDe } from "@/lib/os/ordens";
 import { lancaEstoque, lancaFinanceiro } from "@/lib/compras/tipos";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
-import { documentoDaDescricao } from "@/lib/financeiro/origem";
+import { descricaoComNumero, documentoDaDescricao } from "@/lib/financeiro/origem";
 import { proximoNumero } from "@/lib/sequencia";
 import { diaSP } from "@/lib/datas";
 import { lerPlanilha, normalizar, numeroBr, type Linha } from "./planilha";
@@ -595,14 +595,19 @@ async function garantirFormas(nomesGc: Iterable<string | undefined>) {
  * "Compra de nº 934"). Só liga a documentos trazidos do backup (pelo idLegado), nunca a um do MXERP com o mesmo número.
  */
 export const documentoDaConta = (descricao: string | undefined) => documentoDaDescricao(descricao);
-async function origemDaConta(descricao: string | undefined): Promise<{ origemTipo: "VENDA" | "OS" | "COMPRA"; origemId: string } | null> {
+async function origemDaConta(descricao: string | undefined): Promise<{ origemTipo: "VENDA" | "OS" | "COMPRA"; origemId: string; numero: number } | null> {
   const doc = documentoDaConta(descricao);
   if (!doc) return null;
   const where = { idLegado: leg(`${doc.tipo === "VENDA" ? "venda" : doc.tipo === "OS" ? "os" : "compra"}:${doc.numero}`) };
-  const achado = doc.tipo === "VENDA" ? await prisma.venda.findFirst({ where, select: { id: true } })
-    : doc.tipo === "OS" ? await prisma.ordemServico.findFirst({ where, select: { id: true } })
-    : await prisma.compra.findFirst({ where, select: { id: true } });
-  return achado ? { origemTipo: doc.tipo, origemId: achado.id } : null;
+  const achado = doc.tipo === "VENDA" ? await prisma.venda.findFirst({ where, select: { id: true, numero: true } })
+    : doc.tipo === "OS" ? await prisma.ordemServico.findFirst({ where, select: { id: true, numero: true } })
+    : await prisma.compra.findFirst({ where, select: { id: true, numero: true } });
+  return achado ? { origemTipo: doc.tipo, origemId: achado.id, numero: achado.numero } : null;
+}
+/** Conta ligada ao documento: origem e a descrição com o número do MXERP (documento renumerado na migração). */
+async function contaComOrigem(descricao: string) {
+  const o = await origemDaConta(descricao);
+  return o ? { origemTipo: o.origemTipo, origemId: o.origemId, descricao: descricaoComNumero(descricao, o.numero) } : { origemTipo: "IMPLANTACAO" as const, descricao };
 }
 
 async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PAGAR", simular: boolean, soAVencer = false, incluirPagas = false, soCompletar = false): Promise<Resultado> {
@@ -627,11 +632,12 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
   // conta trazida antes sem forma de pagamento ou sem o documento de origem: completa (não mexe no que já foi preenchido)
   let completadas = 0;
   const completar = async (id: string, l: Linha) => {
-    const atual = await prisma.lancamento.findUnique({ where: { id }, select: { formaPagamentoId: true, origemTipo: true, origemId: true } });
+    const atual = await prisma.lancamento.findUnique({ where: { id }, select: { formaPagamentoId: true, origemTipo: true, origemId: true, descricao: true } });
     if (!atual) return;
     const formaNome = formaPara(l["forma de pagamento"] ?? "");
     const forma = !atual.formaPagamentoId && formaNome ? await prisma.formaPagamento.findUnique({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: formaNome } }, select: { id: true } }) : null;
-    const origem = !atual.origemId && (!atual.origemTipo || atual.origemTipo === "IMPLANTACAO") ? await origemDaConta(l["descricao do recebimento"]) : null;
+    const doc = !atual.origemId && (!atual.origemTipo || atual.origemTipo === "IMPLANTACAO") ? await origemDaConta(l["descricao do recebimento"]) : null;
+    const origem = doc ? { origemTipo: doc.origemTipo, origemId: doc.origemId, descricao: descricaoComNumero(atual.descricao, doc.numero) } : null;
     if (!forma && !origem && !(simular && !atual.formaPagamentoId && formaNome)) return;
     completadas++;
     if (simular) return;
@@ -681,10 +687,10 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     const forma = formaNome ? await prisma.formaPagamento.findUnique({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: formaNome } } }) : null;
     await prisma.lancamento.create({
       data: {
-        tipo, descricao: [l["descricao do recebimento"], !pessoa && nomeEnt ? `(${nomeEnt})` : ""].filter(Boolean).join(" ").slice(0, 300),
+        tipo, ...(await contaComOrigem([l["descricao do recebimento"], !pessoa && nomeEnt ? `(${nomeEnt})` : ""].filter(Boolean).join(" ").slice(0, 300))),
         pessoaId: pessoa?.id, categoriaId: cat.id, formaPagamentoId: forma?.id,
         valor: valor.toFixed(2), vencimento: venc, competencia: dataBr(l["data de competencia"]) ?? venc,
-        origemTipo: "IMPLANTACAO", ...(await origemDaConta(l["descricao do recebimento"])), idLegado, empresaId: lojaDe(l.loja),
+        idLegado, empresaId: lojaDe(l.loja),
       },
     });
     r.criados++;
@@ -718,11 +724,11 @@ async function importarContas(linhas: Linha[] | undefined, tipo: "RECEBER" | "PA
     const conta = await prisma.contaBancaria.upsert({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: nomeConta } }, create: { nome: nomeConta }, update: {} });
     await prisma.lancamento.create({
       data: {
-        tipo, descricao: [l["descricao do recebimento"], !pessoa && nomeEnt ? `(${nomeEnt})` : ""].filter(Boolean).join(" ").slice(0, 300),
+        tipo, ...(await contaComOrigem([l["descricao do recebimento"], !pessoa && nomeEnt ? `(${nomeEnt})` : ""].filter(Boolean).join(" ").slice(0, 300))),
         pessoaId: pessoa?.id, categoriaId: cat.id, formaPagamentoId: forma?.id, contaBancariaId: conta.id,
         valor: valor.toFixed(2), vencimento: venc, competencia: dataBr(l["data de competencia"]) ?? venc,
         pagoEm, valorPago: valorPago.toFixed(2), juros: juros.toFixed(2), desconto: desconto.toFixed(2),
-        origemTipo: "IMPLANTACAO", ...(await origemDaConta(l["descricao do recebimento"])), idLegado, empresaId: lojaDe(l.loja), observacao: "Baixada no Gestão Click (histórico importado)",
+        idLegado, empresaId: lojaDe(l.loja), observacao: "Baixada no Gestão Click (histórico importado)",
       },
     });
   };
