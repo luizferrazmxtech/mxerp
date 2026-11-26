@@ -493,5 +493,7 @@ export function ordemOrdens(o?: string): Prisma.OrdemServicoOrderByWithRelationI
   if (c === "valor") return [{ total: dir }];
   if (c === "tecnico") return [{ tecnico: { nome: dir } }];
   if (c === "situacao") return [{ situacaoCfg: { nome: dir } }];
-  return [{ numero: dir }];
+  if (c === "numero") return [{ numero: dir }];
+  // padrão: as mais novas primeiro, pela data de entrada (o número pode vir fora de ordem da migração da outra empresa)
+  return [{ entrada: dir }, { numero: dir }];
 }
