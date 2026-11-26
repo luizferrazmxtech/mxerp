@@ -84,6 +84,7 @@ export function whereSituacao(f: string | undefined, hoje = diaSP()): Prisma.Lan
   return {};
 }
 
+/** Ordem da lista de contas. Sem ordem escolhida: o vencimento mais recente primeiro (regra do Luiz, 26/11/2026). */
 export function ordemContas(o?: string): Prisma.LancamentoOrderByWithRelationInput[] {
   const desc = o?.startsWith("-");
   const dir = desc ? "desc" : "asc";
@@ -92,6 +93,6 @@ export function ordemContas(o?: string): Prisma.LancamentoOrderByWithRelationInp
     case "entidade": return [{ pessoa: { nome: dir } }, { vencimento: "asc" }, { id: "asc" }];
     case "valor": return [{ valor: dir }, { vencimento: "asc" }, { id: "asc" }];
     case "vencimento": return [{ vencimento: dir }, { pagoEm: dir }, { descricao: "asc" }, { id: "asc" }];
-    default: return [{ vencimento: "asc" }, { pagoEm: "asc" }, { descricao: "asc" }, { id: "asc" }];
+    default: return [{ vencimento: "desc" }, { pagoEm: "desc" }, { descricao: "asc" }, { id: "asc" }];
   }
 }

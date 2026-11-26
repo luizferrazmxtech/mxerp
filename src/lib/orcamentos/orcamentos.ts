@@ -257,5 +257,6 @@ export function ordemOrcamentos(o?: string): Prisma.OrcamentoOrderByWithRelation
   if (c === "data") return [{ data: dir }, { numero: dir }];
   if (c === "valor") return [{ total: dir }];
   if (c === "entrega") return [{ prazoEntrega: dir }];
-  return [{ numero: dir }];
+  if (c === "numero") return [{ numero: dir }];
+  return [{ data: dir }, { numero: dir }];
 }

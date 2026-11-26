@@ -504,5 +504,7 @@ export function ordemVendas(o?: string): Prisma.VendaOrderByWithRelationInput[] 
   if (c === "data") return [{ data: dir }, { numero: dir }];
   if (c === "valor") return [{ total: dir }];
   if (c === "situacao") return [{ situacaoCfg: { nome: dir } }];
-  return [{ numero: dir }];
+  if (c === "numero") return [{ numero: dir }];
+  // padrão: as mais novas primeiro, pela data (vendas da outra empresa renumeradas na migração ficam no lugar certo)
+  return [{ data: dir }, { numero: dir }];
 }

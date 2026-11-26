@@ -8,6 +8,7 @@ import { lancaEstoque, lancaFinanceiro } from "@/lib/compras/tipos";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
 import { documentoDaDescricao } from "@/lib/financeiro/origem";
 import { proximoNumero } from "@/lib/sequencia";
+import { diaSP } from "@/lib/datas";
 import { lerPlanilha, normalizar, numeroBr, type Linha } from "./planilha";
 import { importarPessoas, importarProdutos, importarServicos, type Resultado } from "./importar";
 import { LOJA_ATUAL, naLoja } from "@/lib/empresa/loja";
@@ -271,7 +272,7 @@ async function importarOs(t: Tabelas, simular: boolean, historico = true): Promi
       const os = await tx.ordemServico.create({
         data: {
           numero: num.numero, idLegado: leg(`os:${numero}`), empresaId: lojaDe(o.loja), clienteId: cliente.id, vendedorId: ctx.usuarioPorNome(o.vendedor),
-          entrada: data, previsao: dataBr(o["prazo de entrega"]), saida: sit.preencherSaida ? ultimaData(hs) : null,
+          entrada: data, previsao: dataHoraBr(o["prazo de entrega"]), saida: sit.preencherSaida ? ultimaData(hs) : null,
           canal: o["canal de venda"] || "Presencial", centroCusto: o["centro de custo"] || null,
           observacoes: o.observacoes || null, observacaoInterna: o["observacoes interna"] || null,
           situacaoId: sit.id, situacao: enumDe(sit),
@@ -432,7 +433,8 @@ async function importarVendas(t: Tabelas, simular: boolean, historico = true): P
       const pg = parcs.get(v[N]) ?? [];
       const totalProdutos = itens.reduce((a, x) => a + Number(x.subtotal), 0);
       const totalServicos = servicos.reduce((a, x) => a + Number(x.subtotal), 0);
-      const data = dataBr(v.data) ?? new Date();
+      // a data da venda é um instante: meio-dia de São Paulo (como a tela grava), senão aparece o dia anterior
+      const data = dataHoraBr(v.data) ?? new Date();
       const venda = await tx.venda.create({
         data: {
           numero: num.numero, idLegado: leg(`venda:${numero}`), empresaId: lojaDe(v.loja), tipo: itens.length === 0 && servicos.length > 0 ? "SERVICO" : "PEDIDO",
@@ -975,12 +977,18 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
     for (const [n, nomes] of porOs) { const id = idDe.get(leg(`os:${Number(n)}`)); if (id) servicosDoc.set(id, [...new Set(nomes)]); }
   }
   const origem = await achadorDeOrigem(parcelasDoc, servicosDoc, true);
+  // empresa (CNPJ) dona da nota: pela chave, pela loja do Gestão Click ou a única cadastrada
+  const empresaDaNota = (l: Linha) => {
+    const chave = digitosGc(l.chave ?? "");
+    return destino?.empresaId || (chave.length === 44 && empresas.find((e) => e.cnpj === chave.slice(6, 20))?.id) || lojaDe(l.loja) || (empresas.length === 1 ? empresas[0].id : undefined);
+  };
   // o documento de cada nota é achado de uma vez, para todas (os pares mais próximos na data primeiro)
   const todas = tabelas.flatMap(([modelo, linhas]) => linhas.map((l) => ({ modelo, l })));
   const paraLigar = todas.map(({ modelo, l }) => {
     const nfse = modelo === "NFSE";
     return {
       modelo, numero: Number(nfse ? l.rps || l.numero : l.numero) || undefined, valor: numeroBr(nfse ? l["valor do servico"] : l["valor total"]), emitida: dataBr(l["data de emissao"]) ?? new Date(NaN),
+      empresaId: empresaDaNota(l) ?? null,
       doc: digitosGc(nfse ? l.cnpj || l.cpf || "" : l["cnpj do destinatario"] || l["cpf do destinatario"] || ""),
       nome: chaveNome((nfse ? l["razao social"] : l["nome do destinatario"]) ?? ""),
       // as duplicatas vêm só da NF-e (notas_fiscais_pagamentos); a NFC-e tem número próprio e fica no palpite
@@ -990,7 +998,17 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
   });
   // nota citada pela venda/OS ou pela conta do Gestão Click (coluna NF-e/NFS-e): vínculo exato, vale mais que o palpite
   const citadas = await notasCitadas(t);
-  const citada = (modelo: ModeloGc, l: Linha) => (modelo === "NFSE" ? [l.numero, l.rps] : [l.numero]).map((n) => citadas.get(`${modelo === "NFSE" ? "SERV" : "PROD"}:${Number(n)}`)).find(Boolean) ?? null;
+  // NFS-e de contrato: o Gestão Click escreve na descrição a venda que a gerou ("Venda de serviços nº 13 - assinatura nº 14 (1 parcela)")
+  const naDescricao = new Map<Linha, { tipo: "VENDA" | "OS"; id: string }>();
+  for (const l of t.notas_fiscais_servicos ?? []) {
+    const d = documentoDaDescricao(l["descricao do servico"]);
+    if (!d || d.tipo === "COMPRA") continue;
+    const where = { idLegado: leg(`${d.tipo === "VENDA" ? "venda" : "os"}:${d.numero}`) };
+    const doc = d.tipo === "VENDA" ? await prisma.venda.findFirst({ where, select: { id: true } }) : await prisma.ordemServico.findFirst({ where, select: { id: true } });
+    if (doc) naDescricao.set(l, { tipo: d.tipo, id: doc.id });
+  }
+  const citada = (modelo: ModeloGc, l: Linha) => naDescricao.get(l)
+    ?? (modelo === "NFSE" ? [l.numero, l.rps] : [l.numero]).map((n) => citadas.get(`${modelo === "NFSE" ? "SERV" : "PROD"}:${Number(n)}`)).find(Boolean) ?? null;
   // nota já no ERP com origem, ou cancelada, não disputa documento
   const docDe = new Map<Linha, { tipo: "VENDA" | "OS"; id: string } | null>();
   {
@@ -1005,6 +1023,7 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
       // com o backup em mãos o vínculo é refeito também para as notas já ligadas (a regra antiga podia errar)
       if (status === "AUTORIZADA" && !isNaN(paraLigar[k].emitida.getTime())) idx.push(k);
     }
+    for (const [l, d] of docDe) if (d) origem.reservar(todas.find((x) => x.l === l)!.modelo, d.id);
     const achados = origem.ligar(idx.map((k) => paraLigar[k]));
     idx.forEach((k, j) => docDe.set(todas[k].l, achados[j]));
   }
@@ -1016,7 +1035,7 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
       if (!numero) { r.ignorados.push({ linha: i + 2, motivo: "nota sem número" }); continue; }
       const ambiente = /homolog/i.test(l.ambiente ?? "") ? "HOMOLOGACAO" : "PRODUCAO";
       const chave = digitosGc(l.chave ?? "");
-      const empresaId = destino?.empresaId || (chave.length === 44 && empresas.find((e) => e.cnpj === chave.slice(6, 20))?.id) || lojaDe(l.loja) || (empresas.length === 1 ? empresas[0].id : undefined);
+      const empresaId = empresaDaNota(l);
       const cnpj = cnpjDe(empresaId);
       if (cnpj && ambiente === "PRODUCAO") {
         const k = modelo === "NFSE" ? `DPS-${cnpj}-${serie}-P` : `NF-${cnpj}-${modelo === "NFE" ? 55 : 65}-${serie}-P`;
@@ -1032,7 +1051,8 @@ async function importarNotas(t: Tabelas, simular: boolean): Promise<Resultado> {
         if (doc && ja.origemId !== doc.id) { ligadas++; if (ja.origemId) religadas++; if (!simular) await prisma.notaFiscal.update({ where: { id: ja.id }, data: { origemTipo: doc.tipo, origemId: doc.id } }); }
         else if (!ja.origemId) semOrigem++;
         // NFS-e trazida antes de guardar o número da nota (o numero é o da DPS/RPS): completa
-        if (modelo === "NFSE" && ja.numeroNfse == null && Number(l.numero) && !simular) await prisma.notaFiscal.update({ where: { id: ja.id }, data: { numeroNfse: Number(l.numero) } });
+        // (ou corrige: até 26/11 o "Número" do endereço do tomador tomava o lugar do número da nota na leitura do backup)
+        if (modelo === "NFSE" && Number(l.numero) && ja.numeroNfse !== Number(l.numero) && !simular) await prisma.notaFiscal.update({ where: { id: ja.id }, data: { numeroNfse: Number(l.numero) } });
         r.ignorados.push({ linha: i + 2, motivo: `${modelo} ${modelo === "NFSE" ? l.numero || numero : numero} já existe no ERP` });
         continue;
       }
@@ -1116,24 +1136,27 @@ async function notasCitadas(t: Tabelas) {
  * nota daquele modelo no ERP não recebe outra. Nota sem destinatário (NFC-e de balcão) só liga no mesmo dia e se
  * houver um único documento com o valor.
  */
-export type NotaParaLigar = { modelo: ModeloGc; numero?: number; valor: number; emitida: Date; doc: string; nome: string; parcelas?: string; descricao?: string };
+export type NotaParaLigar = { modelo: ModeloGc; numero?: number; valor: number; emitida: Date; doc: string; nome: string; parcelas?: string; descricao?: string;
+  /** empresa (CNPJ) da nota: só liga a venda/OS da mesma empresa (o cliente é compartilhado entre as empresas) */
+  empresaId?: string | null };
 async function achadorDeOrigem(parcelasDoc: Map<string, string> = new Map(), servicosDoc: Map<string, string[]> = new Map(), recalcular = false) {
   const pessoa = { select: { documento: true, nome: true, fantasia: true } } as const;
   const [vendas, oss, ligadas] = await Promise.all([
     // documento cancelado não recebe nota (no Gestão Click a venda refeita fica com a nota e a duplicada é cancelada)
-    prisma.venda.findMany({ where: { situacao: { not: "CANCELADA" } }, select: { id: true, numero: true, data: true, total: true, totalProdutos: true, totalServicos: true, cliente: pessoa } }),
-    prisma.ordemServico.findMany({ where: { situacao: { not: "CANCELADA" } }, select: { id: true, numero: true, entrada: true, saida: true, total: true, totalProdutos: true, totalServicos: true, cliente: pessoa } }),
+    prisma.venda.findMany({ where: { situacao: { not: "CANCELADA" } }, select: { id: true, empresaId: true, numero: true, data: true, total: true, totalProdutos: true, totalServicos: true, cliente: pessoa } }),
+    prisma.ordemServico.findMany({ where: { situacao: { not: "CANCELADA" } }, select: { id: true, empresaId: true, numero: true, entrada: true, saida: true, total: true, totalProdutos: true, totalServicos: true, cliente: pessoa } }),
     // recalculando com o backup, as notas do Gestão Click não seguram documento (o vínculo delas é refeito)
     prisma.notaFiscal.findMany({ where: { origemId: { not: null }, status: { notIn: ["CANCELADA", "REJEITADA", "DENEGADA", "INUTILIZADA"] }, ...(recalcular ? { idLegado: null } : {}) }, select: { modelo: true, origemId: true } }),
   ]);
-  type Doc = { tipo: "VENDA" | "OS"; id: string; numero: number; de: number; ate: number; valores: Record<"NFE" | "NFSE", number[]>; doc: string; nomes: string[] };
+  type Doc = { tipo: "VENDA" | "OS"; id: string; empresaId: string | null; numero: number; de: number; ate: number; valores: Record<"NFE" | "NFSE", number[]>; doc: string; nomes: string[] };
   const nomes = (c: { nome: string; fantasia: string | null } | null) => c ? [chaveNome(c.nome), ...(c.fantasia ? [chaveNome(c.fantasia)] : [])] : [];
   const docs: Doc[] = [
-    ...vendas.map((v) => ({ tipo: "VENDA" as const, id: v.id, numero: v.numero, de: v.data.getTime(), ate: v.data.getTime(), doc: digitosGc(v.cliente?.documento ?? ""), nomes: nomes(v.cliente),
+    // a venda vale pelo dia (em São Paulo), não pela hora: a janela de 10 dias antes conta a partir da meia-noite
+    ...vendas.map((v) => ({ tipo: "VENDA" as const, id: v.id, empresaId: v.empresaId, numero: v.numero, de: diaSP(v.data).getTime(), ate: diaSP(v.data).getTime(), doc: digitosGc(v.cliente?.documento ?? ""), nomes: nomes(v.cliente),
       valores: { NFE: [Number(v.total), Number(v.totalProdutos)], NFSE: [Number(v.totalServicos), Number(v.total)] } })),
     ...oss.map((o) => {
       const t = [o.entrada.getTime(), (o.saida ?? o.entrada).getTime()];
-      return { tipo: "OS" as const, id: o.id, numero: o.numero, de: Math.min(...t), ate: Math.max(...t), doc: digitosGc(o.cliente?.documento ?? ""), nomes: nomes(o.cliente),
+      return { tipo: "OS" as const, id: o.id, empresaId: o.empresaId, numero: o.numero, de: Math.min(...t), ate: Math.max(...t), doc: digitosGc(o.cliente?.documento ?? ""), nomes: nomes(o.cliente),
         valores: { NFE: [Number(o.totalProdutos), Number(o.total)], NFSE: [Number(o.totalServicos), Number(o.total)] } };
     }),
   ];
@@ -1141,11 +1164,16 @@ async function achadorDeOrigem(parcelasDoc: Map<string, string> = new Map(), ser
   const DIA = 86400000;
   const diaUtc = (t: number) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); };
   return {
+    /** Documento que já ganhou nota de outro jeito (citada pela venda/OS ou pela descrição): o palpite não dá outra igual. */
+    reservar(modelo: ModeloGc, id: string) { usados.add(`${modelo}:${id}`); },
     /** Documento de cada nota (mesma ordem da lista), ou null. */
     ligar(notas: NotaParaLigar[]): ({ tipo: "VENDA" | "OS"; id: string } | null)[] {
       const pares: { n: number; d: Doc; dist: number }[] = [];
       const semDestinatario = new Map<number, Doc[]>();
+      // nota de uma empresa não vai para venda/OS de outra (o mesmo cliente compra das duas)
+      const daEmpresa = (nt: NotaParaLigar) => (nt.empresaId ? docs.filter((d) => !d.empresaId || d.empresaId === nt.empresaId) : docs);
       notas.forEach((nt, n) => {
+        const docs = daEmpresa(nt);
         const valor = Math.round(nt.valor * 100) / 100;
         if (!(valor > 0)) return;
         const chave = nt.modelo === "NFSE" ? "NFSE" : "NFE";
@@ -1194,7 +1222,7 @@ async function achadorDeOrigem(parcelasDoc: Map<string, string> = new Map(), ser
       notas.forEach((nt, n) => {
         if (r[n] || nt.modelo !== "NFSE" || !nt.descricao || (!nt.doc && !nt.nome)) return;
         const emitida = nt.emitida.getTime();
-        const cands = docs.filter((d) => {
+        const cands = daEmpresa(nt).filter((d) => {
           const servs = servicosDoc.get(d.id);
           return !!servs?.length && !usados.has(`NFSE:${d.id}`)
             && (nt.doc && d.doc ? d.doc === nt.doc : d.nomes.includes(nt.nome))
@@ -1222,10 +1250,10 @@ async function achadorDeOrigem(parcelasDoc: Map<string, string> = new Map(), ser
 export async function ligarNotasDoGestaoClick(simular: boolean) {
   const notas = await prisma.notaFiscal.findMany({
     where: { idLegado: { not: null }, origemId: null, emitidaEm: { not: null }, status: { notIn: ["CANCELADA", "REJEITADA", "DENEGADA", "INUTILIZADA"] } },
-    select: { id: true, modelo: true, numero: true, valorTotal: true, emitidaEm: true, destinatarioNome: true },
+    select: { id: true, empresaId: true, modelo: true, numero: true, valorTotal: true, emitidaEm: true, destinatarioNome: true },
   });
   const origem = await achadorDeOrigem();
-  const docs = origem.ligar(notas.map((n) => ({ modelo: n.modelo as ModeloGc, numero: n.numero, valor: Number(n.valorTotal), emitida: n.emitidaEm!, doc: "", nome: chaveNome(n.destinatarioNome ?? "") })));
+  const docs = origem.ligar(notas.map((n) => ({ modelo: n.modelo as ModeloGc, numero: n.numero, valor: Number(n.valorTotal), emitida: n.emitidaEm!, doc: "", nome: chaveNome(n.destinatarioNome ?? ""), empresaId: n.empresaId })));
   let ligadas = 0;
   for (const [i, d] of docs.entries()) {
     if (!d) continue;
