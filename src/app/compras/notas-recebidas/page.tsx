@@ -105,15 +105,17 @@ export default async function NotasRecebidas({ searchParams }: { searchParams: P
           <tbody>
             {empresas.map((e, i) => {
               const est = estados[i], cert = certDe(e, i);
+              const bloqueada = !!est.bloqueadaAte && new Date(est.bloqueadaAte) > agora;
               const espera = est.proximaConsulta && new Date(est.proximaConsulta) > agora;
               return (
                 <tr key={e.id} className={loja?.id === e.id ? "bg-slate-50" : ""}>
                   <td><span className="font-semibold">{e.nomeFantasia || e.razaoSocial}</span><div className="font-mono text-[11px] text-slate-500">{doc(e.cnpj)}</div></td>
                   <td><Pilula rotulo={cert.txt} cor={cert.ok ? VERDE : VERMELHO} /></td>
                   <td className="text-[12px]">{est.ultimaConsulta ? dataHora(est.ultimaConsulta) : <span className="text-slate-400">nunca</span>}
-                    {espera && <div className="text-amber-700">próxima liberada às {new Date(est.proximaConsulta!).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}</div>}</td>
+                    {bloqueada && <div className="text-red-700">bloqueada pela SEFAZ até {new Date(est.bloqueadaAte!).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}</div>}
+                    {espera && !bloqueada && <div className="text-amber-700">próxima liberada às {new Date(est.proximaConsulta!).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}</div>}</td>
                   <td className="max-w-72 text-[12px] text-slate-600">{est.ultimoRetorno ?? "—"}</td>
-                  <td className="font-mono text-[12px]">{Number(est.ultNSU)}{est.maxNSU ? ` / ${Number(est.maxNSU)}` : ""}</td>
+                  <td className="font-mono text-[12px]">{Number(est.ultNSU)}{Number(est.maxNSU) > 0 ? ` / ${Number(est.maxNSU)}` : ""}</td>
                   <td className="text-right">{cert.ok && <BotaoAcao acao={sincronizarDfeAcao} campos={{ empresaId: e.id }} rotulo="Buscar agora" secundario />}</td>
                 </tr>
               );
