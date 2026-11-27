@@ -100,7 +100,17 @@ export class ClienteDfe {
   }
 }
 
-export type EstadoDfe = { ultNSU: string; maxNSU?: string; proximaConsulta?: string; ultimaConsulta?: string; ultimoRetorno?: string };
+/**
+ * Estado da distribuição de cada CNPJ.
+ * - ultNSU: último NSU recebido; nunca volta para trás (a SEFAZ responde 656 a quem pede um NSU antigo).
+ * - proximaConsulta: quando a busca por NSU pode rodar de novo (1 hora depois de ficar em dia, 137 ou 656).
+ * - bloqueadaAte: a SEFAZ respondeu 656 (consumo indevido) e o CNPJ fica bloqueado por 1 hora para QUALQUER
+ *   consulta (por NSU ou por chave); cada tentativa durante o bloqueio recomeça a hora, então nada é enviado.
+ * - chaves: horários dos pedidos por chave (consChNFe) na última hora, para não passar do limite.
+ */
+export type EstadoDfe = {
+  ultNSU: string; maxNSU?: string; proximaConsulta?: string; bloqueadaAte?: string; ultimaConsulta?: string; ultimoRetorno?: string; chaves?: string[];
+};
 
 /** Estado da distribuição (último NSU) de cada CNPJ. O antigo "dfe" (de antes do multiempresa) vale para a primeira empresa. */
 export async function estadoDfe(empresaId?: string): Promise<EstadoDfe> {
@@ -110,10 +120,23 @@ export async function estadoDfe(empresaId?: string): Promise<EstadoDfe> {
   if (!c && (!id || id === primeira?.id)) c = await prisma.configuracao.findUnique({ where: { chave: "dfe" } });
   return { ultNSU: "0", ...((c?.valor as EstadoDfe | null) ?? {}) };
 }
-async function salvarEstado(empresaId: string, e: EstadoDfe) {
+/** Grava só os campos informados, mantendo o resto do estado (a busca por NSU e os pedidos por chave dividem o mesmo estado). */
+async function salvarEstado(empresaId: string, mudar: Partial<EstadoDfe>) {
   const chave = `dfe-${empresaId}`;
-  await prisma.configuracao.upsert({ where: { chave }, create: { chave, valor: e }, update: { valor: e } });
+  const valor = JSON.parse(JSON.stringify({ ...(await estadoDfe(empresaId)), ...mudar })) as EstadoDfe;
+  await prisma.configuracao.upsert({ where: { chave }, create: { chave, valor }, update: { valor } });
 }
+
+const HORA = 3600_000;
+/** Pedidos por chave (consChNFe) aceitos por hora e por CNPJ. A SEFAZ responde 656 acima de 20; ficamos bem abaixo. */
+export const LIMITE_CHAVES_HORA = 10;
+/** NSU maior dos dois (ignora vazio/zero vindo da SEFAZ). */
+const maiorNsu = (a: string, b?: string) => (b && Number(b) > 0 && nsu15(b) > nsu15(a) ? nsu15(b) : nsu15(a));
+const hhmm = (d: string | Date) => new Date(d).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" });
+const depois = (d: string | undefined, agora: Date) => !!d && new Date(d) > agora;
+
+/** Erro de espera: a SEFAZ não pode ser consultada agora (bloqueio de 1 hora ou limite de pedidos por chave). */
+export class EsperaSefaz extends FiscalError {}
 
 const num = (v: unknown) => Number(String(v ?? "0")) || 0;
 const situacaoDe = (cSit: unknown) => (String(cSit) === "2" ? "DENEGADA" : String(cSit) === "3" ? "CANCELADA" : "AUTORIZADA");
@@ -159,34 +182,62 @@ export async function guardarDocumento(d: DocDfe, empresaId?: string | null) {
 type Deps = { cert?: Certificado; transporte?: Transporte; agora?: Date };
 
 /**
- * Busca na SEFAZ os documentos novos desde o último NSU (até 20 lotes por vez). A SEFAZ bloqueia quem consulta
- * de novo antes de 1 hora quando não há nada novo (cStat 137/656): o próximo horário fica guardado e respeitado.
+ * Busca na SEFAZ os documentos novos desde o último NSU (até 20 lotes por vez), seguindo a NT 2014.002:
+ * - sempre manda o ultNSU devolvido na resposta anterior (nunca volta para trás);
+ * - quando fica em dia (ultNSU = maxNSU) ou não há nada novo (137), só consulta de novo depois de 1 hora;
+ * - no 656 (consumo indevido) não consulta mais nada desse CNPJ por 1 hora, nem por chave.
+ * O XML completo das notas com ciência chega por aqui mesmo, como um novo NSU (procNFe).
  */
-export async function sincronizarDfe(deps: Deps & { forcar?: boolean; empresaId?: string | null } = {}) {
+export async function sincronizarDfe(deps: Deps & { empresaId?: string | null } = {}) {
   const e = await empresa(deps.empresaId);
   const amb: Ambiente = e.ambienteFiscal === "PRODUCAO" ? 1 : 2;
   const agora = deps.agora ?? new Date();
   const est = await estadoDfe(e.id);
-  if (!deps.forcar && est.proximaConsulta && new Date(est.proximaConsulta) > agora)
-    return { novos: 0, aguardar: est.proximaConsulta, mensagem: `A SEFAZ só aceita nova consulta depois de ${new Date(est.proximaConsulta).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}` };
+  if (depois(est.bloqueadaAte, agora))
+    return { novos: 0, aguardar: est.bloqueadaAte, mensagem: `A SEFAZ bloqueou as consultas deste CNPJ por 1 hora. O sistema tenta de novo sozinho depois das ${hhmm(est.bloqueadaAte!)}.` };
+  if (depois(est.proximaConsulta, agora))
+    return { novos: 0, aguardar: est.proximaConsulta, mensagem: `Já está em dia. A SEFAZ só aceita nova consulta depois das ${hhmm(est.proximaConsulta!)} (o sistema busca sozinho).` };
   const cli = new ClienteDfe(deps.cert ?? certificadoDaEmpresa(e), e.uf!, amb, deps.transporte);
-  let ult = est.ultNSU, novos = 0, ultimo = "";
+  const umaHora = new Date(agora.getTime() + HORA).toISOString();
+  let ult = nsu15(est.ultNSU), novos = 0;
   for (let i = 0; i < 20; i++) {
     const r = await cli.distribuir({ cnpj: e.cnpj, ultNSU: ult });
-    ultimo = `${r.cStat} - ${r.xMotivo}`;
-    if (r.cStat === "656" || r.cStat === "137") {
-      // 137 nenhum documento novo, 656 consumo indevido: esperar 1 hora
-      if (r.ultNSU) ult = r.ultNSU;
-      await salvarEstado(e.id, { ultNSU: ult, maxNSU: r.maxNSU || est.maxNSU, ultimaConsulta: agora.toISOString(), proximaConsulta: new Date(agora.getTime() + 3600_000).toISOString(), ultimoRetorno: ultimo });
-      return { novos, mensagem: novos ? `${novos} documento(s) novo(s)` : r.cStat === "656" ? `SEFAZ pediu para aguardar 1 hora (${r.xMotivo})` : "Nenhuma nota nova na SEFAZ" };
+    const base = { ultimaConsulta: agora.toISOString(), ultimoRetorno: `${r.cStat} - ${r.xMotivo}` };
+    if (r.cStat === "656") {
+      // consumo indevido: o NSU devolvido nessa resposta não vale (costuma vir zerado); mantém o que já tínhamos
+      await salvarEstado(e.id, { ...base, ultNSU: ult, proximaConsulta: umaHora, bloqueadaAte: umaHora });
+      return { novos, aguardar: umaHora, mensagem: `${novos ? `${novos} documento(s) novo(s). ` : ""}A SEFAZ pediu para aguardar 1 hora; o sistema tenta de novo sozinho depois das ${hhmm(umaHora)}.` };
     }
-    if (r.cStat !== "138") throw new FiscalError(`SEFAZ respondeu ${ultimo}`);
+    if (r.cStat === "137") {
+      ult = maiorNsu(ult, r.ultNSU);
+      await salvarEstado(e.id, { ...base, ultNSU: ult, ...(Number(r.maxNSU) > 0 ? { maxNSU: nsu15(r.maxNSU) } : {}), proximaConsulta: umaHora });
+      return { novos, mensagem: novos ? `${novos} documento(s) novo(s)` : "Nenhuma nota nova na SEFAZ" };
+    }
+    if (r.cStat !== "138") {
+      await salvarEstado(e.id, base);
+      throw new FiscalError(`SEFAZ respondeu ${base.ultimoRetorno}`);
+    }
     for (const d of r.docs) if (await guardarDocumento(d, e.id)) novos++;
-    ult = r.ultNSU;
-    await salvarEstado(e.id, { ultNSU: ult, maxNSU: r.maxNSU, ultimaConsulta: agora.toISOString(), ultimoRetorno: ultimo });
-    if (!r.maxNSU || nsu15(r.ultNSU) >= nsu15(r.maxNSU)) break;
+    ult = maiorNsu(ult, r.ultNSU);
+    const max = Number(r.maxNSU) > 0 ? nsu15(r.maxNSU) : ult;
+    const emDia = ult >= max;
+    await salvarEstado(e.id, { ...base, ultNSU: ult, maxNSU: max, proximaConsulta: emDia ? umaHora : undefined });
+    if (emDia) break;
   }
   return { novos, mensagem: `${novos} documento(s) novo(s)` };
+}
+
+/** Reserva um pedido por chave (consChNFe): recusa durante o bloqueio do 656 ou acima do limite por hora. */
+async function reservarConsultaChave(empresaId: string, agora: Date) {
+  const est = await estadoDfe(empresaId);
+  if (depois(est.bloqueadaAte, agora))
+    throw new EsperaSefaz(`A SEFAZ bloqueou as consultas deste CNPJ por 1 hora (consumo indevido). Tente depois das ${hhmm(est.bloqueadaAte!)}; o sistema também pede sozinho.`);
+  const recentes = (est.chaves ?? []).filter((h) => new Date(h).getTime() > agora.getTime() - HORA);
+  if (recentes.length >= LIMITE_CHAVES_HORA) {
+    const libera = new Date(Math.min(...recentes.map((h) => new Date(h).getTime())) + HORA);
+    throw new EsperaSefaz(`Já foram ${LIMITE_CHAVES_HORA} pedidos de XML na última hora, o limite para a SEFAZ não bloquear o CNPJ. Tente depois das ${hhmm(libera)}; o sistema também pede sozinho.`);
+  }
+  await salvarEstado(empresaId, { chaves: [...recentes, agora.toISOString()] });
 }
 
 /** Pede de novo uma nota pela chave (o XML completo só vem depois da ciência da operação). */
@@ -195,15 +246,22 @@ export async function baixarXmlCompleto(id: string, deps: Deps = {}) {
   if (n.xml) return n;
   const e = await empresa(n.empresaId);
   const amb: Ambiente = e.ambienteFiscal === "PRODUCAO" ? 1 : 2;
+  const agora = deps.agora ?? new Date();
+  await reservarConsultaChave(e.id, agora);
   const r = await new ClienteDfe(deps.cert ?? certificadoDaEmpresa(e), e.uf!, amb, deps.transporte).distribuir({ cnpj: e.cnpj, chave: n.chave });
-  if (r.cStat !== "138") throw new FiscalError(`O XML completo ainda não está disponível (${r.cStat} - ${r.xMotivo}). Manifeste a ciência e tente de novo em alguns minutos.`);
+  if (r.cStat === "656") {
+    const umaHora = new Date(agora.getTime() + HORA).toISOString();
+    await salvarEstado(e.id, { bloqueadaAte: umaHora, proximaConsulta: umaHora, ultimoRetorno: `${r.cStat} - ${r.xMotivo}` });
+    throw new EsperaSefaz(`A SEFAZ pediu para aguardar 1 hora (${r.xMotivo}). O sistema tenta de novo sozinho depois das ${hhmm(umaHora)}.`);
+  }
+  if (r.cStat !== "138") throw new FiscalError(`O XML completo ainda não está disponível (${r.cStat} - ${r.xMotivo}). Manifeste a ciência e tente de novo mais tarde.`);
   for (const d of r.docs) await guardarDocumento(d, e.id);
   const atual = await prisma.notaRecebida.findUniqueOrThrow({ where: { id } });
-  if (!atual.xml) throw new FiscalError("A SEFAZ devolveu só o resumo da nota. Manifeste a ciência da operação e tente de novo em alguns minutos.");
+  if (!atual.xml) throw new FiscalError("A SEFAZ devolveu só o resumo da nota. Manifeste a ciência da operação e tente de novo mais tarde.");
   return atual;
 }
 
-/** Manifestação do destinatário. A ciência libera o XML completo; confirmação/desconhecimento/não realizada são conclusivas. */
+/** Manifestação do destinatário. A ciência libera o XML completo (chega na próxima busca por NSU); confirmação/desconhecimento/não realizada são conclusivas. */
 export async function manifestar(id: string, tipo: TipoManifestacao, justificativa?: string, deps: Deps = {}) {
   const n = await prisma.notaRecebida.findUniqueOrThrow({ where: { id } });
   if (n.manifestacao && n.manifestacao !== "CIENCIA") throw new FiscalError(`Esta nota já tem manifestação conclusiva (${MANIFESTACOES[n.manifestacao as TipoManifestacao]?.rotulo ?? n.manifestacao})`);
@@ -213,14 +271,12 @@ export async function manifestar(id: string, tipo: TipoManifestacao, justificati
   const idLote = await prisma.$transaction((tx) => proximoNumero(tx, "LOTE-EVENTO"));
   const r = await new ClienteDfe(deps.cert ?? certificadoDaEmpresa(e), e.uf!, amb, deps.transporte).manifestar({ chave: n.chave, tipo, cnpj: e.cnpj, justificativa, idLote, data: deps.agora });
   if (!r.ok) throw new FiscalError(`SEFAZ recusou a manifestação: ${r.cStat} - ${r.xMotivo}`);
-  const atual = await prisma.notaRecebida.update({
+  // o XML completo não é pedido aqui: a SEFAZ leva de minutos a horas para liberar e ele chega sozinho na busca por NSU.
+  // Pedir por chave logo após a ciência (ainda mais em lote) só gastava o limite e levava ao bloqueio 656.
+  return prisma.notaRecebida.update({
     where: { id },
     data: { manifestacao: tipo, manifestadaEm: deps.agora ?? new Date(), protocoloManifesto: r.protocolo, justificativa: justificativa?.trim() || null, xmlTentativas: 0, xmlTentadoEm: null },
   });
-  if (tipo === "CIENCIA" || tipo === "CONFIRMADA") {
-    try { return await baixarXmlCompleto(id, deps); } catch { return atual; }
-  }
-  return atual;
 }
 
 /** Prazo da manifestação do destinatário: 180 dias da emissão. */
@@ -236,9 +292,9 @@ export const aguardandoXml = { xml: null, situacao: "AUTORIZADA", manifestacao: 
 export const MAX_TENTATIVAS_XML = 24;
 
 /**
- * Depois da ciência, a SEFAZ demora de minutos a horas para liberar o XML completo: o agendador pede de novo,
- * no máximo uma vez por hora por nota e até 24 vezes (depois disso, só no botão "Baixar XML").
- * Para no primeiro "consumo indevido" (656), que bloqueia o CNPJ por 1 hora.
+ * Plano B para o XML completo: normalmente ele chega pela busca por NSU depois da ciência. Se 1 hora depois da
+ * ciência ainda não chegou, pede pela chave, no máximo uma vez por hora por nota, até 24 vezes, e respeitando o
+ * limite de pedidos por hora do CNPJ e o bloqueio do 656 (aí para e deixa para a próxima hora).
  */
 export async function baixarXmlsPendentes(deps: Deps & { empresaId?: string | null; limite?: number } = {}) {
   const agora = deps.agora ?? new Date();
@@ -246,23 +302,25 @@ export async function baixarXmlsPendentes(deps: Deps & { empresaId?: string | nu
     where: {
       ...aguardandoXml, xmlTentativas: { lt: MAX_TENTATIVAS_XML },
       emissao: { gte: new Date(agora.getTime() - PRAZO_MANIFESTACAO_DIAS * DIA) },
-      OR: [{ xmlTentadoEm: null }, { xmlTentadoEm: { lte: new Date(agora.getTime() - 3600_000 + 60_000) } }],
+      manifestadaEm: { lte: new Date(agora.getTime() - HORA) },
+      OR: [{ xmlTentadoEm: null }, { xmlTentadoEm: { lte: new Date(agora.getTime() - HORA + 60_000) } }],
       ...(deps.empresaId !== undefined ? { empresaId: deps.empresaId } : {}),
     },
-    orderBy: { manifestadaEm: "desc" }, take: deps.limite ?? 10,
+    orderBy: { manifestadaEm: "desc" }, take: deps.limite ?? 5,
   });
-  let baixados = 0, falhas = 0;
+  let baixados = 0, falhas = 0, espera: string | null = null;
   for (const n of notas) {
-    await prisma.notaRecebida.update({ where: { id: n.id }, data: { xmlTentativas: { increment: 1 }, xmlTentadoEm: agora } });
     try {
       await baixarXmlCompleto(n.id, deps);
       baixados++;
     } catch (e) {
+      // bloqueio ou limite: não conta como tentativa da nota e não pede mais nada agora
+      if (e instanceof EsperaSefaz) { espera = e.message; break; }
       falhas++;
-      if (/\b656\b/.test((e as Error).message)) break;
     }
+    await prisma.notaRecebida.update({ where: { id: n.id }, data: { xmlTentativas: { increment: 1 }, xmlTentadoEm: agora } });
   }
-  return { baixados, aguardando: falhas };
+  return { baixados, aguardando: falhas, espera };
 }
 
 /** Agendador: busca as notas recebidas de cada empresa que tem certificado (a SEFAZ responde por CNPJ). */
@@ -294,9 +352,9 @@ export async function baixarXmlsPendentesTodas() {
     try { certificadoDaEmpresa(e); } catch { continue; }
     // notas antigas sem loja contam como da primeira empresa
     const r = await baixarXmlsPendentes({ empresaId: e.id });
-    const r0 = e.id === primeira ? await baixarXmlsPendentes({ empresaId: null }) : { baixados: 0, aguardando: 0 };
-    const b = r.baixados + r0.baixados, a = r.aguardando + r0.aguardando;
-    if (b || a) out[e.cnpj] = `${b} XML(s) baixado(s), ${a} ainda aguardando a SEFAZ`;
+    const r0 = e.id === primeira && !r.espera ? await baixarXmlsPendentes({ empresaId: null }) : { baixados: 0, aguardando: 0, espera: null };
+    const b = r.baixados + r0.baixados, a = r.aguardando + r0.aguardando, espera = r.espera ?? r0.espera;
+    if (b || a || espera) out[e.cnpj] = `${b} XML(s) baixado(s), ${a} ainda aguardando a SEFAZ${espera ? ` (${espera})` : ""}`;
   }
   return out;
 }
