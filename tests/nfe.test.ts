@@ -64,6 +64,17 @@ describe("NF-e modelo 55", () => {
     expect(assinado).toContain("SEM VALOR FISCAL"); // destinatário em homologação
   });
 
+  it("CSOSN 500 e CST 60 levam o ST retido (rejeição 938) e validam no schema", () => {
+    const sn = montarNfe({ ...base, itens: base.itens.map((i, k) => ({ ...i, csosn: "500", cfop: "5405",
+      stRetido: k ? { vBCSTRet: 300, pST: 18, vICMSSubstituto: 20.5, vICMSSTRet: 33.5, vBCFCPSTRet: 300, pFCPSTRet: 2, vFCPSTRet: 6 } : null })) });
+    expect(validarXsd(assinarXml(sn.xml, cert, { tag: "infNFe", pai: "NFe" }))).toBe("ok");
+    expect(sn.xml).toContain("<CSOSN>500</CSOSN><vBCSTRet>0.00</vBCSTRet><pST>0.0000</pST><vICMSSubstituto>0.00</vICMSSubstituto><vICMSSTRet>0.00</vICMSSTRet>");
+    expect(sn.xml).toContain("<vBCSTRet>300.00</vBCSTRet><pST>18.0000</pST><vICMSSubstituto>20.50</vICMSSubstituto><vICMSSTRet>33.50</vICMSSTRet><vBCFCPSTRet>300.00</vBCFCPSTRet><pFCPSTRet>2.0000</pFCPSTRet><vFCPSTRet>6.00</vFCPSTRet>");
+    const normal = montarNfe({ ...base, emitente: { ...base.emitente, crt: 3 }, itens: base.itens.map((i) => ({ ...i, csosn: null, cstIcms: "60", cfop: "5405", stRetido: { vBCSTRet: 10, pST: 18, vICMSSubstituto: 1, vICMSSTRet: 0.8 } })) });
+    expect(validarXsd(assinarXml(normal.xml, cert, { tag: "infNFe", pai: "NFe" }))).toBe("ok");
+    expect(normal.xml).toContain("<CST>60</CST><vBCSTRet>10.00</vBCSTRet>");
+  });
+
   it("recusa pagamento que não fecha", () => {
     expect(() => montarNfe({ ...base, pagamentos: [{ tPag: "01", valor: 10 }] })).toThrow(/não fecham/);
   });
