@@ -57,6 +57,9 @@ services:
   agendador:
     image: curlimages/curl:8.11.1
     restart: unless-stopped
+    # root: os cliente.env/central.env são chmod 600 do root; com o usuário padrão da imagem (curl_user) o grep
+    # do CRON_SECRET dava "Permission denied" e todas as rotinas voltavam "não autorizado"
+    user: "0:0"
     environment:
       TZ: "<-03>3"  # a imagem do curl não tem a tabela de fusos: horário de Brasília fixo
     volumes:
