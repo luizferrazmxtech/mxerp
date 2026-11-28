@@ -13,6 +13,7 @@ import { consultarStatus } from "./actions";
 import AcoesNota from "./AcoesNota";
 import Resumo from "@/components/ui/Resumo";
 import { numeroDaNota } from "@/lib/fiscal/numeroNota";
+import { origensDasNotas } from "@/lib/fiscal/origemNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Notas fiscais" };
@@ -47,16 +48,8 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
     e ? estimativaDoMes(e.id, comp) : null,
   ]);
 
-  // de onde veio cada nota (venda ou OS) e o cliente
-  const ids = (t: string) => notas.filter((n) => n.origemTipo === t && n.origemId).map((n) => n.origemId!);
-  const [vendas, oss] = await Promise.all([
-    prisma.venda.findMany({ where: { id: { in: ids("VENDA") } }, select: { id: true, numero: true, cliente: { select: { id: true, nome: true, fantasia: true } } } }),
-    prisma.ordemServico.findMany({ where: { id: { in: ids("OS") } }, select: { id: true, numero: true, cliente: { select: { id: true, nome: true, fantasia: true } } } }),
-  ]);
-  type Origem = { rotulo: string; href: string; cliente: { id: string; nome: string; fantasia: string | null } | null };
-  const origem = new Map<string, Origem>();
-  for (const v of vendas) origem.set(v.id, { rotulo: `venda #${v.numero}`, href: `/vendas/${v.id}`, cliente: v.cliente });
-  for (const o of oss) origem.set(o.id, { rotulo: `OS #${o.numero}`, href: `/os/${o.id}`, cliente: o.cliente });
+  // de onde veio cada nota (venda ou OS, mesmo de outra empresa do grupo) e o cliente
+  const origem = await origensDasNotas(notas);
 
   const certOk = !!e?.certificadoValidade || temCertificadoServidor();
   const pendentes = e
@@ -124,7 +117,8 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
                   <td><Link href={`/fiscal/${n.id}`} className="font-semibold text-marca hover:underline">{numeroDaNota(n)}</Link><span className="text-[11px] text-slate-500">{n.modelo === "NFSE" ? ` DPS ${n.serie}/${n.numero}` : ` série ${n.serie}`}</span>
                     {n.ambiente === "HOMOLOGACAO" && <div className="text-[10px] text-amber-700">homologação</div>}</td>
                   {!modelo && <td className="text-[12px]">{MODELOS[n.modelo]?.curto ?? n.modelo}</td>}
-                  <td>{o ? <Link href={o.href} className="text-marca hover:underline">{o.rotulo}</Link> : <span className="text-slate-400">—</span>}</td>
+                  <td>{o ? <Link href={o.href} className="text-marca hover:underline">{o.rotulo}</Link> : <span className="text-slate-400">—</span>}
+                    {o?.outraEmpresa && <div><span className="rounded border border-sky-200 bg-sky-50 px-1.5 text-[11px] text-sky-800" title={`Esta nota foi emitida por esta empresa, mas a ${o.rotulo} está na ${o.outraEmpresa.nome} (empresa do grupo). O link troca para a ${o.outraEmpresa.nome}.`}>na {o.outraEmpresa.nome} · grupo</span></div>}</td>
                   <td className="max-w-64">{o?.cliente ? <Link href={`/clientes/${o.cliente.id}`} className="hover:underline">{o.cliente.nome}</Link> : n.destinatarioNome ? <span>{n.destinatarioNome}</span> : <span className="text-slate-400">consumidor</span>}
                     {o?.cliente?.fantasia && <div className="text-[11px] text-slate-500">{o.cliente.fantasia}</div>}</td>
                   <td>{dataHora(n.emitidaEm ?? n.createdAt)}</td>
@@ -133,7 +127,7 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
                     {n.consultadaEm && <div className="text-[11px] text-slate-500">consultada {dataHora(n.consultadaEm)}</div>}
                     {n.status !== "AUTORIZADA" && n.motivo && <div className="max-w-56 truncate text-[11px] text-slate-500" title={n.motivo}>{n.motivo}</div>}</td>
                   <td className="text-right">
-                    <AcoesNota n={{ id: n.id, modelo: n.modelo, status: n.status, temXml: !!n.xml, temChave: !!n.chave }} origem={o ? { rotulo: o.rotulo, href: o.href } : null}
+                    <AcoesNota n={{ id: n.id, modelo: n.modelo, status: n.status, temXml: !!n.xml, temChave: !!n.chave }} origem={o ? { rotulo: o.outraEmpresa ? `${o.rotulo} (${o.outraEmpresa.nome})` : o.rotulo, href: o.href } : null}
                       danfse={n.modelo === "NFSE" && n.chave ? `/fiscal/${n.id}/danfse` : null} />
                   </td>
                 </tr>

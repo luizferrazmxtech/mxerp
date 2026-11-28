@@ -373,7 +373,9 @@ async function emitirNfse(a: { origemTipo: "OS" | "VENDA"; origemId: string; emp
   const chave = chaveDps(e.cnpj, e.serieDps, amb);
   let enviou = false;
   const nota = await prisma.$transaction(async (tx) => {
-    const dados = { empresaId: e.id, cnae: a.servicos[0]?.servico.cnae?.replace(/\D/g, "") || e.cnae, modelo: "NFSE" as const, serie: e.serieDps, ambiente: amb === 1 ? "PRODUCAO" as const : "HOMOLOGACAO" as const, origemTipo: a.origemTipo, origemId: a.origemId, valorTotal: valor };
+    const dados = { empresaId: e.id, cnae: a.servicos[0]?.servico.cnae?.replace(/\D/g, "") || e.cnae, modelo: "NFSE" as const, serie: e.serieDps, ambiente: amb === 1 ? "PRODUCAO" as const : "HOMOLOGACAO" as const, origemTipo: a.origemTipo, origemId: a.origemId, valorTotal: valor,
+      // tomador gravado na nota: a lista mostra o cliente mesmo quando a OS é de outra empresa do grupo
+      destinatarioNome: a.cliente.nome.slice(0, 200) };
     // DPS recusada pela Sefin (não foi registrada) e nada emitido depois dela: a nova tentativa usa o mesmo número
     const atual = (await tx.sequencia.findUnique({ where: { chave } }))?.valor;
     const recusada = atual ? await tx.notaFiscal.findFirst({
