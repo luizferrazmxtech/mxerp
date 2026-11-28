@@ -176,6 +176,7 @@ export const MENU: ItemMenu[] = [
       { rotulo: "NFS-e (serviços)", href: "/fiscal?modelo=NFSE", icone: "servicos" },
       { rotulo: "Todas as notas", href: "/fiscal", icone: "lista" },
       { rotulo: "Imposto aproximado", href: "/fiscal/impostos", icone: "percentual" },
+      { rotulo: "Substituição tributária", href: "/fiscal/substituicao-tributaria", icone: "notas" },
       { rotulo: "Inutilizar numeração", href: "/fiscal/inutilizacao", icone: "excluir" },
       { rotulo: "Envio ao contador", href: "/contador", icone: "email" },
       { rotulo: "Configurações fiscais", href: "/empresas", icone: "configuracoes" },
