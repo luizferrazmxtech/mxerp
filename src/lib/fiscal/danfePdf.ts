@@ -36,7 +36,7 @@ function caixa(pdf: Doc, x: number, y: number, w: number, h: number, rotulo: str
 }
 const titulo = (pdf: Doc, y: number, t: string) => pdf.font(FB).fontSize(7).text(t, M, y, { lineBreak: false });
 
-export async function gerarDanfePdf(xml: string, o: { logo?: Buffer | null; aviso?: string | null; sistema?: string } = {}): Promise<Buffer> {
+export async function gerarDanfePdf(xml: string, o: { logo?: Buffer | null; aviso?: string | null; sistema?: string; rodape?: string } = {}): Promise<Buffer> {
   const d = lerDanfe(xml);
   const pdf = new PDFDocument({ size: "A4", margin: 0, info: { Title: `DANFE ${d.numero}`, Author: d.emitente.nome } });
   const partes: Buffer[] = [];
@@ -66,7 +66,7 @@ export async function gerarDanfePdf(xml: string, o: { logo?: Buffer | null; avis
     const limite = pagina === 1 ? yAdic - 4 : H - M - 14;
     i = tabela(pdf, itens, i, y, limite, LINHA);
     if (pagina === 1) adicionais(pdf, d, yAdic);
-    pdf.font(FI).fontSize(6).text(`Impresso em ${new Date().toLocaleDateString("pt-BR", tz)} às ${new Date().toLocaleTimeString("pt-BR", tz)}  ·  NF-e emitida pelo ${o.sistema ?? "MXERP"}`, M, H - M - 6, { lineBreak: false });
+    pdf.font(FI).fontSize(6).text(`Impresso em ${new Date().toLocaleDateString("pt-BR", tz)} às ${new Date().toLocaleTimeString("pt-BR", tz)}  ·  ${o.rodape ?? `NF-e emitida pelo ${o.sistema ?? "MXERP"}`}`, M, H - M - 6, { lineBreak: false });
     if (o.aviso) {
       pdf.save().rotate(-30, { origin: [W / 2 + M, H / 2] }).font(FB).fontSize(40).fillColor("#d00", 0.18)
         .text(o.aviso, M, H / 2 - 20, { width: W, align: "center", lineBreak: false }).restore().fillColor("black", 1);

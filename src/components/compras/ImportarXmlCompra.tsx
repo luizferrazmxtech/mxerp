@@ -34,6 +34,7 @@ export default function ImportarXmlCompra({ inicial, op, recebidaId }: { inicial
   }
   if (compra) return (
     <>
+      {recebidaId && <div className="mb-3 flex justify-end"><a href={`/api/notas-recebidas/${recebidaId}/danfe`} target="_blank" rel="noreferrer" className="btn-sec"><Icone nome="notas" size={15} /> Ver a nota em PDF</a></div>}
       {avisos.length > 0 && <div className="mb-3 space-y-1 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">{avisos.map((a) => <p key={a}>{a}</p>)}</div>}
       <FormCompra inicial={compra} op={op} />
     </>

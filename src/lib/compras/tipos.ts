@@ -13,7 +13,23 @@ export type LinhaCompra = {
   unidadeCompra?: string; fator?: string; codigoFornecedor?: string; salvarConversao?: boolean;
   /** conversão que está no cadastro do produto (para o formulário oferecer as duas unidades) */
   conversaoProduto?: { unidade: string; fator: number } | null;
+  /** dados do item como vieram na NF-e (descrição, NCM, CFOP, ICMS/ST, IPI…) */
+  nota?: ItemNota;
+  /** produtos do cadastro parecidos com o item da nota (só quando a linha não se ligou sozinha) */
+  sugestoes?: ProdutoSugerido[];
 };
+
+/** Item (det) da NF-e do fornecedor, com os dados fiscais que interessam ao cadastro e à conferência. */
+export type ItemNota = {
+  codigo: string; nome: string; ean: string; unidade: string; quantidade: number; valorUnit: number;
+  ncm: string; cest: string; cfop: string; origem: string; cst: string;
+  /** ICMS próprio, ICMS-ST e IPI do item (valores em R$, alíquotas em %) */
+  vIcms: number; pIcms: number; vSt: number; vIpi: number; pIpi: number;
+  /** o item veio com substituição tributária (ST cobrada na nota ou retida antes) */
+  st: boolean;
+};
+
+export type ProdutoSugerido = { id: string; codigo: string; nome: string; unidade: string; unidadeCompra: string | null; fatorConversao: number; custo: number; ncm: string | null; motivo: string };
 
 export type DadosCompra = {
   tipo: "PRODUTO" | "SERVICO"; numero: string; fornecedorId: string; fornecedorNome: string; data: string; situacaoId: string;
@@ -26,7 +42,20 @@ export type DadosCompra = {
   /** estoque (depósito) onde as peças entram; "" = o padrão das configurações de estoque */
   depositoId?: string;
   cotacaoId?: string;
+  /** XML da NF-e lido em "Importar XML" (fica guardado na compra para ver a nota em PDF) */
+  xmlNfe?: string;
 };
+
+/** CST/CSOSN do ICMS que indicam ST (cobrada na operação ou retida anteriormente). */
+export const CST_COM_ST = ["10", "30", "60", "70", "201", "202", "203", "500"];
+
+/**
+ * Sugestão fiscal para o produto novo que nasce da nota: com ST na entrada, a revenda sai com
+ * CSOSN 500 / CST 60 e CFOP 5405/6404; sem ST, CSOSN 102 / CST 00 e CFOP 5102/6102.
+ */
+export function fiscalSugerido(st: boolean) {
+  return st ? { csosn: "500", cstIcms: "60", cfopInterno: "5405", cfopExterno: "6404" } : { csosn: "102", cstIcms: "00", cfopInterno: "5102", cfopExterno: "6102" };
+}
 
 const n = (s: string) => lerNumero(s) ?? 0;
 const arred = (v: number) => Math.round(v * 100) / 100;

@@ -8,6 +8,8 @@ import { exigirAcao, exigirUsuario } from "@/lib/auth/atual";
 import { alterarSituacaoCompra, dadosDaCompra, excluirCompra, salvarCompra } from "./compras";
 import { itensDoFornecedor, responderCotacao, salvarCotacao, type DadosCotacao } from "./cotacoes";
 import type { DadosCompra } from "./tipos";
+import { xmlDaCompra } from "./nfeCompra";
+import { criarProdutoDaNota, type ProdutoCriado, type ProdutoDaNota } from "./produtoDaNota";
 import { cancelarInventario, concluirInventario, criarAjuste, criarInventario, criarTransferencia, lerCodigo, registrarContagem, resumoInventario, zerarEstoque, type DadosAjuste, type DadosInventario, type DadosTransferencia } from "@/lib/estoque/documentos";
 import { PADRAO_ESTOQUE } from "@/lib/estoque/config";
 import { PODE_LANCAR_ESTOQUE } from "./papeis";
@@ -29,6 +31,15 @@ async function anexar(form: FormData, entidade: string, entidadeId: string, usua
 
 // ---------- compras
 
+/** Guarda nos anexos da compra o XML da NF-e importado de arquivo (a nota baixada da SEFAZ já fica em Notas recebidas). */
+async function guardarXmlNfe(compraId: string, xml: string, usuarioId: string) {
+  if (xml.length > 2 * 1024 * 1024 || !/<infNFe/.test(xml)) return;
+  if (await xmlDaCompra(compraId)) return;
+  const chave = /Id="NFe(\d{44})"/.exec(xml)?.[1] ?? "nota";
+  const dados = Buffer.from(xml, "utf8");
+  await prisma.anexo.create({ data: { entidade: "COMPRA", entidadeId: compraId, nome: `NFe-${chave}.xml`, tipo: "application/xml", tamanho: dados.length, dados, usuarioId } });
+}
+
 export async function salvarCompraForm(_: Resultado, form: FormData): Promise<Resultado> {
   const u = await exigirUsuario(COMPRA);
   let destino: string;
@@ -36,10 +47,21 @@ export async function salvarCompraForm(_: Resultado, form: FormData): Promise<Re
     const d = JSON.parse(String(form.get("dados"))) as DadosCompra & { id?: string };
     const c = await salvarCompra(d, u, d.id);
     await anexar(form, "COMPRA", c.id, u.id);
+    if (d.xmlNfe) await guardarXmlNfe(c.id, d.xmlNfe, u.id);
     revalidatePath(baseCompras(c.tipo));
     destino = `/compras/${c.id}`;
   } catch (e) { return erro(e); }
   redirect(destino);
+}
+
+/** "Cadastrar produto da nota" no formulário da compra: cria o produto e devolve para ligar na linha. */
+export async function cadastrarProdutoDaNotaAcao(d: ProdutoDaNota): Promise<{ ok: true; produto: ProdutoCriado } | { ok: false; mensagem: string }> {
+  const u = await exigirUsuario(COMPRA);
+  try {
+    const produto = await criarProdutoDaNota(d, u.id);
+    revalidatePath("/produtos");
+    return { ok: true, produto };
+  } catch (e) { return erro(e) as { ok: false; mensagem: string }; }
 }
 
 export async function alterarSituacaoCompraAcao(_: Resultado, form: FormData): Promise<Resultado> {

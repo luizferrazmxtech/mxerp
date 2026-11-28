@@ -159,7 +159,8 @@ export default async function NotasRecebidas({ searchParams }: { searchParams: P
                   </td>
                   <td className="text-[12px]">
                     <div className="flex flex-wrap items-center gap-2">
-                      {n.xml ? <a className="text-marca hover:underline" href={`/api/notas-recebidas/${n.id}`}>XML</a>
+                      {n.xml ? <><a className="text-marca hover:underline" href={`/api/notas-recebidas/${n.id}/danfe`} target="_blank" rel="noreferrer" title="Ver a nota (DANFE) em PDF">PDF</a>
+                        <a className="text-marca hover:underline" href={`/api/notas-recebidas/${n.id}`}>XML</a></>
                         : n.manifestacao ? <BotaoAcao acao={baixarXmlAcao} campos={{ id: n.id }} rotulo="Baixar XML" secundario /> : null}
                       {aguardaXml && n.xmlTentativas >= MAX_TENTATIVAS_XML && <span className="text-[11px] text-red-700">a SEFAZ não liberou depois de {MAX_TENTATIVAS_XML} pedidos</span>}
                     </div>
