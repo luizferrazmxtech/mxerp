@@ -4,7 +4,8 @@ import { pessoaDoXml } from "@/lib/cadastros/importacao";
 import { importarPessoas } from "@/lib/migracao/importar";
 import { configEstoque } from "@/lib/estoque/config";
 import { fatorPeloNome, mesmaUnidade, textoConversao } from "@/lib/itens/unidades";
-import type { DadosCompra, LinhaCompra } from "./tipos";
+import { CST_COM_ST, type DadosCompra, type ItemNota, type LinhaCompra } from "./tipos";
+import { produtosParecidos } from "./sugestoes";
 
 /**
  * "Importar XML" da compra: lê a NF-e do fornecedor e monta a compra (fornecedor, NF-e, itens,
@@ -32,7 +33,7 @@ export async function compraDoXml(xml: string): Promise<{ dados: Partial<DadosCo
     if (forn) avisos.push(`Fornecedor ${forn.nome} cadastrado a partir da nota.`);
   } else if (!forn.fornecedor) await prisma.pessoa.update({ where: { id: forn.id }, data: { fornecedor: true } });
 
-  const dets = (Array.isArray(inf.det) ? inf.det : [inf.det]) as { prod: Record<string, unknown> }[];
+  const dets = (Array.isArray(inf.det) ? inf.det : [inf.det]) as { prod: Record<string, unknown>; imposto?: Record<string, unknown> }[];
   const produtos: LinhaCompra[] = [];
   const semVinculo: string[] = [];
   const convertidos: string[] = [];
@@ -48,6 +49,7 @@ export async function compraDoXml(xml: string): Promise<{ dados: Partial<DadosCo
       ?? (cfg.vincularPor !== "CODIGO" ? await prisma.produto.findFirst({ where: { nome: { equals: nome, mode: "insensitive" } } }) : null);
     const q = num(p.qCom), vUn = num(p.vUnCom), desc = cfg.desconto ? num(p.vDesc) : 0;
     const uCom = s(p.uCom).trim().toUpperCase();
+    const nota = itemNota(d, s, num);
     if (!produto) semVinculo.push(`${codigo} ${nome}`);
     // conversão: a nota vem na unidade do fornecedor (CX, RL) e o produto é vendido em outra (MT)
     let conv: Pick<LinhaCompra, "unidadeCompra" | "fator" | "salvarConversao"> = produto ? {} : { unidadeCompra: uCom, fator: "" };
@@ -67,11 +69,12 @@ export async function compraDoXml(xml: string): Promise<{ dados: Partial<DadosCo
       detalhes: produto ? "" : `${codigo} ${nome} (${uCom})`, quantidade: fmt(q, 4).replace(/,?0+$/, ""), valorUnit: fmt(vUn, 4).replace(/(,\d\d)0+$/, "$1"),
       desconto: desc ? fmt(desc) : "", descontoPct: false, codigoFornecedor: codigo, ...conv,
       conversaoProduto: produto?.unidadeCompra ? { unidade: produto.unidadeCompra, fator: Number(produto.fatorConversao) } : null,
+      nota, ...(produto ? {} : { sugestoes: await produtosParecidos(nome, nota.ncm) }),
     });
   }
   if (convertidos.length) avisos.push(`Conversão de unidade aplicada pelo cadastro: ${convertidos.join("; ")}.`);
   if (conferir.length) avisos.push(`Confira a conversão destes itens (a nota vem numa unidade e o produto é vendido em outra). Ao salvar, ela fica gravada no produto: ${conferir.join("; ")}.`);
-  if (semVinculo.length) avisos.push(`${semVinculo.length} item(ns) da nota não se ligaram a nenhum produto: escolha o produto em cada linha em branco (${semVinculo.slice(0, 5).join("; ")}${semVinculo.length > 5 ? "…" : ""}).`);
+  if (semVinculo.length) avisos.push(`${semVinculo.length} item(ns) da nota não se ligaram a nenhum produto: em cada linha em branco, escolha um dos produtos parecidos, busque outro ou cadastre o produto com os dados da nota (${semVinculo.slice(0, 5).join("; ")}${semVinculo.length > 5 ? "…" : ""}).`);
 
   const tot = inf.total?.ICMSTot ?? {};
   const impostos = cfg.impostos ? num(tot.vST) + num(tot.vIPI) + num(tot.vSeg) + num(tot.vII) : 0;
@@ -92,5 +95,22 @@ export async function compraDoXml(xml: string): Promise<{ dados: Partial<DadosCo
       observacaoInterna: `Importada do XML da NF-e ${s(inf.ide?.nNF)}`,
     },
     avisos,
+  };
+}
+
+/** Dados do item da nota: descrição, códigos, NCM/CEST/CFOP, origem e CST/CSOSN do ICMS, ICMS-ST e IPI. */
+function itemNota(d: { prod: Record<string, unknown>; imposto?: Record<string, unknown> }, s: (v: unknown) => string, num: (v: unknown) => number): ItemNota {
+  const p = d.prod;
+  const grupoIcms = (d.imposto?.ICMS ?? {}) as Record<string, Record<string, unknown>>;
+  const icms = Object.values(grupoIcms)[0] ?? {};
+  const ipi = ((d.imposto?.IPI as Record<string, unknown> | undefined)?.IPITrib ?? {}) as Record<string, unknown>;
+  const cst = s(icms.CST || icms.CSOSN);
+  const vSt = num(icms.vICMSST);
+  const gtin = s(p.cEAN);
+  return {
+    codigo: s(p.cProd), nome: s(p.xProd), ean: /^\d{8,14}$/.test(gtin) ? gtin : "", unidade: s(p.uCom).trim().toUpperCase(),
+    quantidade: num(p.qCom), valorUnit: num(p.vUnCom), ncm: s(p.NCM).replace(/\D/g, ""), cest: s(p.CEST).replace(/\D/g, ""), cfop: s(p.CFOP),
+    origem: s(icms.orig), cst, vIcms: num(icms.vICMS), pIcms: num(icms.pICMS), vSt, vIpi: num(ipi.vIPI), pIpi: num(ipi.pIPI),
+    st: vSt > 0 || CST_COM_ST.includes(cst) || num(icms.vICMSSTRet) > 0 || /^[56]4\d\d$/.test(s(p.CFOP)),
   };
 }

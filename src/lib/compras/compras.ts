@@ -1,4 +1,5 @@
 import { centroPorNome } from "@/lib/financeiro/plano";
+import { completarFiscal } from "./produtoDaNota";
 import { Prisma, type PapelUsuario, type SituacaoCompraConfig } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { entrada, saida } from "@/lib/estoque/estoque";
@@ -117,6 +118,8 @@ async function aprender(tx: Tx, fornecedorId: string, linhas: DadosCompra["produ
     const cod = t(l.codigoFornecedor);
     if (cod && !(await tx.itemFornecedor.findFirst({ where: { fornecedorId, produtoId: l.produtoId, codigo: cod } })))
       await tx.itemFornecedor.create({ data: { fornecedorId, produtoId: l.produtoId, codigo: cod } });
+    // NCM, CEST e código de barras da nota completam o cadastro onde estiver vazio
+    if (l.nota) await completarFiscal(tx, l.produtoId, l.nota);
     if (l.salvarConversao && t(l.unidadeCompra) && fatorLinha(l) > 0) {
       const p = await tx.produto.findUniqueOrThrow({ where: { id: l.produtoId }, select: { unidade: true } });
       if (p.unidade !== t(l.unidadeCompra)!.toUpperCase())
