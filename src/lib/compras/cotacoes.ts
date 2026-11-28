@@ -1,6 +1,6 @@
 import { Prisma, type PapelUsuario } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { proximoNumero } from "@/lib/sequencia";
+import { proximoDoc } from "@/lib/sequencia";
 import { parseDia } from "@/lib/datas";
 import { lerNumero } from "@/lib/itens/tipos";
 import type { DadosCompra } from "./tipos";
@@ -41,7 +41,7 @@ export async function salvarCotacao(d: DadosCotacao, u: Usuario, id?: string) {
       if (c.situacao !== "ABERTA") throw new CotacaoError("Só cotações em aberto podem ser editadas");
       await tx.cotacao.update({ where: { id }, data: base });
     } else {
-      const numero = await proximoNumero(tx, "COTACAO");
+      const numero = await proximoDoc(tx, "COTACAO");
       cotacaoId = (await tx.cotacao.create({ data: { ...base, numero, criadoPorId: u.id, criadoPorNome: u.nome } })).id;
     }
     // fornecedores: mantém o link (token) e as respostas de quem continua

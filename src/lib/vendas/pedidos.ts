@@ -8,7 +8,7 @@ import { cancelarRecebimentos, temContas } from "@/lib/financeiro/lancamentos";
 import { taxaDaParcela } from "@/lib/financeiro/taxas";
 import { cartao } from "@/lib/financeiro/taxasCartao";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
-import { proximoNumero } from "@/lib/sequencia";
+import { chaveDoc, numeroEmUso, proximoDoc, proximoDocLivre, subirSequencia } from "@/lib/sequencia";
 import { diaSP, parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, linhasProdutos, lerNumero, subtotalProduto, subtotalServico, totais, type DadosOrcamento } from "@/lib/orcamentos/tipos";
 import { produtoAvulsoId } from "@/lib/itens/avulso";
@@ -206,7 +206,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
       if (atual.situacaoCfg && !atual.situacaoCfg.permiteEdicao) throw new PedidoError(`Vendas na situação "${atual.situacaoCfg.nome}" não podem ser editadas`);
       if (u.papel && atual.situacaoCfg?.bloqueados.includes(u.papel) && atual.situacaoId !== para.id) throw new PedidoError(`Seu grupo não pode trocar a situação "${atual.situacaoCfg.nome}"`);
       const numero = numeroInformado > 0 ? numeroInformado : atual.numero;
-      if (numero !== atual.numero && (await tx.venda.findUnique({ where: { numero } }))) throw new PedidoError(`Já existe a venda nº ${numero}`);
+      if (numero !== atual.numero && (await numeroEmUso(tx.venda, numero, atual.empresaId))) throw new PedidoError(`Já existe a venda nº ${numero}`);
       const existentes = await tx.vendaItem.findMany({ where: { vendaId: id } });
       const antigas = await tx.vendaParcela.findMany({ where: { vendaId: id }, orderBy: { numero: "asc" } });
       const mudouItens = assinaturaItens(existentes.map((e) => ({ produtoId: e.produtoId, descricao: e.descricao, quantidade: Number(e.quantidade) }))) !== assinaturaItens(novosItens);
@@ -233,10 +233,10 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
 
     let numero = numeroInformado;
     if (numero > 0) {
-      if (await tx.venda.findUnique({ where: { numero } })) throw new PedidoError(`Já existe a venda nº ${numero}`);
-      await tx.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('VENDA', ${numero}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${numero})`;
+      if (await numeroEmUso(tx.venda, numero)) throw new PedidoError(`Já existe a venda nº ${numero}`);
+      await subirSequencia(tx, await chaveDoc("VENDA"), numero);
     } else {
-      do numero = await proximoNumero(tx, "VENDA"); while (await tx.venda.findUnique({ where: { numero } }));
+      numero = await proximoDocLivre(tx, tx.venda, "VENDA");
     }
     const v = await tx.venda.create({ data: { ...dados, numero, situacao: "CANCELADA", situacaoId: para.id, criadoPorId: u.id || null, parcelas: { create: parcelas } } });
     await criarItens(v.id);
@@ -247,7 +247,7 @@ export async function salvarPedido(d: DadosPedido, u: Usuario, id?: string, opts
 }
 
 export async function proximoNumeroVenda() {
-  const [s, m] = await Promise.all([prisma.sequencia.findUnique({ where: { chave: "VENDA" } }), prisma.venda.aggregate({ _max: { numero: true } })]);
+  const [s, m] = await Promise.all([prisma.sequencia.findUnique({ where: { chave: await chaveDoc("VENDA") } }), prisma.venda.aggregate({ _max: { numero: true } })]);
   return Math.max(s?.valor ?? 0, m._max.numero ?? 0) + 1;
 }
 
@@ -437,7 +437,7 @@ export async function registrarDevolucao(args: { vendaId: string; tipo: "DEVOLUC
       linhas.push({ it, quantidade: d.quantidade, unit, tl });
     }
     total = Math.round(total * 100) / 100;
-    const numero = await proximoNumero(tx, "DEVOLUCAO");
+    const numero = await proximoDoc(tx, "DEVOLUCAO", v.empresaId);
     const dev = await tx.devolucao.create({
       data: { numero, tipo: args.tipo, vendaId: v.id, empresaId: v.empresaId, clienteId: v.clienteId, total: D(total), observacao: t(args.observacao), usuarioNome: u.nome,
         itens: { create: linhas.map((l) => ({ vendaItemId: l.it.id, produtoId: l.it.produtoId, quantidade: new Prisma.Decimal(l.quantidade), valorUnit: D(l.unit), total: D(l.tl) })) } },

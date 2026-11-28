@@ -234,7 +234,7 @@ describe("orçamentos", () => {
     expect(await prisma.orcamento.count()).toBe(0);
     const [r] = await importarBackupGestaoClick(t, { simular: false, etapas: { orcamentos: true } });
     expect(r.criados).toBe(2);
-    const o = await prisma.orcamento.findUniqueOrThrow({ where: { numero: 6003 }, include: { produtos: true, servicos: true, parcelas: true, situacao: true } });
+    const o = await prisma.orcamento.findFirstOrThrow({ where: { numero: 6003 }, include: { produtos: true, servicos: true, parcelas: true, situacao: true } });
     expect([o.produtos.length, o.servicos.length, o.parcelas.length, Number(o.total), o.situacao.nome, o.condicao]).toEqual([1, 1, 2, 1390, "Concretizado", "PARCELADO"]);
     const fora = await prisma.produto.findFirstOrThrow({ where: { nome: "Produto que saiu de linha" } });
     expect([fora.ativo, fora.controlaEstoque, fora.codigo.startsWith("GC-")]).toEqual([false, false, true]);

@@ -1,6 +1,6 @@
 import { Prisma, type PapelUsuario } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
-import { proximoNumero } from "@/lib/sequencia";
+import { proximoDocLivre } from "@/lib/sequencia";
 import { ATIVOS as BOLETOS_ATIVOS } from "@/lib/financeiro/boletos";
 import { aplicar, estadoDe, estadoDoEnum, PedidoError, situacaoDoEstado, travar } from "./pedidos";
 
@@ -116,8 +116,7 @@ export async function juntarVendas(idsEntrada: string[], u: Usuario, opts: { per
     const obsInt = [`Junção das vendas nº ${lista}.`, ...vendas.filter((v) => v.observacaoInterna?.trim()).map((v) => `Venda nº ${v.numero}: ${v.observacaoInterna!.trim()}`)];
     const prazos = vendas.map((v) => v.prazoEntrega).filter((d): d is Date => !!d);
 
-    let numero: number;
-    do numero = await proximoNumero(tx, "VENDA"); while (await tx.venda.findUnique({ where: { numero } }));
+    const numero = await proximoDocLivre(tx, tx.venda, "VENDA", vendas[0].empresaId);
     const nova = await tx.venda.create({
       data: {
         numero, tipo: itens.size ? "PEDIDO" : "SERVICO", clienteId: vendas[0].clienteId, empresaId: vendas[0].empresaId, vendedorId: primeiro((v) => v.vendedorId),

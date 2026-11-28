@@ -2,7 +2,7 @@ import { Prisma, SituacaoOs, type PrioridadeOs } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { liberarItem, reservarItem, EstoqueError } from "@/lib/estoque/estoque";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
-import { proximoNumero } from "@/lib/sequencia";
+import { proximoDoc } from "@/lib/sequencia";
 import { bloqueioAvulsoOs } from "@/lib/itens/avulso";
 import { cancelarRecebimentos, gerarRecebimentos, type Pagamento } from "@/lib/financeiro/lancamentos";
 import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
@@ -87,7 +87,7 @@ async function cfgOs(tx: Tx, s: SituacaoOs) {
 }
 
 export async function criarOsTx(tx: Tx, dados: CabecalhoOs) {
-  const numero = await proximoNumero(tx, "OS");
+  const numero = await proximoDoc(tx, "OS");
   const os = await tx.ordemServico.create({
     data: { numero, situacaoId: await cfgOs(tx, "ABERTA"), ...cabecalhoData(dados), equipamentos: { create: equipamentosData(dados.equipamentos) } },
   });

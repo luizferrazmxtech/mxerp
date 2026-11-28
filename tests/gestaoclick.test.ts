@@ -170,17 +170,17 @@ describe("backup do Gestão Click", () => {
 
     // OS: 7001 aberta, 7002 em andamento, 7003 concretizada, 7004 concluída-faturar (cliente criado)
     expect(por("os").criados).toBe(4);
-    const o1 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 }, include: { cliente: true, servicos: true, equipamentos: true } });
+    const o1 = await prisma.ordemServico.findFirstOrThrow({ where: { numero: 7001 }, include: { cliente: true, servicos: true, equipamentos: true } });
     expect(o1).toMatchObject({ situacao: "ABERTA" });
     expect(o1.equipamentos[0]).toMatchObject({ equipamento: "NOBREAK", marca: "SMS" });
     expect(o1.cliente.nome).toBe("LAZARO");
     expect(Number(o1.total)).toBeCloseTo(369.8);
-    expect((await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7002 } })).situacao).toBe("EM_ANDAMENTO");
-    const o3 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7003 } });
+    expect((await prisma.ordemServico.findFirstOrThrow({ where: { numero: 7002 } })).situacao).toBe("EM_ANDAMENTO");
+    const o3 = await prisma.ordemServico.findFirstOrThrow({ where: { numero: 7003 } });
     expect(o3).toMatchObject({ situacao: "FATURADA", situacaoId: "so_concretizada" });
     expect(o3.saida?.toISOString()).toBe("2026-11-04T12:00:00.000Z");
     expect(await prisma.osHistorico.count({ where: { osId: o3.id } })).toBe(3);
-    const o4 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7004 }, include: { cliente: true } });
+    const o4 = await prisma.ordemServico.findFirstOrThrow({ where: { numero: 7004 }, include: { cliente: true } });
     expect(o4).toMatchObject({ situacao: "CONCLUIDA", situacaoId: "so_faturar" });
     expect(o4.cliente.nome).toBe("CLIENTE AVULSO");
     expect(por("os").avisos.join(" ")).toMatch(/PRODUTO APAGADO/);
@@ -214,17 +214,17 @@ describe("backup do Gestão Click", () => {
     expect(await prisma.contaBancaria.findUnique({ where: { empresaId_nome: { empresaId: LOJA_ATUAL, nome: "INTER" } } })).not.toBeNull();
 
     // compras: a confirmada entra recebida e com as contas "já lançadas lá"; fornecedor achado pelo CNPJ da chave da NF-e
-    const c990 = await prisma.compra.findUniqueOrThrow({ where: { numero: 990 }, include: { parcelas: true, historico: true, itens: true } });
+    const c990 = await prisma.compra.findFirstOrThrow({ where: { numero: 990 }, include: { parcelas: true, historico: true, itens: true } });
     expect(c990).toMatchObject({ fornecedorId: folk.id, situacaoId: "sc_confirmada", recebida: true, financeiroNoLegado: true, numeroNfe: "123", chaveNfe: "35261011222333000181550010000001231000000010" });
     expect(Number(c990.total)).toBeCloseTo(170);
     expect(c990.parcelas).toHaveLength(2);
     expect(c990.historico).toHaveLength(3);
-    const c991 = await prisma.compra.findUniqueOrThrow({ where: { numero: 991 }, include: { fornecedor: true } });
+    const c991 = await prisma.compra.findFirstOrThrow({ where: { numero: 991 }, include: { fornecedor: true } });
     expect(c991).toMatchObject({ situacaoId: "sc_aberto", recebida: false, financeiroNoLegado: false });
     expect(c991.fornecedor).toMatchObject({ nome: "NOVO FORNECEDOR LTDA", documento: "99888777000166", fornecedor: true });
     expect(await prisma.movimentoEstoque.count({ where: { origemTipo: { in: ["COMPRA", "AJUSTE"] } } })).toBe(0);
     expect((await prisma.sequencia.findUniqueOrThrow({ where: { chave: "COMPRA" } })).valor).toBe(991);
-    const aj = await prisma.ajusteEstoque.findUniqueOrThrow({ where: { numero: 1 }, include: { itens: true } });
+    const aj = await prisma.ajusteEstoque.findFirstOrThrow({ where: { numero: 1 }, include: { itens: true } });
     expect(aj).toMatchObject({ tipo: "ENTRADA", criadoPorNome: "MATHEUS" });
     expect(Number(aj.itens[0].quantidade)).toBe(3);
 
@@ -265,10 +265,10 @@ describe("backup novo por cima de uma importação anterior", () => {
     const t = await gc.lerBackupGestaoClick(await backup());
     await gc.importarBackupGestaoClick(t, { simular: false });
     const bat = await prisma.produto.findUniqueOrThrow({ where: { codigo: "BAT7" } });
-    const o1 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 } });
+    const o1 = await prisma.ordemServico.findFirstOrThrow({ where: { numero: 7001 } });
     expect(await prisma.reserva.count({ where: { origemId: o1.id, status: "ATIVA" } })).toBe(1);
     // a 7002 foi mexida no MXERP depois da importação: o MXERP manda
-    const o2 = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7002 } });
+    const o2 = await prisma.ordemServico.findFirstOrThrow({ where: { numero: 7002 } });
     await prisma.ordemServico.update({ where: { id: o2.id }, data: { updatedAt: new Date("2027-01-02T12:00:00Z") } });
 
     // backup novo: 7001 concretizada e 7002 cancelada no GC; a conta da OS 6500 recebida em 20/11
@@ -287,7 +287,7 @@ describe("backup novo por cima de uma importação anterior", () => {
 
     const res = await gc.importarBackupGestaoClick(novo, { simular: false });
     expect(res.find((r) => r.tipo === "os")!.avisos.join(" ")).toMatch(/alteradas no MXERP.*7002/);
-    const o1b = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 }, include: { historico: true } });
+    const o1b = await prisma.ordemServico.findFirstOrThrow({ where: { numero: 7001 }, include: { historico: true } });
     expect(o1b).toMatchObject({ situacao: "FATURADA", situacaoId: "so_concretizada" });
     expect(o1b.saida?.toISOString()).toBe("2027-01-01T13:00:00.000Z");
     expect(o1b.historico.some((h) => h.situacao === "Concretizada")).toBe(true);
@@ -295,7 +295,7 @@ describe("backup novo por cima de uma importação anterior", () => {
     expect(await prisma.reserva.count({ where: { origemId: o1.id, status: "ATIVA" } })).toBe(0);
     expect(await prisma.movimentoEstoque.count({ where: { origemTipo: "OS" } })).toBe(0);
     expect((await prisma.$transaction((tx) => est.resumoProduto(tx, bat.id))).fisico).toBe(3);
-    expect((await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7002 } })).situacao).toBe("EM_ANDAMENTO");
+    expect((await prisma.ordemServico.findFirstOrThrow({ where: { numero: 7002 } })).situacao).toBe("EM_ANDAMENTO");
 
     const l = await prisma.lancamento.findFirstOrThrow({ where: { descricao: "Ordem de serviço de nº 6500" }, include: { contaBancaria: true } });
     expect(l.pagoEm?.toISOString().slice(0, 10)).toBe("2026-11-20");
@@ -532,9 +532,19 @@ describe("segunda empresa (outro Gestão Click)", () => {
     const osB = await prisma.ordemServico.findMany({ where: { empresaId: b.id }, orderBy: { numero: "asc" }, include: { historico: true } });
     expect(osA.map((o) => o.numero)).toEqual([7001, 7002, 7003, 7004]);
     expect(osB).toHaveLength(4);
-    expect(osB.every((o) => o.numero > 7004)).toBe(true);
+    // cada empresa tem a sua numeração: a segunda mantém os números do Gestão Click dela
+    expect(osB.map((o) => o.numero)).toEqual([7001, 7002, 7003, 7004]);
     expect(osB[0].historico.some((h) => /Nº 7001 no Gestão Click de SEGUNDA/.test(h.descricao))).toBe(true);
-    expect(res.find((r) => r.tipo === "os")!.avisos.join(" ")).toMatch(/4 OS tinham o mesmo número/);
+    expect(res.find((r) => r.tipo === "os")!.avisos.join(" ")).not.toMatch(/tinham o mesmo número/);
+    expect((await prisma.sequencia.findUnique({ where: { chave: `OS#emp:${b.id}` } }))?.valor).toBe(7004);
+    const { naLoja } = await import("@/lib/empresa/loja");
+    const seq = await import("@/lib/sequencia");
+    // a próxima de cada empresa segue a sua sequência; a busca pelo número fica na empresa da tela
+    expect(await naLoja(b.id, () => prisma.$transaction((tx) => seq.proximoDoc(tx, "OS")))).toBe(7005);
+    expect(await naLoja(a.id, () => prisma.$transaction((tx) => seq.proximoDoc(tx, "OS")))).toBeGreaterThan(7004);
+    expect(await naLoja(b.id, () => seq.numeroEmUso(prisma.ordemServico, 7001))).toBe(true);
+    expect(await naLoja(b.id, () => seq.numeroEmUso(prisma.ordemServico, 7001, a.id))).toBe(true);
+    expect((await naLoja(b.id, () => prisma.ordemServico.findMany({ where: { numero: 7001 } }))).map((o) => o.empresaId)).toEqual([b.id]);
 
     // estoque: cada loja no seu depósito; o da primeira não muda
     const saldos = await prisma.saldo.findMany({ where: { produtoId: bat.id }, include: { local: { include: { deposito: true } } } });
@@ -637,11 +647,11 @@ describe("forma de pagamento e documento das contas do Gestão Click", () => {
     t.contas_pagar = [linha({ "descricao do recebimento": "Compra de nº 990", situacao: "Não Pago", "plano de contas": "Compras de mercadorias", "entidade nome": "FOLK COMERCIO E DISTRIBUICAO LTDA", valor: "85", "valor total": "85", "data do vencimento": "30/12/2026", "forma de pagamento": "Transferência Bancária" })];
     await gc.importarBackupGestaoClick(t, { simular: false });
 
-    const os = await prisma.ordemServico.findUniqueOrThrow({ where: { numero: 7001 } });
+    const os = await prisma.ordemServico.findFirstOrThrow({ where: { numero: 7001 } });
     const lo = await prisma.lancamento.findFirstOrThrow({ where: { descricao: "Ordem de serviço de nº 7001" }, include: { formaPagamento: true } });
     expect(lo).toMatchObject({ origemTipo: "OS", origemId: os.id });
     expect(lo.formaPagamento?.nome).toBe("Mercado Livre");
-    const compra = await prisma.compra.findUniqueOrThrow({ where: { numero: 990 } });
+    const compra = await prisma.compra.findFirstOrThrow({ where: { numero: 990 } });
     const lc = await prisma.lancamento.findFirstOrThrow({ where: { descricao: { startsWith: "Compra de nº 990" } }, include: { formaPagamento: true } });
     expect(lc).toMatchObject({ tipo: "PAGAR", origemTipo: "COMPRA", origemId: compra.id });
     expect(lc.formaPagamento).toMatchObject({ nome: "Transferência bancária", tPag: "18" });

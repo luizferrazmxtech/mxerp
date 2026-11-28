@@ -1,5 +1,6 @@
 "use server";
 
+import { chaveDoc } from "@/lib/sequencia";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, type EstoqueSituacao, type NotaSituacao, type PapelUsuario } from "@prisma/client";
@@ -248,7 +249,7 @@ export async function salvarConfigOsAcao(_: Resultado, form: FormData): Promise<
     documentos: Object.fromEntries(docs.map((k) => [k, form.get(k) === "1"])),
   };
   await prisma.$transaction([
-    prisma.sequencia.upsert({ where: { chave: "OS" }, create: { chave: "OS", valor: ultimo }, update: { valor: ultimo } }),
+    prisma.sequencia.upsert({ where: { chave: await chaveDoc("OS") }, create: { chave: await chaveDoc("OS"), valor: ultimo }, update: { valor: ultimo } }),
     prisma.configuracao.upsert({ where: { chave: "os" }, create: { chave: "os", valor }, update: { valor } }),
   ]);
   revalidatePath("/os", "layout");

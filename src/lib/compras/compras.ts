@@ -5,7 +5,7 @@ import { prisma, type Tx } from "@/lib/db";
 import { entrada, saida } from "@/lib/estoque/estoque";
 import { cancelarRecebimentos } from "@/lib/financeiro/lancamentos";
 import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
-import { proximoNumero } from "@/lib/sequencia";
+import { chaveDoc, numeroEmUso, proximoDocLivre, subirSequencia } from "@/lib/sequencia";
 import { parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, lerNumero } from "@/lib/orcamentos/tipos";
 import { fatorLinha, lancaEstoque, lancaFinanceiro, subtotalCompra, totaisCompra, type DadosCompra } from "./tipos";
@@ -136,7 +136,7 @@ async function depositoDosItens(tx: Tx | typeof prisma, itens: { localId: string
 }
 
 export async function proximoNumeroCompra() {
-  const s = await prisma.sequencia.findUnique({ where: { chave: "COMPRA" } });
+  const s = await prisma.sequencia.findUnique({ where: { chave: await chaveDoc("COMPRA") } });
   return (s?.valor ?? 0) + 1;
 }
 
@@ -204,7 +204,7 @@ export async function salvarCompra(d: DadosCompra, u: Usuario, id?: string, opts
       if (atual.situacaoCfg && !atual.situacaoCfg.permiteEdicao) throw new CompraError(`Compras na situação "${atual.situacaoCfg.nome}" não podem ser editadas`);
       if (u.papel && atual.situacaoCfg?.bloqueados.includes(u.papel)) throw new CompraError(`Seu grupo não pode alterar compras na situação "${atual.situacaoCfg.nome}"`);
       const numero = numeroInformado > 0 ? numeroInformado : atual.numero;
-      if (numero !== atual.numero && (await tx.compra.findUnique({ where: { numero } }))) throw new CompraError(`Já existe a compra nº ${numero}`);
+      if (numero !== atual.numero && (await numeroEmUso(tx.compra, numero, atual.empresaId))) throw new CompraError(`Já existe a compra nº ${numero}`);
       const existentes = await tx.compraItem.findMany({ where: { compraId: id } });
       const antigas = await tx.compraParcela.findMany({ where: { compraId: id }, orderBy: { numero: "asc" } });
       // trocar o estoque de entrada também refaz a entrada: estorna de onde entrou e lança no novo estoque
@@ -231,10 +231,10 @@ export async function salvarCompra(d: DadosCompra, u: Usuario, id?: string, opts
 
     let numero = numeroInformado;
     if (numero > 0) {
-      if (await tx.compra.findUnique({ where: { numero } })) throw new CompraError(`Já existe a compra nº ${numero}`);
-      await tx.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('COMPRA', ${numero}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${numero})`;
+      if (await numeroEmUso(tx.compra, numero)) throw new CompraError(`Já existe a compra nº ${numero}`);
+      await subirSequencia(tx, await chaveDoc("COMPRA"), numero);
     } else {
-      do numero = await proximoNumero(tx, "COMPRA"); while (await tx.compra.findUnique({ where: { numero } }));
+      numero = await proximoDocLivre(tx, tx.compra, "COMPRA");
     }
     const c = await tx.compra.create({ data: { ...dados, numero, situacaoId: para.id, criadoPorId: u.id, cotacaoId: t(d.cotacaoId), parcelas: { create: parcelas } } });
     await aprender(tx, d.fornecedorId, produtos);

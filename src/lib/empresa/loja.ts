@@ -23,6 +23,15 @@ export const MODELOS_POR_LOJA = new Set([
   "TransferenciaEstoque", "MensagemWhatsapp", "PedidoMarketplace",
 ]);
 
+/**
+ * Documentos numerados por empresa (cada empresa tem a sua sequência: a venda nº 7285 pode existir na MXTECH e na
+ * VFX). Neles o número não aponta para um registro único, então a busca por número continua filtrada pela loja.
+ */
+export const MODELOS_NUMERADOS = new Set([
+  "Venda", "OrdemServico", "Orcamento", "Compra", "Devolucao", "AjusteEstoque", "TransferenciaEstoque", "Inventario",
+  "Cotacao", "Contrato", "Chamado",
+]);
+
 /** Campos que apontam para um registro específico: com eles a consulta não é filtrada pela loja. */
 const REFERENCIAS = new Set([
   "id", "origemId", "chave", "numero", "token", "osId", "vendaId", "compraId", "contratoId", "lancamentoId", "notaId",
@@ -137,11 +146,12 @@ const LEITURAS = new Set(["findMany", "findFirst", "findFirstOrThrow", "count", 
  * pelas reservas) ou `localId: { not: null }` são listagens e continuam filtradas pela loja; senão a lista mostrava
  * os documentos de todas as empresas.
  */
-export function consultaPorReferencia(where: unknown, idsSaoLista = false): boolean {
+export function consultaPorReferencia(where: unknown, idsSaoLista = false, numeroNaoReferencia = false): boolean {
   if (!where || typeof where !== "object") return false;
   const w = where as Record<string, unknown>;
-  const ref = (x: unknown) => consultaPorReferencia(x, idsSaoLista);
+  const ref = (x: unknown) => consultaPorReferencia(x, idsSaoLista, numeroNaoReferencia);
   for (const [k, v] of Object.entries(w)) {
+    if (numeroNaoReferencia && k === "numero") continue;
     // filtro (lista de ids, "não nulo", maior que…) não aponta para um registro: só valor exato ou { equals }
     if (idsSaoLista && REFERENCIAS.has(k) && v && typeof v === "object" && !("equals" in v)) continue;
     if (REFERENCIAS.has(k) && v !== undefined && v !== null) return true; // "campo: null" é filtro, não referência
@@ -172,6 +182,12 @@ export async function empresaDaEstrutura(base: PrismaClient): Promise<string> {
   const loja = await lojaReal(base);
   if (!loja) return "";
   return (await empresas(base))[0]?.id === loja ? "" : loja;
+}
+
+/** Id da empresa principal (a primeira cadastrada); null sem empresa cadastrada. */
+export async function empresaPrincipalId(): Promise<string | null> {
+  const { prisma } = await import("@/lib/db");
+  return (await empresas(prisma as unknown as PrismaClient))[0]?.id ?? null;
 }
 
 /** Troca o marcador LOJA_ATUAL pela empresa (em where/data, em qualquer nível). */
@@ -297,7 +313,7 @@ export function extensaoLoja(base: PrismaClient) {
           if (!MODELOS_POR_LOJA.has(model)) return query(args);
           const a = (args ?? {}) as Record<string, unknown>;
           if (operation === "create" || operation === "createMany" || operation === "upsert" || LEITURAS.has(operation)) {
-            if (LEITURAS.has(operation) && consultaPorReferencia(a.where, true)) return query(args);
+            if (LEITURAS.has(operation) && consultaPorReferencia(a.where, true, MODELOS_NUMERADOS.has(model))) return query(args);
             const loja = await lojaDoContexto(base);
             if (!loja) return query(args);
             if (operation === "create") return query({ ...a, data: comLoja(a.data, loja) });

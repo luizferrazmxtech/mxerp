@@ -7,7 +7,7 @@ import { enumDe } from "@/lib/os/ordens";
 import { lancaEstoque, lancaFinanceiro } from "@/lib/compras/tipos";
 import { garantirPadroes } from "@/lib/financeiro/padroes";
 import { descricaoComNumero, documentoDaDescricao } from "@/lib/financeiro/origem";
-import { proximoNumero } from "@/lib/sequencia";
+import { chaveDoc, numeroEmUso, proximoDocLivre, proximoNumero, subirSequencia } from "@/lib/sequencia";
 import { diaSP } from "@/lib/datas";
 import { lerPlanilha, normalizar, numeroBr, type Linha } from "./planilha";
 import { importarPessoas, importarProdutos, importarServicos, type Resultado } from "./importar";
@@ -249,7 +249,7 @@ async function importarOs(t: Tabelas, simular: boolean, historico = true): Promi
     if (simular) { r.criados++; continue; }
     if (!sit) throw new Error("Cadastre ao menos uma situação de OS antes de importar");
 
-    const num = await numeroLivre("ordemServico", "OS", numero);
+    const num = await numeroLivre("ordemServico", "OS", numero, lojaDe(o.loja));
     if (num.trocado) renumeradas.push(`${numero} → ${num.numero}`);
     await prisma.$transaction(async (tx) => {
       const cliente = await ctx.cliente(tx, o.cliente, "uma OS");
@@ -305,12 +305,11 @@ async function importarOs(t: Tabelas, simular: boolean, historico = true): Promi
   // numeração continua de onde o Gestão Click parou
   const maxVenda = Math.max(0, ...(t.vendas ?? []).map((v) => Number(v["n do pedido"]) || 0));
   if (!simular) {
-    for (const [chave, valor] of [["OS", maior], ["VENDA", maxVenda]] as const)
-      if (valor > 0) await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES (${chave}, ${valor}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${valor})`;
+    for (const [chave, valor] of [["OS", maior], ["VENDA", maxVenda]] as const) if (valor > 0) await subirSequencia(prisma, await chaveDoc(chave), valor);
   }
   r.avisos.push(`A numeração continua do Gestão Click: próxima OS nº ${maior + 1}${maxVenda ? `, próxima venda nº ${maxVenda + 1}` : ""}.`);
   if (porSituacao.size) r.avisos.push(`OS novas por situação: ${[...porSituacao].map(([k, v]) => `${k} ${v}`).join(", ")}. ${reservadas} em aberto ou em andamento ${simular ? "vão reservar" : "reservaram"} as peças; as concretizadas entram sem mexer no estoque nem no financeiro (o backup já traz o saldo e as contas em aberto).`);
-  if (renumeradas.length) r.avisos.push(`${renumeradas.length} OS tinham o mesmo número de uma OS da outra empresa e ganharam número novo (o do Gestão Click fica no histórico): ${renumeradas.slice(0, 20).join(", ")}${renumeradas.length > 20 ? "…" : ""}`);
+  if (renumeradas.length) r.avisos.push(`${renumeradas.length} OS tinham o mesmo número de outra OS desta empresa e ganharam número novo (o do Gestão Click fica no histórico): ${renumeradas.slice(0, 20).join(", ")}${renumeradas.length > 20 ? "…" : ""}`);
   if (fechadas) r.avisos.push(`${fechadas} OS já concluídas ou canceladas no Gestão Click ficaram de fora (histórico desmarcado).`);
   if (situacaoNova.size) r.avisos.push(`${[...situacaoNova.values()].reduce((a, b) => a + b, 0)} OS já trazidas antes mudaram de situação no Gestão Click e ${simular ? "vão passar" : "passaram"} para a atual (a reserva das peças acompanha): ${[...situacaoNova].map(([k, v]) => `${k}: ${v}`).join("; ")}.`);
   if (mexidasNoErp.length) r.avisos.push(`${mexidasNoErp.length} OS foram alteradas no MXERP depois da importação anterior e ficaram como estão no MXERP: ${mexidasNoErp.slice(0, 30).join(", ")}${mexidasNoErp.length > 30 ? "…" : ""}`);
@@ -412,7 +411,7 @@ async function importarVendas(t: Tabelas, simular: boolean, historico = true): P
     if (sit?.estoque === "RESERVAR") reservadas++;
     if (simular) { r.criados++; continue; }
     if (!sit) throw new Error("Cadastre ao menos uma situação de venda antes de importar");
-    const num = await numeroLivre("venda", "VENDA", numero);
+    const num = await numeroLivre("venda", "VENDA", numero, lojaDe(v.loja));
     if (num.trocado) renumeradas.push(`${numero} → ${num.numero}`);
 
     await prisma.$transaction(async (tx) => {
@@ -461,13 +460,13 @@ async function importarVendas(t: Tabelas, simular: boolean, historico = true): P
     r.criados++;
   }
   if (!simular && maior > 0)
-    await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('VENDA', ${maior}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${maior})`;
+    await subirSequencia(prisma, await chaveDoc("VENDA"), maior);
   r.avisos.push(`A numeração continua do Gestão Click: próxima venda nº ${maior + 1}.`);
   r.avisos.push(`As vendas concretizadas entram sem mexer no estoque nem no financeiro (o backup já traz o saldo e as contas em aberto). ${reservadas} venda(s) em aberto ou em andamento ${simular ? "vão reservar" : "reservaram"} as peças.`);
   if (semProduto.size) r.avisos.push(`${semProduto.size} produtos citados em vendas não existem mais no cadastro e ${simular ? "serão criados" : "foram criados"} como inativos (código GC-…), sem estoque: ${[...semProduto].slice(0, 20).join("; ")}${semProduto.size > 20 ? "…" : ""}`);
   if (semCliente.size) r.avisos.push(`${semCliente.size} clientes de vendas não estão no cadastro e ${simular ? "serão criados" : "foram criados"} só com o nome: ${[...semCliente].slice(0, 20).join("; ")}${semCliente.size > 20 ? "…" : ""}`);
   if (semSituacao.size) r.avisos.push(`Situações sem correspondente no ERP (entraram na situação padrão): ${[...semSituacao].join(", ")}`);
-  if (renumeradas.length) r.avisos.push(`${renumeradas.length} vendas tinham o mesmo número de uma venda da outra empresa e ganharam número novo (o do Gestão Click fica no histórico): ${renumeradas.slice(0, 20).join(", ")}${renumeradas.length > 20 ? "…" : ""}`);
+  if (renumeradas.length) r.avisos.push(`${renumeradas.length} vendas tinham o mesmo número de outra venda desta empresa e ganharam número novo (o do Gestão Click fica no histórico): ${renumeradas.slice(0, 20).join(", ")}${renumeradas.length > 20 ? "…" : ""}`);
   if (fechadas) r.avisos.push(`${fechadas} vendas já concluídas ou canceladas no Gestão Click ficaram de fora (histórico desmarcado).`);
   return r;
 }
@@ -508,7 +507,7 @@ async function importarOrcamentos(t: Tabelas, simular: boolean): Promise<Resulta
     if (existe && !simular) await moverParaLoja("orcamento", existe.id, lojaDe(o.loja), null);
     if (existe) { r.ignorados.push({ linha: numero, motivo: `Orçamento ${numero} já existe no ERP` }); continue; }
     if (simular) { r.criados++; continue; }
-    const num = await numeroLivre("orcamento", "ORCAMENTO", numero);
+    const num = await numeroLivre("orcamento", "ORCAMENTO", numero, lojaDe(o.loja));
     if (!situacaoId) throw new Error("Cadastre ao menos uma situação de orçamento antes de importar");
 
     await prisma.$transaction(async (tx) => {
@@ -551,7 +550,7 @@ async function importarOrcamentos(t: Tabelas, simular: boolean): Promise<Resulta
     r.criados++;
   }
   if (!simular && maior > 0)
-    await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('ORCAMENTO', ${maior}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${maior})`;
+    await subirSequencia(prisma, await chaveDoc("ORCAMENTO"), maior);
   r.avisos.push(`A numeração continua do Gestão Click: próximo orçamento nº ${maior + 1}.`);
   if (semProduto.size) r.avisos.push(`${semProduto.size} produtos citados em orçamentos não existem mais no cadastro e ${simular ? "serão criados" : "foram criados"} como inativos (código GC-…), sem estoque: ${[...semProduto].slice(0, 20).join("; ")}${semProduto.size > 20 ? "…" : ""}`);
   if (semCliente.size) r.avisos.push(`${semCliente.size} clientes de orçamentos não estão no cadastro e ${simular ? "serão criados" : "foram criados"} só com o nome: ${[...semCliente].slice(0, 20).join("; ")}${semCliente.size > 20 ? "…" : ""}`);
@@ -819,7 +818,7 @@ async function importarCompras(t: Tabelas, simular: boolean): Promise<Resultado>
     if (!(await buscarFornecedor(prisma, c.fornecedor, cnpjDaChave(c["chave nf e"])))) semFornecedor.add(c.fornecedor);
     porSituacao.set(sit?.nome ?? nomeSit, (porSituacao.get(sit?.nome ?? nomeSit) ?? 0) + 1);
     if (simular) { r.criados++; continue; }
-    const num = await numeroLivre("compra", "COMPRA", numero);
+    const num = await numeroLivre("compra", "COMPRA", numero, lojaDe(c.loja));
     if (!sit) throw new Error("Cadastre ao menos uma situação de compra antes de importar");
     const data = dataBr(c["data de emissao"]) ?? dataBr(c["cadastrado em"]) ?? new Date();
     const cadastro = dataHoraBr(c["cadastrado em"]) ?? data;
@@ -859,7 +858,7 @@ async function importarCompras(t: Tabelas, simular: boolean): Promise<Resultado>
     }, { timeout: 30000 });
     r.criados++;
   }
-  if (!simular && maior > 0) await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('COMPRA', ${maior}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${maior})`;
+  if (!simular && maior > 0) await subirSequencia(prisma, await chaveDoc("COMPRA"), maior);
   r.avisos.push(`A numeração continua do Gestão Click: próxima compra nº ${maior + 1}.`);
   if (porSituacao.size) r.avisos.push(`Compras novas por situação: ${[...porSituacao].map(([k, v]) => `${k} ${v}`).join(", ")}. As confirmadas entram sem mexer no estoque nem no financeiro (o backup já traz o saldo e as contas); as em aberto lançam quando forem confirmadas no MXERP.`);
   if (semFornecedor.size) r.avisos.push(`${semFornecedor.size} fornecedores de compras não estão no cadastro e ${simular ? "serão criados" : "foram criados"} com o nome e o CNPJ da NF-e: ${[...semFornecedor].slice(0, 20).join("; ")}${semFornecedor.size > 20 ? "…" : ""}`);
@@ -880,7 +879,7 @@ async function importarAjustes(t: Tabelas, simular: boolean): Promise<Resultado>
     maior = Math.max(maior, numero);
     if (await prisma.ajusteEstoque.findFirst({ where: destino ? { idLegado: leg(`ajuste:${numero}`) } : { OR: [{ idLegado: `ajuste:${numero}` }, { numero }] }, select: { id: true } })) { r.ignorados.push({ linha: numero, motivo: `Ajuste ${numero} já existe no ERP` }); continue; }
     if (simular) { r.criados++; continue; }
-    const num = await numeroLivre("ajusteEstoque", "AJUSTE", numero);
+    const num = await numeroLivre("ajusteEstoque", "AJUSTE", numero, destino?.empresaId);
     const ps = prods.get(a.codigo) ?? [];
     await prisma.$transaction(async (tx) => {
       const itens = [];
@@ -902,7 +901,7 @@ async function importarAjustes(t: Tabelas, simular: boolean): Promise<Resultado>
     });
     r.criados++;
   }
-  if (!simular && maior > 0) await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('AJUSTE', ${maior}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${maior})`;
+  if (!simular && maior > 0) await subirSequencia(prisma, await chaveDoc("AJUSTE"), maior);
   r.avisos.push(`Os ajustes entram como histórico, sem mexer no saldo (o estoque atual já vem do backup). Próximo ajuste nº ${maior + 1}.`);
   return r;
 }
@@ -915,15 +914,14 @@ let destino: { empresaId: string; cnpj: string; nome: string } | null = null;
 const leg = (s: string) => (destino ? `${destino.cnpj}:${s}` : s);
 type ModeloNumerado = "ordemServico" | "venda" | "orcamento" | "compra" | "ajusteEstoque";
 /**
- * Número do documento no MXERP: o do Gestão Click; na importação de outra empresa, se o número já for de um
- * documento da primeira, ganha o próximo livre (o original fica no histórico).
+ * Número do documento no MXERP: o do Gestão Click. Cada empresa tem a sua numeração, então a outra empresa mantém
+ * os números dela mesmo que a principal já tenha a venda/OS com o mesmo número. Só troca (pelo próximo livre da
+ * empresa, com o original no histórico) se o número já for de outro documento da mesma empresa.
  */
-async function numeroLivre(modelo: ModeloNumerado, seq: string, numero: number) {
-  const m = prisma[modelo] as unknown as { findUnique: (a: object) => Promise<unknown> };
-  if (!destino || !(await m.findUnique({ where: { numero }, select: { id: true } }))) return { numero, trocado: false };
-  let n: number;
-  do n = await prisma.$transaction((tx) => proximoNumero(tx, seq)); while (await m.findUnique({ where: { numero: n }, select: { id: true } }));
-  return { numero: n, trocado: true };
+async function numeroLivre(modelo: ModeloNumerado, seq: string, numero: number, empresaId?: string | null) {
+  const m = prisma[modelo] as unknown as Parameters<typeof numeroEmUso>[0];
+  if (!(await numeroEmUso(m, numero, empresaId))) return { numero, trocado: false };
+  return { numero: await prisma.$transaction((tx) => proximoDocLivre(tx, m, seq, empresaId)), trocado: true };
 }
 const notaTroca = (numero: number) => `Nº ${numero} no Gestão Click${destino ? ` de ${destino.nome}` : ""}`;
 
@@ -1300,8 +1298,8 @@ async function importarContratos(t: Tabelas, simular: boolean): Promise<Resultad
     const periodicidade = meses >= 12 ? "ANUAL" : meses >= 6 ? "SEMESTRAL" : meses >= 3 ? "TRIMESTRAL" : "MENSAL";
     const vezes = Number(/(\d+)/.exec(c["quantidade de vezes"] ?? "")?.[1] ?? 0);
     const envio = (c["enviar por e mail"] ?? "").toLowerCase();
-    const ocupado = await prisma.contrato.findUnique({ where: { numero }, select: { id: true } });
-    const num = ocupado ? Math.max((await prisma.contrato.aggregate({ _max: { numero: true } }))._max.numero ?? 0, (await prisma.sequencia.findUnique({ where: { chave: "CONTRATO" } }))?.valor ?? 0) + 1 : numero;
+    const ocupado = await numeroEmUso(prisma.contrato, numero, lojaDe(c.loja) ?? null);
+    const num = ocupado ? await prisma.$transaction((tx) => proximoDocLivre(tx, tx.contrato, "CONTRATO", lojaDe(c.loja) ?? null)) : numero;
     if (ocupado) renumerados.push(`${numero} → ${num}`);
     const inicio = dataHoraBr(c["cadastrado em"]) ?? new Date();
     const antecedencia = Number(/(\d+)/.exec(c["gerar fatura"] ?? "")?.[1] ?? 10);
@@ -1339,7 +1337,7 @@ async function importarContratos(t: Tabelas, simular: boolean): Promise<Resultad
   }
   if (!simular) {
     const max = (await prisma.contrato.aggregate({ _max: { numero: true } }))._max.numero ?? 0;
-    await prisma.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('CONTRATO', ${max}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${max})`;
+    await subirSequencia(prisma, await chaveDoc("CONTRATO"), max);
   }
   r.avisos.push(`${r.criados} contratos (serviços recorrentes), somando ${total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} por cobrança${simular ? "" : `: ${ativos} ativos e ${r.criados - ativos} em aberto`}. Os ativos cobram a partir do próximo vencimento do Gestão Click${primeira ? ` (a primeira fatura sai em ${primeira.toLocaleDateString("pt-BR", { timeZone: "UTC" })})` : ""}: pare a cobrança no Gestão Click antes disso, para não cobrar em dobro.`);
   if (conferir.length) r.avisos.push(`${conferir.length} contratos ficaram em aberto porque o próximo vencimento já devia ter sido faturado. Confira no Gestão Click se já cobrou e ative em Contratos: ${conferir.join(", ")}`);

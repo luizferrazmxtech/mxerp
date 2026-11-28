@@ -1,5 +1,6 @@
 "use server";
 
+import { chaveDoc } from "@/lib/sequencia";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { PapelUsuario } from "@prisma/client";
@@ -247,7 +248,8 @@ export async function salvarConfigEstoqueAcao(_: Resultado, form: FormData): Pro
       if (!(v >= 0)) return { ok: false, mensagem: "Último número inválido" };
       const maior = (await (tabela as typeof prisma.compra).aggregate({ _max: { numero: true } }))._max.numero ?? 0;
       if (v < maior) return { ok: false, mensagem: `Já existe o nº ${maior} em ${campo === "cotacao" ? "cotações" : campo === "compra" ? "compras" : campo === "ajuste" ? "ajustes" : "transferências"}; o último número não pode ser menor.` };
-      await prisma.sequencia.upsert({ where: { chave }, create: { chave, valor: v }, update: { valor: v } });
+      const k = await chaveDoc(chave);
+      await prisma.sequencia.upsert({ where: { chave: k }, create: { chave: k, valor: v }, update: { valor: v } });
     }
     await prisma.configuracao.upsert({ where: { chave: "estoque" }, create: { chave: "estoque", valor }, update: { valor } });
   } catch (e) { return erro(e); }

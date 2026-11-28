@@ -1,6 +1,6 @@
 import type { PrioridadeChamado, Prisma, StatusChamado } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { proximoNumero } from "@/lib/sequencia";
+import { proximoDoc } from "@/lib/sequencia";
 import { cadaPalavra, contem, numeroPalavra } from "@/lib/busca/palavras";
 
 /**
@@ -39,7 +39,7 @@ export async function abrirChamado(d: DadosChamado, u: Usuario, agora = new Date
   const prioridade = d.prioridade ?? "NORMAL";
   const canal = d.canal && d.canal in CANAIS ? d.canal : "TELEFONE";
   return prisma.$transaction(async (tx) => {
-    const numero = await proximoNumero(tx, "CHAMADO");
+    const numero = await proximoDoc(tx, "CHAMADO");
     const c = await tx.chamado.create({
       data: {
         numero, assunto: assunto.slice(0, 200), descricao: t(d.descricao), clienteId: d.clienteId || null, contato: t(d.contato), telefone: t(d.telefone),
@@ -108,7 +108,7 @@ export async function comentarChamado(id: string, texto: string, u: Usuario, opt
 
 /** Liga o chamado a uma OS (pelo número). */
 export async function vincularOs(id: string, numeroOs: number, u: Usuario) {
-  const os = await prisma.ordemServico.findUnique({ where: { numero: numeroOs }, select: { id: true, numero: true } });
+  const os = await prisma.ordemServico.findFirst({ where: { numero: numeroOs }, select: { id: true, numero: true } });
   if (!os) throw new ChamadoError(`OS nº ${numeroOs} não encontrada`);
   await prisma.chamado.update({ where: { id }, data: { osId: os.id } });
   await prisma.chamadoInteracao.create({ data: { chamadoId: id, usuarioId: u.id, usuarioNome: u.nome, tipo: "STATUS", texto: `Vinculado à OS nº ${os.numero}` } });

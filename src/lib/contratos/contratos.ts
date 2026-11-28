@@ -3,7 +3,7 @@ import { prisma, type Tx } from "@/lib/db";
 import { naLoja } from "@/lib/empresa/loja";
 import { empresaDoDocumento } from "@/lib/empresa/atual";
 import { diaSP, parseDia, somarDias } from "@/lib/datas";
-import { proximoNumero } from "@/lib/sequencia";
+import { chaveDoc, numeroEmUso, proximoDocLivre, subirSequencia } from "@/lib/sequencia";
 import { nomeBoleto } from "@/lib/documentos/nomeArquivo";
 import { ATIVOS, boletosDoDocumento, pdfBoleto, contextoBoletos, baseLinks } from "@/lib/financeiro/boletos";
 import type { ClienteInter } from "@/lib/financeiro/inter";
@@ -35,7 +35,7 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0
 // ───────────────────────── cadastro
 
 export async function proximoNumeroContrato() {
-  const [s, m] = await Promise.all([prisma.sequencia.findUnique({ where: { chave: "CONTRATO" } }), prisma.contrato.aggregate({ _max: { numero: true } })]);
+  const [s, m] = await Promise.all([prisma.sequencia.findUnique({ where: { chave: await chaveDoc("CONTRATO") } }), prisma.contrato.aggregate({ _max: { numero: true } })]);
   return Math.max(s?.valor ?? 0, m._max.numero ?? 0) + 1;
 }
 
@@ -94,7 +94,7 @@ export async function salvarContrato(d: DadosContrato, u: Usuario, id?: string) 
     if (id) {
       const atual = await tx.contrato.findUniqueOrThrow({ where: { id } });
       const numero = numeroInformado > 0 ? numeroInformado : atual.numero;
-      if (numero !== atual.numero && (await tx.contrato.findUnique({ where: { numero } }))) throw new ContratoError(`Já existe o contrato nº ${numero}`);
+      if (numero !== atual.numero && (await numeroEmUso(tx.contrato, numero, atual.empresaId))) throw new ContratoError(`Já existe o contrato nº ${numero}`);
       await tx.contrato.update({ where: { id }, data: { ...dados, numero } });
       await tx.contratoServico.deleteMany({ where: { contratoId: id } });
       await tx.contratoServico.createMany({ data: linhas(id) });
@@ -103,10 +103,10 @@ export async function salvarContrato(d: DadosContrato, u: Usuario, id?: string) 
     }
     let numero = numeroInformado;
     if (numero > 0) {
-      if (await tx.contrato.findUnique({ where: { numero } })) throw new ContratoError(`Já existe o contrato nº ${numero}`);
-      await tx.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('CONTRATO', ${numero}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${numero})`;
+      if (await numeroEmUso(tx.contrato, numero)) throw new ContratoError(`Já existe o contrato nº ${numero}`);
+      await subirSequencia(tx, await chaveDoc("CONTRATO"), numero);
     } else {
-      do numero = await proximoNumero(tx, "CONTRATO"); while (await tx.contrato.findUnique({ where: { numero } }));
+      numero = await proximoDocLivre(tx, tx.contrato, "CONTRATO");
     }
     const c = await tx.contrato.create({ data: { ...dados, numero, criadoPorId: u.id || null } });
     await tx.contratoServico.createMany({ data: linhas(c.id) });

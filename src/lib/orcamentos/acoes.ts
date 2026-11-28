@@ -1,5 +1,6 @@
 "use server";
 
+import { chaveDoc } from "@/lib/sequencia";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, type PapelUsuario } from "@prisma/client";
@@ -209,7 +210,7 @@ export async function salvarConfigOrcamentoAcao(_: Resultado, form: FormData): P
     documentos: Object.fromEntries(docs.map((k) => [k, form.get(k) === "1"])),
   };
   await prisma.$transaction([
-    prisma.sequencia.upsert({ where: { chave: "ORCAMENTO" }, create: { chave: "ORCAMENTO", valor: ultimo }, update: { valor: ultimo } }),
+    prisma.sequencia.upsert({ where: { chave: await chaveDoc("ORCAMENTO") }, create: { chave: await chaveDoc("ORCAMENTO"), valor: ultimo }, update: { valor: ultimo } }),
     prisma.configuracao.upsert({ where: { chave: "orcamento" }, create: { chave: "orcamento", valor }, update: { valor } }),
   ]);
   revalidatePath("/orcamentos", "layout");
