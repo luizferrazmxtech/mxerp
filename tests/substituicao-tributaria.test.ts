@@ -90,3 +90,35 @@ describe("analisarSt / aplicarSt", () => {
     expect([r.cfopInterno, r.cfopExterno, r.csosn, r.cstIcms, r.ncm]).toEqual([null, null, null, null, "85444200"]);
   });
 });
+
+describe("stRetidoDosProdutos", () => {
+  beforeEach(async () => {
+    await prisma.$executeRawUnsafe(`TRUNCATE "NotaRecebida","Empresa","ItemFornecedor","Produto","Pessoa" CASCADE`);
+  });
+
+  it("pega o ST da compra mais recente, por unidade do produto (caixa → metro) e guarda no produto", async () => {
+    const emp = await prisma.empresa.create({ data: { razaoSocial: "MXTECH", cnpj: "12965283000195" } });
+    const cabo = await prisma.produto.create({ data: { codigo: "P1", nome: "CABO UTP", unidade: "MT", unidadeCompra: "CX", fatorConversao: 305, csosn: "500" } });
+    const tomada = await prisma.produto.create({ data: { codigo: "P2", nome: "TOMADA", gtin: "7891234567895" } });
+    const ret = (b: number, v: number) => `<ICMSSN500><orig>0</orig><CSOSN>500</CSOSN><vBCSTRet>${b}</vBCSTRet><pST>18.00</pST><vICMSSubstituto>${v / 2}</vICMSSubstituto><vICMSSTRet>${v}</vICMSSTRet></ICMSSN500>`;
+    const qdet = (n: number, x: string, icms: string, q: number, u: string, ean = "SEM GTIN") =>
+      `<det nItem="${n}"><prod><cProd>${n}</cProd><cEAN>${ean}</cEAN><xProd>${x}</xProd><NCM>85444200</NCM><CFOP>5405</CFOP><uCom>${u}</uCom><qCom>${q}</qCom><vUnCom>10</vUnCom></prod><imposto><ICMS>${icms}</ICMS></imposto></det>`;
+    const ch1 = CHAVE, ch2 = CHAVE.replace(/0$/, "1");
+    await prisma.notaRecebida.create({ data: { empresaId: emp.id, chave: ch1, emitenteDocumento: "98765432000110", emitenteNome: "D", emissao: new Date("2026-10-01"), valor: 1,
+      xml: nota(qdet(1, "CABO UTP", ret(100, 9), 1, "CX"), ch1) } });
+    await prisma.notaRecebida.create({ data: { empresaId: emp.id, chave: ch2, emitenteDocumento: "98765432000110", emitenteNome: "D", emissao: new Date("2026-11-01"), valor: 1,
+      xml: nota(qdet(1, "CABO UTP", ret(610, 61), 2, "CX") + qdet(2, "TOMADA 10A", "<ICMS10><orig>0</orig><CST>10</CST><modBC>3</modBC><vBC>40</vBC><pICMS>18</pICMS><vICMS>7.2</vICMS><modBCST>4</modBCST><vBCST>60</vBCST><pICMSST>18</pICMSST><vICMSST>3.6</vICMSST></ICMS10>", 4, "UN", "7891234567895"), ch2) } });
+
+    const m = await st.stRetidoDosProdutos([cabo.id, tomada.id], emp.id);
+    const c = m.get(cabo.id)!;
+    expect(c.nota).toBe("12345");
+    expect(c.vBCSTRet).toBeCloseTo(610 / 610); // 2 caixas × 305 m
+    expect(c.vICMSSTRet).toBeCloseTo(0.1);
+    expect(c.pST).toBe(18);
+    const t = m.get(tomada.id)!;
+    expect([t.vBCSTRet, t.vICMSSTRet, t.vICMSSubstituto, t.pST]).toEqual([15, 0.9, 1.8, 18]);
+    const salvo = await prisma.produto.findUniqueOrThrow({ where: { id: cabo.id } });
+    expect((salvo.stRetido as { chave: string }).chave).toBe(ch2);
+  });
+});
+

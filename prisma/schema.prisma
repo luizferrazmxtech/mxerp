@@ -555,6 +555,8 @@ model Produto {
   cstPis               String?
   cstCofins            String?
   cClassTrib           String? // IBS/CBS (reforma tributária)
+  /// ICMS-ST retido na última compra, por unidade do produto (vBCSTRet, pST, vICMSSubstituto, vICMSSTRet, data, chave); vai na NF-e com CSOSN 500/CST 60
+  stRetido             Json?
   ativo                Boolean       @default(true)
   idLegado             String?       @unique
   createdAt            DateTime      @default(now())

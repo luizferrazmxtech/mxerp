@@ -30,6 +30,10 @@ export type ItemNotaSt = {
   valorSt: number;
   /** motivo de o item ser ST, ou null quando a nota trata o item sem ST */
   motivoSt: string | null;
+  quantidade: number;
+  unidade: string;
+  /** ST da entrada para o item inteiro (retido anteriormente ou cobrado nesta nota), null se a nota não traz valores */
+  retido: { vBCSTRet: number; pST: number; vICMSSubstituto: number; vICMSSTRet: number; vBCFCPSTRet: number; pFCPSTRet: number; vFCPSTRet: number } | null;
 };
 
 export type NotaSt = { chave: string; numero: string; emissao: string; emitenteDocumento: string; emitenteNome: string; itens: ItemNotaSt[] };
@@ -60,9 +64,16 @@ export function lerNotaSt(xml: string): NotaSt | null {
       : CFOP_COM_ST.includes(cfop) ? `CFOP ${cfop}`
       : valorSt > 0 ? "valor de ICMS-ST no item"
       : null;
+    // CSOSN 500 / CST 60: o fornecedor repassa o ST retido; CST 10/70, CSOSN 201/202: ele cobrou o ST nesta nota
+    const g = grupoIcms;
+    const retido = num(g.vICMSSTRet) > 0 || num(g.vBCSTRet) > 0
+      ? { vBCSTRet: num(g.vBCSTRet), pST: num(g.pST), vICMSSubstituto: num(g.vICMSSubstituto), vICMSSTRet: num(g.vICMSSTRet), vBCFCPSTRet: num(g.vBCFCPSTRet), pFCPSTRet: num(g.pFCPSTRet), vFCPSTRet: num(g.vFCPSTRet) }
+      : num(g.vICMSST) > 0
+        ? { vBCSTRet: num(g.vBCST), pST: num(g.pICMSST) + num(g.pFCPST), vICMSSubstituto: num(g.vICMS), vICMSSTRet: num(g.vICMSST), vBCFCPSTRet: num(g.vBCFCPST), pFCPSTRet: num(g.pFCPST), vFCPSTRet: num(g.vFCPST) }
+        : null;
     return {
       ordem: i, codigo: s(p.cProd), nome: s(p.xProd), gtin: s(p.cEAN), ncm: s(p.NCM).replace(/\D/g, ""), cest: s(p.CEST).replace(/\D/g, ""),
-      cfop, cst, valorSt, motivoSt: motivo,
+      cfop, cst, valorSt, motivoSt: motivo, quantidade: num(p.qCom), unidade: s(p.uCom).toUpperCase(), retido,
     };
   });
   return {
@@ -214,4 +225,70 @@ export async function removerSt(ids: string[]) {
     },
   })));
   return ps.length;
+}
+
+/** ST retido por unidade do produto, guardado em Produto.stRetido. */
+export type StRetidoUnit = { vBCSTRet: number; pST: number; vICMSSubstituto: number; vICMSSTRet: number; vBCFCPSTRet: number; pFCPSTRet: number; vFCPSTRet: number; data: string; chave: string; nota: string };
+
+const mesma = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase();
+
+/**
+ * ST retido por unidade de cada produto pedido, tirado da nota de compra mais recente da loja em que o item veio
+ * com valores de ST. Fica guardado em Produto.stRetido; só relê as notas mais novas que a guardada.
+ */
+export async function stRetidoDosProdutos(produtoIds: string[], empresaId: string | null | undefined): Promise<Map<string, StRetidoUnit>> {
+  const r = new Map<string, StRetidoUnit>();
+  if (!produtoIds.length) return r;
+  const produtos = await prisma.produto.findMany({
+    where: { id: { in: produtoIds } },
+    select: { id: true, nome: true, gtin: true, unidade: true, unidadeCompra: true, fatorConversao: true, stRetido: true, fornecedores: { select: { codigo: true, fornecedor: { select: { documento: true } } } } },
+  });
+  let desde: Date | null = null;
+  for (const p of produtos) {
+    const c = p.stRetido as StRetidoUnit | null;
+    if (c?.data) { r.set(p.id, c); const d = new Date(c.data); if (!desde || d < desde) desde = d; } else desde = new Date(0);
+  }
+  const notas = await prisma.notaRecebida.findMany({
+    where: { ...(empresaId ? { empresaId } : {}), xml: { not: null }, situacao: { not: "CANCELADA" }, ...(desde && desde.getTime() > 0 ? { emissao: { gt: desde } } : {}) },
+    select: { chave: true, xml: true, compraId: true, emissao: true },
+    orderBy: { emissao: "desc" },
+  });
+  if (!notas.length) return r;
+  const compras = await prisma.compra.findMany({
+    where: { OR: [{ chaveNfe: { in: notas.map((n) => n.chave) } }, { id: { in: notas.map((n) => n.compraId).filter((x): x is string => !!x) } }] },
+    select: { id: true, chaveNfe: true, itens: { select: { produtoId: true, fator: true }, orderBy: { ordem: "asc" } } },
+  });
+  const achados = new Set<string>();
+  for (const n of notas) {
+    if (achados.size === produtos.length) break;
+    const nota = lerNotaSt(n.xml!);
+    if (!nota) continue;
+    const compra = compras.find((c) => c.chaveNfe === n.chave) ?? compras.find((c) => c.id === n.compraId);
+    const daCompra = compra && compra.itens.length === nota.itens.length ? compra.itens : null;
+    for (const p of produtos) {
+      if (achados.has(p.id)) continue;
+      const guardado = r.get(p.id);
+      if (guardado && new Date(guardado.data) >= n.emissao) continue;
+      const it = nota.itens.find((i, k) => i.retido && (
+        p.fornecedores.some((f) => (f.fornecedor.documento ?? "").replace(/\D/g, "") === nota.emitenteDocumento && (f.codigo ?? "").trim() === i.codigo)
+        || (/^\d{8,14}$/.test(i.gtin) && i.gtin === p.gtin)
+        || daCompra?.[k]?.produtoId === p.id
+        || mesma(i.nome, p.nome)));
+      if (!it?.retido || !it.quantidade) continue;
+      // quantidade da nota → unidade do produto (fator da compra lançada, do cadastro ou 1)
+      const k = nota.itens.indexOf(it);
+      const fator = daCompra?.[k]?.produtoId === p.id ? Number(daCompra[k].fator) || 1
+        : !mesma(it.unidade, p.unidade) && p.unidadeCompra ? Number(p.fatorConversao) || 1 : 1;
+      const q = it.quantidade * fator;
+      const v: StRetidoUnit = {
+        vBCSTRet: it.retido.vBCSTRet / q, pST: it.retido.pST, vICMSSubstituto: it.retido.vICMSSubstituto / q, vICMSSTRet: it.retido.vICMSSTRet / q,
+        vBCFCPSTRet: it.retido.vBCFCPSTRet / q, pFCPSTRet: it.retido.pFCPSTRet, vFCPSTRet: it.retido.vFCPSTRet / q,
+        data: n.emissao.toISOString(), chave: n.chave, nota: nota.numero,
+      };
+      r.set(p.id, v);
+      achados.add(p.id);
+      await prisma.produto.update({ where: { id: p.id }, data: { stRetido: v } });
+    }
+  }
+  return r;
 }

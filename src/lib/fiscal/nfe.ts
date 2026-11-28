@@ -64,7 +64,21 @@ export type ItemNota = {
   aliquotaPis?: number | null; // regime normal (padrão 0,65% - cumulativo)
   aliquotaCofins?: number | null; // regime normal (padrão 3% - cumulativo)
   vTotTrib?: number; // Lei da transparência (IBPT)
+  /** ICMS-ST retido anteriormente (CSOSN 500 / CST 60), já para a quantidade do item. Sem isso a SEFAZ rejeita (938). */
+  stRetido?: StRetidoItem | null;
 };
+
+/** Valores do ST retido na entrada (vêm da nota de compra), proporcionais à quantidade vendida. */
+export type StRetidoItem = { vBCSTRet: number; pST: number; vICMSSubstituto: number; vICMSSTRet: number; vBCFCPSTRet?: number; pFCPSTRet?: number; vFCPSTRet?: number };
+
+/** Grupo do ST retido (ICMSSN500 e ICMS60): sempre informado; sem dado da compra vai zerado. */
+function stRetidoTags(r: StRetidoItem | null | undefined) {
+  const v = r ?? { vBCSTRet: 0, pST: 0, vICMSSubstituto: 0, vICMSSTRet: 0 };
+  return [
+    t("vBCSTRet", dec(v.vBCSTRet)), t("pST", dec(v.pST, 4)), t("vICMSSubstituto", dec(v.vICMSSubstituto)), t("vICMSSTRet", dec(v.vICMSSTRet)),
+    ...(v.vFCPSTRet ? [t("vBCFCPSTRet", dec(v.vBCFCPSTRet ?? 0)), t("pFCPSTRet", dec(v.pFCPSTRet ?? 0, 4)), t("vFCPSTRet", dec(v.vFCPSTRet))] : []),
+  ];
+}
 
 export type PagamentoNota = {
   tPag: string; // 01 dinheiro, 03 crédito, 04 débito, 15 boleto, 17 PIX, 99 outros
@@ -133,7 +147,7 @@ function icms(item: ItemNota, crt: number) {
   if (crt === 1 || crt === 2 || crt === 4) {
     const csosn = item.csosn ?? "102";
     if (["102", "103", "300", "400"].includes(csosn)) return g("ICMS", g("ICMSSN102", [t("orig", orig), t("CSOSN", csosn)]));
-    if (csosn === "500") return g("ICMS", g("ICMSSN500", [t("orig", orig), t("CSOSN", csosn)]));
+    if (csosn === "500") return g("ICMS", g("ICMSSN500", [t("orig", orig), t("CSOSN", csosn), ...stRetidoTags(item.stRetido)]));
     throw new Error(`CSOSN ${csosn} ainda não suportado (item ${item.codigo})`);
   }
   const cst = item.cstIcms ?? "00";
@@ -143,7 +157,7 @@ function icms(item: ItemNota, crt: number) {
     return g("ICMS", g("ICMS00", [t("orig", orig), t("CST", "00"), t("modBC", 3), t("vBC", dec(vProd)), t("pICMS", dec(p, 4)), t("vICMS", dec((vProd * p) / 100))]));
   }
   if (["40", "41", "50"].includes(cst)) return g("ICMS", g("ICMS40", [t("orig", orig), t("CST", cst)]));
-  if (cst === "60") return g("ICMS", g("ICMS60", [t("orig", orig), t("CST", "60")]));
+  if (cst === "60") return g("ICMS", g("ICMS60", [t("orig", orig), t("CST", "60"), ...stRetidoTags(item.stRetido)]));
   throw new Error(`CST ICMS ${cst} ainda não suportado (item ${item.codigo})`);
 }
 

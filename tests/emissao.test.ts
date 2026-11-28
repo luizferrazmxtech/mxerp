@@ -129,6 +129,16 @@ describe("emissão a partir da venda", () => {
     await expect(fiscal.emitirNotaVenda(v2.id, 65, { cert, transporte: autoriza })).rejects.toThrow(/NCM/);
   });
 
+  it("produto com CSOSN 500 leva o ST retido da compra, proporcional à quantidade (rejeição 938)", async () => {
+    await prisma.produto.update({ where: { id: prod }, data: { csosn: "500", cfopInterno: "5405",
+      stRetido: { vBCSTRet: 20, pST: 18, vICMSSubstituto: 2, vICMSSTRet: 1.6, vBCFCPSTRet: 0, pFCPSTRet: 0, vFCPSTRet: 0, data: "2099-01-01T00:00:00.000Z", chave: "x", nota: "1" } } });
+    const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 3 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 117 }] });
+    const n = await fiscal.emitirNotaVenda(v.id, 65, { cert, transporte: autoriza });
+    expect(n.status).toBe("AUTORIZADA");
+    expect(xsdProc(n.xml!)).toBe("ok");
+    expect(n.xml).toContain("<CSOSN>500</CSOSN><vBCSTRet>60.00</vBCSTRet><pST>18.0000</pST><vICMSSubstituto>6.00</vICMSSubstituto><vICMSSTRet>4.80</vICMSSTRet>");
+  });
+
   it("cancela nota autorizada", async () => {
     const v = await vendas.vendaBalcao({ itens: [{ produtoId: prod, quantidade: 1 }], pagamentos: [{ formaPagamentoId: dinheiro, valor: 39 }] });
     const n = await fiscal.emitirNotaVenda(v.id, 65, { cert, transporte: autoriza });

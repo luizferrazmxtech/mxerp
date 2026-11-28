@@ -1,4 +1,5 @@
 import type { Prisma, Empresa, ModeloNota, OrigemDocumento, Pessoa, RegimeTributario } from "@prisma/client";
+import { stRetidoDosProdutos } from "./st";
 import { bloqueioAvulsoOs } from "@/lib/itens/avulso";
 import { dividirDesconto } from "./desconto";
 import { lerConfigNfse } from "./configNfse";
@@ -88,7 +89,7 @@ type ItemOrigem = {
   quantidade: unknown; valorUnit: unknown; desconto: unknown;
   /** item avulso: descrição digitada (sem cadastro de produto) */
   descricao?: string | null;
-  produto: { codigo: string; gtin: string | null; nome: string; ncm: string | null; cest: string | null; unidade: string; origem: number; cfopInterno: string | null; cfopExterno: string | null; csosn: string | null; cstIcms: string | null; aliquotaIcms: unknown; cstPis: string | null; cstCofins: string | null };
+  produto: { id?: string; codigo: string; gtin: string | null; nome: string; ncm: string | null; cest: string | null; unidade: string; origem: number; cfopInterno: string | null; cfopExterno: string | null; csosn: string | null; cstIcms: string | null; aliquotaIcms: unknown; cstPis: string | null; cstCofins: string | null };
 };
 
 function itensDe(itens: ItemOrigem[], interestadual: boolean): ItemNota[] {
@@ -147,6 +148,18 @@ async function emitir(args: {
   const dest = await destinatarioDe(args.cliente, !nfce);
   const interestadual = !!dest?.endereco && dest.endereco.uf !== e.uf;
   const itens = itensDe(args.itens, interestadual);
+  // CSOSN 500 / CST 60: a SEFAZ exige o ST retido na entrada (rejeição 938); vem da última nota de compra do produto
+  const comSt = args.itens.map((o, k) => ({ id: o.produto.id, item: itens[k] })).filter((x) => x.id && (x.item.csosn === "500" || x.item.cstIcms === "60"));
+  if (comSt.length) {
+    const retidos = await stRetidoDosProdutos([...new Set(comSt.map((x) => x.id!))], args.empresaId ?? e.id);
+    for (const { id, item } of comSt) {
+      const u = retidos.get(id!);
+      item.stRetido = u ? {
+        vBCSTRet: u.vBCSTRet * item.quantidade, pST: u.pST, vICMSSubstituto: u.vICMSSubstituto * item.quantidade, vICMSSTRet: u.vICMSSTRet * item.quantidade,
+        ...(u.vFCPSTRet ? { vBCFCPSTRet: u.vBCFCPSTRet * item.quantidade, pFCPSTRet: u.pFCPSTRet, vFCPSTRet: u.vFCPSTRet * item.quantidade } : {}),
+      } : null;
+    }
+  }
   // desconto geral do documento rateado proporcionalmente; centavos que sobram vão no maior item
   if (args.desconto && args.desconto > 0) {
     const liquido = (i: ItemNota) => i.quantidade * i.valorUnit - (i.desconto ?? 0);
