@@ -40,7 +40,7 @@ import { mensagemOs } from "@/lib/whatsapp/os";
 import EnviarWhatsappOs from "@/components/whatsapp/EnviarWhatsappOs";
 import ListaMensagens from "@/components/whatsapp/ListaMensagens";
 import { atrasada, dataPrevisao, prazoOs, textoPrazo } from "@/lib/os/prazo";
-import { numeroDaNota } from "@/lib/fiscal/numeroNota";
+import { rotuloNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar OS" };
@@ -243,7 +243,7 @@ export default async function VerOs({ params, searchParams }: { params: Promise<
                 <ul className="space-y-1 border-b pb-2">
                   {notasOs.map((n) => (
                     <li key={n.id} className="flex items-center gap-2">
-                      <Link href={`/fiscal/${n.id}`} className="text-marca hover:underline">{n.modelo === "NFSE" ? `NFS-e nº ${numeroDaNota(n)}` : `${n.modelo === "NFCE" ? "NFC-e" : "NF-e"} ${n.serie}/${n.numero}`}</Link>
+                      <Link href={`/fiscal/${n.id}`} className="text-marca hover:underline">{rotuloNota(n)}</Link>
                       <span className={`text-[11px] ${n.status === "AUTORIZADA" ? "text-emerald-700" : n.status === "REJEITADA" || n.status === "CANCELADA" ? "text-red-700" : "text-slate-500"}`}>{n.status.toLowerCase()}</span>
                       <span className="ml-auto text-[12px] text-slate-600">{brl(n.valorTotal)}</span>
                     </li>

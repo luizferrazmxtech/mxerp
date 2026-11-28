@@ -6,6 +6,8 @@ import { cancelarNfse, cancelarNota, consultarNota, emitirNfseOs, emitirNfseVend
 import { certificadoDaEmpresa } from "@/lib/fiscal/certificado";
 import { ClienteSefaz } from "@/lib/fiscal/sefaz";
 import { cartaCorrecao, inutilizarNumeracao } from "@/lib/fiscal/inutilizacao";
+import { completarNfse } from "@/lib/fiscal/xmlNfse";
+import { prisma } from "@/lib/db";
 
 export type Res = { ok: boolean; mensagem: string; notaId?: string } | null;
 const s = (v: FormDataEntryValue | null) => String(v ?? "").trim();
@@ -120,4 +122,27 @@ export async function cartaCorrecaoAcao(_: Res, form: FormData): Promise<Res> {
   } catch (e) {
     return { ok: false, mensagem: msg(e) };
   }
+}
+
+/** NFS-e sem XML (ex.: emitida no Gestão Click): busca a chave pela DPS e o XML no portal nacional. */
+export async function buscarXmlNfseAcao(_: Res, form: FormData): Promise<Res> {
+  await exigirUsuario(["ADMIN", "GERENTE", "OPERADOR", "CAIXA"]);
+  const id = s(form.get("notaId"));
+  const r = await completarNfse(id);
+  revalidatePath(`/fiscal/${id}`);
+  return { ok: r.ok, mensagem: r.mensagem };
+}
+
+/** Todas as NFS-e da empresa atual sem XML (em lotes de 40): busca no portal nacional. */
+export async function buscarXmlNfsesAcao(): Promise<Res> {
+  await exigirUsuario(["ADMIN", "GERENTE"]);
+  const notas = await prisma.notaFiscal.findMany({ where: { modelo: "NFSE", xml: null, status: { in: ["AUTORIZADA", "CANCELADA"] } }, select: { id: true }, orderBy: { createdAt: "desc" }, take: 40 });
+  let ok = 0;
+  const erros: string[] = [];
+  for (const n of notas) {
+    const r = await completarNfse(n.id);
+    if (r.ok) ok++; else if (erros.length < 3) erros.push(r.mensagem);
+  }
+  revalidatePath("/fiscal");
+  return { ok: ok > 0 || !notas.length, mensagem: notas.length ? `${ok} de ${notas.length} NFS-e com o XML baixado do portal nacional.${erros.length ? ` Falhas: ${erros.join("; ")}` : ""}` : "Nenhuma NFS-e sem XML." };
 }

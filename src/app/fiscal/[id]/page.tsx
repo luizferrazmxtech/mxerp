@@ -5,11 +5,12 @@ import { XMLParser } from "fast-xml-parser";
 import { prisma } from "@/lib/db";
 import { brl, dataHora, docFmt } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
-import { cancelar, cancelarServico, cartaCorrecaoAcao, consultarNotaAcao } from "../actions";
+import { buscarXmlNfseAcao, cancelar, cancelarServico, cartaCorrecaoAcao, consultarNotaAcao } from "../actions";
 import { Pagina } from "@/components/ui/Pagina";
 import Icone from "@/components/Icone";
 import { numeroDaNota } from "@/lib/fiscal/numeroNota";
 import { origensDasNotas } from "@/lib/fiscal/origemNota";
+import { completarNfse, deveBuscarXml } from "@/lib/fiscal/xmlNfse";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +23,16 @@ const SIT: Record<string, string> = {
 
 export default async function Nota({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const n = await prisma.notaFiscal.findUnique({ where: { id }, include: { eventos: { orderBy: [{ createdAt: "asc" }] } } });
+  const ler = () => prisma.notaFiscal.findUnique({ where: { id }, include: { eventos: { orderBy: [{ createdAt: "asc" }] } } });
+  let n = await ler();
   if (!n) notFound();
+  // NFS-e sem XML (ex.: emitida no Gestão Click): busca no portal nacional para a tela ficar igual à das outras
+  let falhaXml: string | null = null;
+  if (deveBuscarXml(n)) {
+    const r = await completarNfse(n.id);
+    if (!r.ok) falhaXml = r.mensagem;
+    n = (await ler())!;
+  }
   const doc = n.xml ? new XMLParser({ ignoreAttributes: true, parseTagValue: false }).parse(n.xml) : null;
   const inf = doc?.nfeProc?.NFe?.infNFe ?? doc?.NFe?.infNFe;
   const dets: Det[] = inf ? [inf.det].flat() : [];
@@ -82,15 +91,28 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
       )}
 
       {n.modelo === "NFSE" && !(n.chave && ["AUTORIZADA", "CANCELADA"].includes(n.status)) && (
-        <div className="cartao mx-auto max-w-md space-y-1 p-4 text-sm">
-          <h1 className="font-semibold">NFS-e{n.numeroNfse ? ` nº ${n.numeroNfse}` : ""} · DPS {n.serie}/{n.numero}</h1>
-          <p>Situação: {n.status.toLowerCase()} {n.motivo && <span className="text-slate-500">({n.motivo})</span>}</p>
-          <p>Valor dos serviços: {brl(n.valorTotal)}</p>
-          {n.chave && <p className="break-all font-mono text-xs">Chave {n.chave}</p>}
+        <div className="cartao space-y-2 p-4 text-sm">
+          <h2 className="font-semibold">{["AUTORIZADA", "CANCELADA"].includes(n.status) ? "DANFSe e XML ainda não estão no MXERP" : `NFS-e ${SIT[n.status]?.toLowerCase() ?? n.status.toLowerCase()}`}</h2>
+          {["AUTORIZADA", "CANCELADA"].includes(n.status) && <>
+            <p className="text-slate-600">A nota foi emitida fora do MXERP{n.idLegado ? " (Gestão Click)" : ""}. O MXERP busca a chave pela DPS {n.serie}/{n.numero} e o XML no portal nacional da NFS-e, com o certificado da empresa emissora.</p>
+            {(falhaXml) && <p className="text-red-700">{falhaXml}</p>}
+            {n.consultadaEm && !falhaXml && <p className="text-xs text-slate-500">Última tentativa: {dataHora(n.consultadaEm)}</p>}
+            <BotaoAcao acao={buscarXmlNfseAcao} campos={{ notaId: n.id }} rotulo="Buscar no portal nacional agora" secundario />
+          </>}
           {n.ambiente === "HOMOLOGACAO" && <p className="text-xs font-bold text-red-700">PRODUÇÃO RESTRITA · SEM VALOR FISCAL</p>}
         </div>
       )}
-      {n.modelo === "NFCE" && (
+
+      {/* NF-e/NFC-e sem XML (emitida no Gestão Click): o backup não traz o XML; a consulta é pela chave no portal da SEFAZ */}
+      {n.modelo !== "NFSE" && !n.xml && (
+        <div className="cartao space-y-2 p-4 text-sm">
+          <h2 className="font-semibold">DANFE e XML não estão no MXERP</h2>
+          <p className="text-slate-600">{n.idLegado ? "Nota emitida no Gestão Click: o backup traz só os dados da nota, sem o XML." : "A nota não tem XML autorizado."}</p>
+          {n.chave && <p className="break-all font-mono text-xs">Chave {chaveFmt}</p>}
+          {n.chave && <a href={`https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&nfe=${n.chave}`} target="_blank" rel="noreferrer" className="btn-sec inline-flex">Consultar pela chave no portal da NF-e</a>}
+        </div>
+      )}
+      {n.modelo === "NFCE" && n.xml && (
       /* DANFCE / DANFCE: largura de bobina 80mm na impressão */
       <div className="cartao mx-auto max-w-md space-y-3 p-4 text-sm print:max-w-[76mm] print:border-0 print:p-0 print:shadow-none">
         <div className="text-center">
@@ -132,7 +154,7 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
 
       )}
 
-      {n.modelo === "NFSE" && n.status === "AUTORIZADA" && (
+      {n.modelo === "NFSE" && n.status === "AUTORIZADA" && n.chave && (
         <div id="cancelar" className="no-print cartao mx-auto max-w-md scroll-mt-20 p-4">
           <h2 className="mb-2 font-semibold">Cancelar NFS-e</h2>
           <BotaoAcao acao={cancelarServico} campos={{ notaId: n.id }} rotulo="Cancelar NFS-e" secundario>

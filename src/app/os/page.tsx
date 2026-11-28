@@ -23,7 +23,7 @@ import FormSituacao from "@/components/orcamentos/FormSituacao";
 import TrocarVisualizacao from "@/components/os/TrocarVisualizacao";
 import Resumo from "@/components/ui/Resumo";
 import { brl } from "@/lib/ui/format";
-import { numeroDaNota } from "@/lib/fiscal/numeroNota";
+import { rotuloNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Ordens de serviços" };
@@ -86,7 +86,7 @@ export default async function ListaOs({ searchParams }: { searchParams: Promise<
     if (!ns.length) return <span className="text-slate-400">—</span>;
     return ns.map((n) => (
       <div key={n.id} className="whitespace-nowrap">
-        <Link href={`/fiscal/${n.id}`} className="sublinhado">#{numeroDaNota(n)}</Link>
+        <Link href={`/fiscal/${n.id}`} className="sublinhado">{rotuloNota(n)}</Link>
         {n.empresaId && nomeEmpresa.get(n.empresaId) && <span className={`ml-1 rounded border px-1 py-px text-[10px] font-semibold ${n.empresaId === o.empresaId ? "border-slate-300 text-slate-600" : "border-violet-300 bg-violet-50 text-violet-700"}`} title="Empresa que emitiu a nota">{nomeEmpresa.get(n.empresaId)}</span>}
       </div>
     ));

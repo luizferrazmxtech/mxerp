@@ -9,7 +9,7 @@ import { brl, dataHora } from "@/lib/ui/format";
 import BotaoAcao from "@/components/BotaoAcao";
 import { numerosPendentes } from "@/lib/fiscal/inutilizacao";
 import { estimativaDoMes, mesAnterior, mesAtual } from "@/lib/fiscal/impostos";
-import { consultarStatus } from "./actions";
+import { buscarXmlNfsesAcao, consultarStatus } from "./actions";
 import AcoesNota from "./AcoesNota";
 import Resumo from "@/components/ui/Resumo";
 import { numeroDaNota } from "@/lib/fiscal/numeroNota";
@@ -51,6 +51,8 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
   // de onde veio cada nota (venda ou OS, mesmo de outra empresa do grupo) e o cliente
   const origem = await origensDasNotas(notas);
 
+  // NFS-e emitidas fora do MXERP (Gestão Click) sem XML: o botão busca chave e XML no portal nacional
+  const semXml = notas.filter((n) => n.modelo === "NFSE" && !n.xml && ["AUTORIZADA", "CANCELADA"].includes(n.status)).length;
   const certOk = !!e?.certificadoValidade || temCertificadoServidor();
   const pendentes = e
     ? (await Promise.all([numerosPendentes(e, "NFE", e.serieNfe, e.ambienteFiscal), numerosPendentes(e, "NFCE", e.serieNfce, e.ambienteFiscal)]))
@@ -103,6 +105,7 @@ export default async function Fiscal({ searchParams }: { searchParams: Promise<{
         <Link href="/fiscal/inutilizacao" className="btn-sec">Inutilizar numeração{pendentes > 0 && <span className="ml-1 rounded bg-red-600 px-1.5 text-[11px] text-white">{pendentes}</span>}</Link>
         <BotaoAcao acao={consultarStatus} campos={{ modelo: "55" }} rotulo="Status SEFAZ NF-e" secundario />
         <BotaoAcao acao={consultarStatus} campos={{ modelo: "65" }} rotulo="Status SEFAZ NFC-e" secundario />
+        {semXml > 0 && <BotaoAcao acao={buscarXmlNfsesAcao} campos={{}} rotulo={`Buscar XML das NFS-e no portal nacional (${semXml})`} secundario />}
       </div>
 
       <div className="cartao overflow-x-auto md:overflow-visible">

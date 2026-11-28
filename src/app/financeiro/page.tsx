@@ -24,7 +24,7 @@ import BotaoAcao from "@/components/ui/BotaoAcao";
 import BotaoExcluir from "@/components/ui/BotaoExcluir";
 import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
 import Icone from "@/components/Icone";
-import { numeroDaNota } from "@/lib/fiscal/numeroNota";
+import { rotuloNota } from "@/lib/fiscal/numeroNota";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Financeiro" };
@@ -159,8 +159,8 @@ export default async function Contas({ searchParams }: { searchParams: Promise<P
                   {diaBr(l.vencimento)}
                   {l.pagoEm && <div className="text-[11px] text-emerald-700">{pagar ? "pago" : "recebido"} {diaBr(l.pagoEm)}</div>}
                 </td>
-                <td>{nf ? <Link href={`/fiscal/${nf.id}`} className="sublinhado">{nf.numero}</Link> : nfc ? nfc : <span className="text-slate-400">—</span>}</td>
-                {!pagar && <td>{ns ? <Link href={`/fiscal/${ns.id}`} className="sublinhado">{numeroDaNota(ns)}</Link> : <span className="text-slate-400">—</span>}</td>}
+                <td>{nf ? <Link href={`/fiscal/${nf.id}`} className="sublinhado">{rotuloNota(nf)}</Link> : nfc ? nfc : <span className="text-slate-400">—</span>}</td>
+                {!pagar && <td>{ns ? <Link href={`/fiscal/${ns.id}`} className="sublinhado">{rotuloNota(ns)}</Link> : <span className="text-slate-400">—</span>}</td>}
                 <td className="text-center"><span className={`pilula ${s.pilula}`}>{s.rotulo}</span></td>
                 <td className="text-right">
                   {num2(l.valor)}

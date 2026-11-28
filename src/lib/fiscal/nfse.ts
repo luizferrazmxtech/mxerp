@@ -211,6 +211,24 @@ export class ClienteNfse {
     return { ok: false as const, chave: null, xmlNfse: null, mensagem: errosTexto(j as never) || `HTTP ${r.status}: ${r.corpo.slice(0, 300)}` };
   }
 
+  /** Chave de acesso da NFS-e gerada a partir de uma DPS (GET /dps/{id}); só a emissora consulta. null = não achou. */
+  async chaveDaDps(idDps: string): Promise<{ chave: string | null; mensagem: string }> {
+    const r = await this.transporte("GET", `${URL_SEFIN[this.amb]}/dps/${idDps}`, null, this.cert);
+    let j: Record<string, unknown> = {};
+    try { j = JSON.parse(r.corpo || "{}"); } catch { /* resposta não-JSON */ }
+    if (r.status >= 200 && r.status < 300 && j.chaveAcesso) return { chave: String(j.chaveAcesso), mensagem: "ok" };
+    return { chave: null, mensagem: errosTexto(j as never) || `HTTP ${r.status}` };
+  }
+
+  /** XML da NFS-e autorizada pela chave (GET /nfse/{chave}). */
+  async baixar(chave: string): Promise<{ xml: string | null; mensagem: string }> {
+    const r = await this.transporte("GET", `${URL_SEFIN[this.amb]}/nfse/${chave}`, null, this.cert);
+    let j: Record<string, unknown> = {};
+    try { j = JSON.parse(r.corpo || "{}"); } catch { /* resposta não-JSON */ }
+    if (r.status >= 200 && r.status < 300 && j.nfseXmlGZipB64) return { xml: gunzipB64(String(j.nfseXmlGZipB64)), mensagem: "ok" };
+    return { xml: null, mensagem: errosTexto(j as never) || `HTTP ${r.status}` };
+  }
+
   async cancelar(p: { cnpj: string; chave: string; cMotivo: 1 | 2 | 9; motivo: string; data?: Date }) {
     if (p.motivo.trim().length < 15) throw new Error("Motivo precisa de pelo menos 15 caracteres");
     const xml = montarPedidoCancelamento({ ...p, tpAmb: this.amb });
