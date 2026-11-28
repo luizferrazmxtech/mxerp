@@ -28,7 +28,7 @@ export async function manifestarAcao(_: Res, form: FormData): Promise<Res> {
   try {
     const n = await manifestar(String(form.get("id")), tipo, String(form.get("justificativa") ?? "") || undefined);
     revalidatePath(CAMINHO);
-    return { ok: true, mensagem: `${MANIFESTACOES[tipo].rotulo} registrada${n.xml ? ". XML completo baixado." : ". O XML completo pode levar alguns minutos para ficar disponível."}` };
+    return { ok: true, mensagem: `${MANIFESTACOES[tipo].rotulo} registrada${tipo === "CIENCIA" || (tipo === "CONFIRMADA" && !n.xml) ? ". O XML completo chega sozinho na próxima busca (a SEFAZ leva de minutos a algumas horas para liberar)." : "."}` };
   } catch (e) {
     return { ok: false, mensagem: msg(e) };
   }
@@ -60,7 +60,7 @@ export async function cienciaEmLoteAcao(_: Res, form: FormData): Promise<Res> {
     try { await manifestar(n.id, "CIENCIA"); ok++; } catch (e) { erros.push(msg(e)); if (erros.length >= 3) break; }
   }
   revalidatePath(CAMINHO);
-  return { ok: !erros.length, mensagem: `Ciência registrada em ${ok} nota(s)${erros.length ? `. Erro: ${erros[0]}` : ". Os XMLs completos chegam em alguns minutos."}` };
+  return { ok: !erros.length, mensagem: `Ciência registrada em ${ok} nota(s)${erros.length ? `. Erro: ${erros[0]}` : ". Os XMLs completos chegam sozinhos nas próximas buscas."}` };
 }
 
 /** Pede de novo agora o XML completo das notas com ciência que ainda não têm (loja atual). */
@@ -70,7 +70,8 @@ export async function baixarXmlsPendentesAcao(_: Res, form: FormData): Promise<R
   try {
     const r = await baixarXmlsPendentes({ limite: 20 });
     revalidatePath(CAMINHO);
-    return { ok: !!r.baixados || !r.aguardando, mensagem: r.baixados || r.aguardando ? `${r.baixados} XML(s) baixado(s)${r.aguardando ? `, ${r.aguardando} ainda não liberado(s) pela SEFAZ (o agendador tenta de hora em hora)` : ""}` : "Nenhuma nota aguardando XML (ou todas já foram pedidas na última hora)" };
+    if (r.espera && !r.baixados) return { ok: false, mensagem: r.espera };
+    return { ok: !!r.baixados || !r.aguardando, mensagem: r.baixados || r.aguardando ? `${r.baixados} XML(s) baixado(s)${r.aguardando ? `, ${r.aguardando} ainda não liberado(s) pela SEFAZ (o agendador tenta de hora em hora)` : ""}${r.espera ? `. ${r.espera}` : ""}` : "Nenhuma nota aguardando XML há mais de 1 hora (as recentes chegam sozinhas na busca, e cada nota é pedida no máximo uma vez por hora)" };
   } catch (e) {
     return { ok: false, mensagem: msg(e) };
   }
