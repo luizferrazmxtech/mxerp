@@ -23,7 +23,7 @@ import BuscaPessoa from "@/components/orcamentos/BuscaPessoa";
 import FormSituacao from "@/components/orcamentos/FormSituacao";
 import Resumo from "@/components/ui/Resumo";
 import { brl } from "@/lib/ui/format";
-import { numeroDaNota } from "@/lib/fiscal/numeroNota";
+import { rotuloNota } from "@/lib/fiscal/numeroNota";
 import { caixaAberto } from "@/lib/pdv/caixa";
 import AvisoCaixa from "@/components/vendas/AvisoCaixa";
 
@@ -111,8 +111,8 @@ export default async function ListaVendas({ tipo, sp }: { tipo: TipoLista; sp: P
                 {selecao && <td><input type="checkbox" name="ids" value={v.id} /></td>}
                 {tem("numero") && <td>{v.numero}{v.juntadaEmId && <span className="block text-[10px] text-slate-500" title="Venda juntada com outras numa venda nova">juntada</span>}</td>}
                 {tem("nfe") && <td>{nf || ns ? <>
-                  {nf && <Link href={`/fiscal/${nf.id}`} className="block text-marca hover:underline">#{nf.numero}</Link>}
-                  {ns && <Link href={`/fiscal/${ns.id}`} className="block text-marca hover:underline" title="NFS-e">{nf && <span className="text-[10px] text-slate-500">NFS-e </span>}#{numeroDaNota(ns)}</Link>}
+                  {nf && <Link href={`/fiscal/${nf.id}`} className="block text-marca hover:underline">{rotuloNota(nf)}</Link>}
+                  {ns && <Link href={`/fiscal/${ns.id}`} className="block text-marca hover:underline" >{rotuloNota(ns)}</Link>}
                 </> : <span className="text-slate-400">—</span>}</td>}
                 {tem("cliente") && <td>{v.cliente ? <><Link href={`/clientes/${v.cliente.id}`} className="sublinhado">{v.cliente.nome}</Link>{v.cliente.fantasia && <i className="block text-[11px] text-slate-500">{v.cliente.fantasia}</i>}</> : "Consumidor"}</td>}
                 {tem("data") && <td>{dataBr(v.data)}</td>}

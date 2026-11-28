@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { cookies } from "next/headers";
 import { lojasDoUsuario } from "@/lib/empresa/atual";
 import { COOKIE_LOJA } from "@/lib/empresa/loja";
 import { destinoSeguro } from "@/lib/empresa/abrirNaEmpresa";
@@ -12,9 +11,11 @@ export async function GET(req: NextRequest) {
   const loja = req.nextUrl.searchParams.get("loja") ?? "";
   const ir = destinoSeguro(req.nextUrl.searchParams.get("ir"));
   const lojas = await lojasDoUsuario();
+  // Location relativa: atrás do proxy (VPS) req.url é http://localhost:3000, e o navegador iria para lá
+  const res = new NextResponse(null, { status: 303, headers: { Location: ir } });
   if (lojas.some((l) => l.id === loja)) {
-    (await cookies()).set(COOKIE_LOJA, loja, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 365 * 86400 });
+    res.cookies.set(COOKIE_LOJA, loja, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 365 * 86400 });
   }
   // sem acesso à outra empresa: abre o documento mesmo assim (a consulta por id não é filtrada), sem trocar
-  return NextResponse.redirect(new URL(ir, req.url));
+  return res;
 }
