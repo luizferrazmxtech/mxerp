@@ -13,18 +13,28 @@ import type { PessoaBusca } from "@/lib/cadastros/tipos";
 import { ResumoConversao, SeletorUnidade } from "@/components/itens/CelulaConversao";
 import { fatorPeloNome, mesmaUnidade } from "@/lib/itens/unidades";
 import { salvarCompraForm, type Resultado } from "@/lib/compras/acoes";
-import { subtotalCompra, totaisCompra, type DadosCompra, type LinhaCompra } from "@/lib/compras/tipos";
+import { subtotalCompra, totaisCompra, type DadosCompra, type ItemNota, type LinhaCompra } from "@/lib/compras/tipos";
+import CadastrarProdutoNota from "./CadastrarProdutoNota";
 import type { EstoqueEntrada } from "@/lib/estoque/entrada";
 import { gerarParcelas, lerNumero, type LinhaServico } from "@/lib/orcamentos/tipos";
 
 export type InicialCompra = DadosCompra & { id?: string; proximoNumero: number; anexos: { id: string; nome: string }[] };
 type Opcoes = { situacoes: { id: string; nome: string }[]; formas: { id: string; nome: string }[]; campos: { id: string; nome: string }[]; centros: string[]; estoques?: EstoqueEntrada[] };
 type ProdutoBusca = { id: string; codigo: string; nome: string; unidade: string; custo: number; fisico: number | null; disponivel?: number | null; situacao?: SituacaoEstoque; minimo?: number; unidadeCompra: string | null; fatorConversao: number };
+type ProdutoLigavel = Pick<ProdutoBusca, "id" | "codigo" | "nome" | "unidade" | "custo" | "unidadeCompra" | "fatorConversao">;
 type ServicoBusca = { id: string; codigo: string; nome: string; preco: number };
 
 const n2 = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const hoje = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+
+/** Dados fiscais do item como vieram na nota (conferência; NCM, CEST e EAN completam o cadastro vazio ao salvar). */
+function FiscalNota({ n }: { n: ItemNota }) {
+  const v = (x: number) => x.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const partes = [n.ncm && `NCM ${n.ncm}`, n.cest && `CEST ${n.cest}`, n.cfop && `CFOP ${n.cfop}`, n.cst && `CST ${n.cst}`, n.vIcms > 0 && `ICMS ${v(n.pIcms)}%`, n.vSt > 0 && `ST R$ ${v(n.vSt)}`, n.vIpi > 0 && `IPI R$ ${v(n.vIpi)}`].filter(Boolean);
+  if (!partes.length && !n.st) return null;
+  return <div className="mt-0.5 text-[11px] text-slate-500">{partes.join(" · ")}{n.st && !n.vSt && <b className="text-amber-700"> · ST</b>}</div>;
+}
 
 function Desconto({ valor, pct, onValor, onPct }: { valor: string; pct: boolean; onValor: (v: string) => void; onPct: (v: boolean) => void }) {
   return (
@@ -50,6 +60,27 @@ export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op
   const novoProduto = (): LinhaCompra => ({ produtoId: "", nome: "", codigo: "", unidade: "", detalhes: "", quantidade: "1", valorUnit: "0,00", desconto: "", descontoPct: false });
   const novoServico = (): LinhaServico => ({ servicoId: "", nome: "", codigo: "", detalhes: "", quantidade: "1", valorUnit: "0,00", desconto: "", descontoPct: false });
 
+  /** Liga a linha a um produto (da busca, das sugestões ou recém-cadastrado), acertando a unidade da nota e a conversão. */
+  const ligar = (i: number, l: LinhaCompra, p: ProdutoLigavel) => {
+    const cp = p.unidadeCompra ? { unidade: p.unidadeCompra, fator: p.fatorConversao } : null;
+    const base = { produtoId: p.id, nome: p.nome, codigo: p.codigo, unidade: p.unidade, conversaoProduto: cp, sugestoes: undefined };
+    if (l.codigoFornecedor) {
+      // linha da NF-e: quantidade e valor são os da nota, na unidade da nota
+      const uNota = l.nota?.unidade || l.unidadeCompra || l.unidade;
+      if (mesmaUnidade(uNota, p.unidade)) setProd(i, { ...base, unidadeCompra: "", fator: "" });
+      else if (cp) setProd(i, { ...base, unidadeCompra: uNota, fator: String(cp.fator).replace(".", ",") });
+      else { const g = fatorPeloNome(`${l.detalhes} ${l.nota?.nome ?? ""} ${p.nome}`, p.unidade); setProd(i, { ...base, unidadeCompra: uNota, fator: g ? String(g) : "", salvarConversao: true }); }
+    } else
+      // produto com conversão: a compra já vem na unidade de compra (CX), com o custo da caixa
+      setProd(i, { ...base, ...(cp ? { unidadeCompra: cp.unidade, fator: String(cp.fator).replace(".", ","), valorUnit: n2(p.custo * cp.fator) } : { valorUnit: n2(p.custo) }) });
+  };
+  /** Desfaz o vínculo de uma linha da nota (ligou no produto errado): volta a mostrar a busca e as sugestões. */
+  const desligar = (i: number, l: LinhaCompra) => {
+    const nt = l.nota!;
+    setProd(i, { produtoId: "", nome: nt.nome, codigo: nt.codigo, unidade: nt.unidade, unidadeCompra: nt.unidade, fator: "", salvarConversao: false, conversaoProduto: null,
+      detalhes: l.detalhes || `${nt.codigo} ${nt.nome} (${nt.unidade})` });
+  };
+
   const blocoProdutos = (
     <Bloco key="p" icone="produtos" titulo={<>Adicione os <b>produtos</b> da compra</>} subtitulo="Produto, quantidade e valor de custo por linha, na unidade da nota. Se comprou em caixa e vende por metro, escolha a unidade de compra: entra no estoque a quantidade convertida e o custo por metro." corpo="p-0">
       <div className="overflow-x-auto">
@@ -62,26 +93,21 @@ export default function FormCompra({ inicial, op }: { inicial: InicialCompra; op
             {d.produtos.map((l, i) => (
               <tr key={i}>
                 <td>
-                  {l.produtoId ? <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}</div> : (
+                  {l.produtoId ? <div className="text-[13px]"><span className="font-mono text-[11px] text-slate-500">{l.codigo}</span> {l.nome}
+                    {l.nota && <button type="button" className="ml-1 text-[11px] text-slate-400 hover:text-marca hover:underline" title="Ligou no produto errado? Escolha outro" onClick={() => desligar(i, l)}>trocar</button>}</div> : (
                     <Busca<ProdutoBusca> url={(q) => `/api/itens/busca?tipo=produto&q=${encodeURIComponent(q)}`} valor={null} rotulo={(p) => p.nome} autoFocus larguraMin={560} classeLinha={(p) => fundoEstoque(p.situacao)}
                       linha={(p) => <LinhaItemBusca codigo={p.codigo} nome={p.nome} unidade={p.unidade} valor={p.custo} rotuloValor="Custo" disponivel={p.disponivel ?? p.fisico} situacao={p.situacao} minimo={p.minimo} />}
-                      onEscolher={(p) => {
-                        if (!p) return;
-                        const cp = p.unidadeCompra ? { unidade: p.unidadeCompra, fator: p.fatorConversao } : null;
-                        const base = { produtoId: p.id, nome: p.nome, codigo: p.codigo, unidade: p.unidade, conversaoProduto: cp };
-                        if (l.codigoFornecedor) {
-                          // linha da NF-e: quantidade e valor são os da nota, na unidade da nota
-                          const uNota = l.unidadeCompra || l.unidade;
-                          if (mesmaUnidade(uNota, p.unidade)) setProd(i, { ...base, unidadeCompra: "", fator: "" });
-                          else if (cp) setProd(i, { ...base, unidadeCompra: uNota, fator: String(cp.fator).replace(".", ",") });
-                          else { const g = fatorPeloNome(`${l.detalhes} ${p.nome}`, p.unidade); setProd(i, { ...base, unidadeCompra: uNota, fator: g ? String(g) : "", salvarConversao: true }); }
-                        } else
-                          // produto com conversão: a compra já vem na unidade de compra (CX), com o custo da caixa
-                          setProd(i, { ...base, ...(cp ? { unidadeCompra: cp.unidade, fator: String(cp.fator).replace(".", ","), valorUnit: n2(p.custo * cp.fator) } : { valorUnit: n2(p.custo) }) });
-                      }} />
+                      onEscolher={(p) => p && ligar(i, l, p)} />
+                  )}
+                  {!l.produtoId && l.nota && (
+                    <div className="mt-1 space-y-1">
+                      {!!l.sugestoes?.length && <div className="flex flex-wrap items-center gap-1 text-[11px]"><span className="text-slate-500">Parecidos:</span>
+                        {l.sugestoes.map((p) => <button key={p.id} type="button" title={p.motivo} className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-sky-800 hover:bg-sky-100" onClick={() => ligar(i, l, p)}>{p.nome} <span className="text-sky-600">({p.motivo})</span></button>)}</div>}
+                      <CadastrarProdutoNota nota={l.nota} fornecedorId={d.fornecedorId} onCriado={(p) => ligar(i, l, { ...p, custo: 0 })} />
+                    </div>
                   )}
                 </td>
-                <td><input className="campo" value={l.detalhes} onChange={(e) => setProd(i, { detalhes: e.target.value })} /></td>
+                <td><input className="campo" value={l.detalhes} onChange={(e) => setProd(i, { detalhes: e.target.value })} />{l.nota && <FiscalNota n={l.nota} />}</td>
                 <td><input className="campo text-right" value={l.quantidade} onChange={(e) => setProd(i, { quantidade: e.target.value })} /></td>
                 <td className="text-[12px] text-slate-600">{l.produtoId ? <SeletorUnidade l={l} onChange={(m) => setProd(i, m)} /> : l.unidadeCompra || l.unidade}</td>
                 <td><input className="campo text-right" value={l.valorUnit} onChange={(e) => setProd(i, { valorUnit: e.target.value })} /></td>

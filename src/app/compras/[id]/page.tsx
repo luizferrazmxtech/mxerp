@@ -22,6 +22,7 @@ import FormSituacao from "@/components/orcamentos/FormSituacao";
 import CopiarLink from "@/components/orcamentos/CopiarLink";
 import FormAnotacaoOrc from "@/components/orcamentos/FormAnotacaoOrc";
 import { baseCompras, tituloCompras } from "@/components/compras/PaginaFormCompra";
+import { xmlDaCompra } from "@/lib/compras/nfeCompra";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Visualizar compra" };
@@ -78,6 +79,7 @@ export default async function VerCompra({ params, searchParams }: { params: Prom
   ].filter((a) => a.tem);
   const aba = ABAS.some((a) => a.chave === sp.aba) ? sp.aba! : ABAS[0].chave;
   const podeEditar = c.situacaoCfg?.permiteEdicao ?? true;
+  const temNota = !!(await xmlDaCompra(id));
 
   return (
     <Pagina voltar={baseCompras(c.tipo)} titulo="Visualizar compra" trilha={[{ rotulo: tituloCompras(c.tipo), href: baseCompras(c.tipo) }, { rotulo: "Visualizar" }]}>
@@ -89,6 +91,7 @@ export default async function VerCompra({ params, searchParams }: { params: Prom
           <p className="text-[12px] text-slate-500">Criado em {c.createdAt.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric", timeZone: "America/Sao_Paulo" })}{criador ? ` por ${criador.nome.toUpperCase()}` : ""}</p>
         </div>
         <div className="no-print ml-auto flex gap-2">
+          {temNota && <a href={`${base}/danfe`} target="_blank" rel="noreferrer" className="btn-sec" title="DANFE da NF-e do fornecedor"><Icone nome="notas" size={15} /> Ver nota (PDF)</a>}
           <Suspenso direita classe="btn-laranja" botao={<><Icone nome="editar" size={15} /> Editar <Icone nome="abaixo" size={13} /></>}>
             {podeEditar && <LinkSuspenso href={`${base}/editar`} icone="editar">Editar compra</LinkSuspenso>}
             <LinkSuspenso href={`${base}?situacao=1`} icone="atualizar">Alterar situação</LinkSuspenso>
@@ -191,6 +194,7 @@ export default async function VerCompra({ params, searchParams }: { params: Prom
             <div className="cartao space-y-1 p-4 text-[13px]">
               <div><b>Número da NF-e:</b> {c.numeroNfe ?? "—"}</div>
               <div><b>Chave da NF-e:</b> <span className="font-mono text-[12px]">{c.chaveNfe ?? "—"}</span></div>
+              {temNota && <div><a href={`${base}/danfe`} target="_blank" rel="noreferrer" className="text-marca hover:underline">Ver a nota em PDF (DANFE)</a></div>}
               <div><b>Centro de custo:</b> {c.centroCusto ?? "—"}</div>
               <div><b>Transportadora:</b> {c.transportadora?.nome ?? "—"} · <b>Frete:</b> {brl(c.frete)}</div>
               {c.observacoes && <div className="border-t pt-2"><b>Observações:</b> <span className="whitespace-pre-wrap">{c.observacoes}</span></div>}
