@@ -366,14 +366,33 @@ export async function cancelarBoletosDoLancamento(lancamentoId: string, motivo =
   return n;
 }
 
-/** PDF do boleto (fica guardado depois da primeira vez). */
+/** O Inter recusa o PDF (HTTP 400) enquanto a cobrança ainda está sendo processada do lado dele. */
+const emProcessamentoNoInter = (r: RespostaInter) => r.status === 400 && /processamento/i.test(r.corpo);
+const esperar = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+
+/**
+ * PDF do boleto (fica guardado depois da primeira vez). Se o Inter ainda estiver processando a cobrança, consulta
+ * a situação, espera um pouco e tenta de novo; se não sair, explica em vez de culpar as permissões.
+ */
 export async function pdfBoleto(boletoId: string, ctx?: Contexto | null) {
-  const b = await prisma.boleto.findUniqueOrThrow({ where: { id: boletoId } });
+  let b = await prisma.boleto.findUniqueOrThrow({ where: { id: boletoId } });
   if (b.pdf) return Buffer.from(b.pdf);
   if (!b.codigoSolicitacao) throw new BoletoError("Boleto não registrado no Inter");
   ctx = await contextoDoBoleto(b, ctx);
   if (!ctx) throw new BoletoError("Integração com o Banco Inter sem a permissão de boletos");
-  const r = await chamar(ctx, "GET", `${API}/${b.codigoSolicitacao}/pdf`);
+  let r = await chamar(ctx, "GET", `${API}/${b.codigoSolicitacao}/pdf`);
+  for (let tentativa = 0; emProcessamentoNoInter(r) && tentativa < 2; tentativa++) {
+    b = (await atualizarBoleto(b.id, ctx).catch(() => null)) ?? b;
+    if (!ATIVOS.includes(b.situacao)) break; // cancelado, expirado, pago ou falhou: não adianta insistir
+    await esperar(2500);
+    r = await chamar(ctx, "GET", `${API}/${b.codigoSolicitacao}/pdf`);
+  }
+  if (emProcessamentoNoInter(r)) {
+    const sit = ROTULO_BOLETO[b.situacao] ?? b.situacao;
+    throw new BoletoError(ATIVOS.includes(b.situacao)
+      ? `O Banco Inter ainda está processando este boleto (situação no Inter: ${sit}) e não liberou o PDF. Tente de novo em alguns minutos; a linha digitável e o Pix${b.linhaDigitavel ? " já podem ser usados" : " aparecem assim que o processamento terminar"}.`
+      : `O Banco Inter não gera o PDF deste boleto: situação no Inter "${sit}".`);
+  }
   if (r.status !== 200) falha("não gerou o PDF do boleto", r);
   const { pdf } = JSON.parse(r.corpo) as { pdf?: string };
   if (!pdf) throw new BoletoError("Inter: PDF ainda não disponível, tente de novo em instantes");

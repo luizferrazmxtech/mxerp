@@ -312,7 +312,9 @@ export function explicar(r: RespostaInter, escopo = ESCOPO_EXTRATO) {
     r.status === 403 ? (boleto
       ? " (a integração precisa da permissão \"Emitir e cancelar boletos/cobranças\" e \"Consultar boletos/cobranças\" no Inter Empresas)"
       : " (a integração precisa da permissão \"Consultar extrato e saldo\" no Inter Empresas; confira também a conta corrente)") :
-    r.status === 400 ? (boleto
+    // 400 é quase sempre erro de dados ou de momento (ex.: boleto ainda em processamento): a dica de permissão só
+    // vale quando o próprio Inter fala de escopo/permissão (a autenticação recusa escopo não liberado com 400)
+    r.status === 400 && /escopo|scope|permiss|unauthorized_client|invalid_scope/i.test(r.corpo) ? (boleto
       ? " (a integração no Inter Empresas não tem a permissão de boletos/cobrança: edite a integração e marque \"Emitir e cancelar boletos\" e \"Consultar boletos\")"
       : " (confira os escopos: a integração precisa ter todos os escopos pedidos)") : "";
   return `${r.corpo.slice(0, 300)}${dica}`;
