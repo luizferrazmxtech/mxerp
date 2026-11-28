@@ -4,7 +4,7 @@ import { EstoqueError, liberarItem, reservarItem } from "@/lib/estoque/estoque";
 import { transicionarEstoque, type EstadoEstoque } from "@/lib/estoque/transicao";
 import { cancelarRecebimentos, gerarRecebimentos, type Pagamento } from "@/lib/financeiro/lancamentos";
 import { categoria, garantirPadroes } from "@/lib/financeiro/padroes";
-import { proximoNumero } from "@/lib/sequencia";
+import { proximoDoc } from "@/lib/sequencia";
 import { situacaoDoEstado } from "./pedidos";
 
 const cfgId = async (tx: Tx, s: SituacaoVenda) => (await situacaoDoEstado(tx, s))?.id ?? null;
@@ -33,7 +33,7 @@ async function travarVenda(tx: Tx, vendaId: string) {
 
 export async function criarVenda(dados: { tipo?: TipoVenda; clienteId?: string; situacao?: SituacaoVenda; vendedorId?: string }) {
   return prisma.$transaction(async (tx) => {
-    const numero = await proximoNumero(tx, "VENDA");
+    const numero = await proximoDoc(tx, "VENDA");
     return tx.venda.create({ data: { numero, ...dados, situacaoId: await cfgId(tx, dados.situacao ?? "ABERTA") } });
   });
 }
@@ -182,7 +182,7 @@ export async function salvarVenda(args: {
       return { vendaId };
     }
     if (args.situacao === "CONCLUIDA" || args.situacao === "CANCELADA") throw new EstoqueError("Cadastre o pedido em aberto ou como orçamento");
-    const numero = await proximoNumero(tx, "VENDA");
+    const numero = await proximoDoc(tx, "VENDA");
     vendaId = (await tx.venda.create({
       data: { numero, tipo: "PEDIDO", situacao: args.situacao, situacaoId: await cfgId(tx, args.situacao), ...resto, frete: D(frete ?? 0), desconto: D(desconto ?? 0) },
     })).id;
@@ -206,7 +206,7 @@ export async function vendaBalcao(args: {
 }) {
   if (!args.itens.length) throw new EstoqueError("Nenhum item");
   return prisma.$transaction(async (tx) => {
-    const numero = await proximoNumero(tx, "VENDA");
+    const numero = await proximoDoc(tx, "VENDA");
     const venda = await tx.venda.create({
       data: { numero, tipo: "BALCAO", situacao: "ABERTA", situacaoId: await cfgId(tx, "ABERTA"), clienteId: args.clienteId, desconto: D(args.desconto ?? 0), vendedorId: args.usuarioId, caixaId: args.caixaId },
     });

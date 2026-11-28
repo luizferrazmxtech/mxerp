@@ -1,6 +1,6 @@
 import { Prisma, type PapelUsuario, type PrioridadeOs } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
-import { proximoNumero } from "@/lib/sequencia";
+import { proximoDocLivre } from "@/lib/sequencia";
 import { ATIVOS as BOLETOS_ATIVOS } from "@/lib/financeiro/boletos";
 import { aposMudarOs } from "@/lib/agenda/google";
 import { aplicar, estadoAtual, OsError, travar } from "./ordens";
@@ -105,8 +105,7 @@ export async function juntarOrdens(idsEntrada: string[], u: Usuario, opts: { per
     const visitas = ordens.filter((o) => o.descricaoVisita?.trim()).map((o) => `OS nº ${o.numero}: ${o.descricaoVisita!.trim()}`);
     if (!soVisitas && visitas.length) obsInt.push(...visitas.map((v) => `Visita técnica da ${v}`));
 
-    let numero: number;
-    do numero = await proximoNumero(tx, "OS"); while (await tx.ordemServico.findUnique({ where: { numero } }));
+    const numero = await proximoDocLivre(tx, tx.ordemServico, "OS", ordens[0].empresaId);
     const nova = await tx.ordemServico.create({
       data: {
         numero, clienteId: ordens[0].clienteId, empresaId: ordens[0].empresaId, empresaServicosId: ordens[0].empresaServicosId, vendedorId: primeiro((o) => o.vendedorId), tecnicoId: tecnicoIds[0] ?? null, tecnicoIds,

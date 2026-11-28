@@ -15,6 +15,19 @@ export function documentoDaDescricao(descricao: string | null | undefined): { ti
   return { tipo: m[1].startsWith("venda") ? "VENDA" : m[1] === "compra" ? "COMPRA" : "OS", numero: Number(m[2]) };
 }
 
+/**
+ * Documento renumerado na migração (a venda 7285 da segunda empresa virou a 9203 porque a primeira já tinha a 7285):
+ * a descrição da conta passa a citar o número do MXERP, o mesmo do boleto e da tela, e guarda o do Gestão Click.
+ * "Venda de serviços nº 7285 - assinatura nº 40" → "Venda de serviços nº 9203 - assinatura nº 40 (nº 7285 no Gestão Click)".
+ */
+export function descricaoComNumero(descricao: string, numeroMxerp: number | null | undefined) {
+  const doc = documentoDaDescricao(descricao);
+  if (!doc || numeroMxerp == null || doc.numero === numeroMxerp) return descricao;
+  const trocada = descricao.replace(new RegExp(`(n\\S{0,2}\\s*)${doc.numero}(?!\\d)`, "i"), `$1${numeroMxerp}`);
+  if (trocada === descricao) return descricao;
+  return `${trocada} (nº ${doc.numero} no Gestão Click)`.slice(0, 300);
+}
+
 type Conta = { id: string; descricao: string; origemTipo: string | null; origemId: string | null; empresaId?: string | null };
 
 /**
@@ -69,7 +82,13 @@ export async function ligarContasPelaDescricao(simular: boolean) {
   const docs = new Set<string>();
   for (const [id, o] of achadas) {
     docs.add(o.origemId);
-    if (!simular) await prisma.lancamento.update({ where: { id }, data: o });
+    if (!simular) {
+      const c = soltas.find((x) => x.id === id)!;
+      const numero = o.origemTipo === "VENDA" ? (await prisma.venda.findUnique({ where: { id: o.origemId }, select: { numero: true } }))?.numero
+        : o.origemTipo === "OS" ? (await prisma.ordemServico.findUnique({ where: { id: o.origemId }, select: { numero: true } }))?.numero
+        : (await prisma.compra.findUnique({ where: { id: o.origemId }, select: { numero: true } }))?.numero;
+      await prisma.lancamento.update({ where: { id }, data: { ...o, descricao: descricaoComNumero(c.descricao, numero) } });
+    }
   }
   let numeradas = 0;
   for (const origemId of docs) {

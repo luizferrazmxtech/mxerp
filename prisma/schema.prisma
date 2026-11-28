@@ -781,7 +781,7 @@ model OsEquipamento {
 model OrdemServico {
   id                String        @id @default(cuid())
   empresaId         String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  numero            Int           @unique
+  numero            Int
   /// empresa (CNPJ) que fatura os serviços (mão de obra): NFS-e e conta a receber dela. Nulo = a própria empresa da OS.
   /// Ex.: OS da MXTECH com os serviços pela VFX (alíquota menor); as peças seguem com NF-e e cobrança da MXTECH.
   empresaServicosId String?
@@ -865,6 +865,8 @@ model OrdemServico {
   @@index([empresaServicosId])
   @@index([equipeId])
   @@index([agendaInicio])
+
+  @@unique([empresaId, numero])
 }
 
 /// Equipe de técnicos (Cadastros › Equipes). A OS da equipe aparece para todos os membros na tela do técnico.
@@ -1115,7 +1117,7 @@ model MovimentoCaixa {
 model Venda {
   id          String        @id @default(cuid())
   empresaId   String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  numero      Int           @unique
+  numero      Int
   tipo        TipoVenda     @default(PEDIDO)
   clienteId   String?
   cliente     Pessoa?       @relation(fields: [clienteId], references: [id])
@@ -1175,6 +1177,8 @@ model Venda {
   juntadas    Venda[] @relation("VendaJuncao")
 
   @@index([empresaId])
+
+  @@unique([empresaId, numero])
 }
 
 model VendaParcela {
@@ -1210,7 +1214,7 @@ enum TipoDevolucao {
 model Devolucao {
   id          String          @id @default(cuid())
   empresaId   String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  numero      Int             @unique
+  numero      Int
   tipo        TipoDevolucao
   vendaId     String
   venda       Venda           @relation(fields: [vendaId], references: [id])
@@ -1223,6 +1227,8 @@ model Devolucao {
   vale        ValeCompra?
 
   @@index([empresaId])
+
+  @@unique([empresaId, numero])
 }
 
 model DevolucaoItem {
@@ -1295,7 +1301,7 @@ model VendaPagamento {
 model Compra {
   id           String       @id @default(cuid())
   empresaId    String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  numero       Int          @unique
+  numero       Int
   tipo         String       @default("PRODUTO") // PRODUTO | SERVICO (compras de serviços)
   fornecedorId String
   fornecedor   Pessoa       @relation(fields: [fornecedorId], references: [id])
@@ -1344,6 +1350,8 @@ model Compra {
 
   @@index([data])
   @@index([empresaId])
+
+  @@unique([empresaId, numero])
 }
 
 model CompraItem {
@@ -1425,7 +1433,7 @@ model SituacaoCompraConfig {
 model AjusteEstoque {
   id            String              @id @default(cuid())
   empresaId     String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  numero        Int                 @unique
+  numero        Int
   tipo          TipoMovimento
   frete         Decimal             @default(0) @db.Decimal(14, 2)
   total         Decimal             @default(0) @db.Decimal(14, 2)
@@ -1438,6 +1446,8 @@ model AjusteEstoque {
   itens         AjusteEstoqueItem[]
 
   @@index([empresaId])
+
+  @@unique([empresaId, numero])
 }
 
 model AjusteEstoqueItem {
@@ -1457,7 +1467,7 @@ model AjusteEstoqueItem {
 model TransferenciaEstoque {
   id                String                     @id @default(cuid())
   empresaId         String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  numero            Int                        @unique
+  numero            Int
   origemDepositoId  String
   destinoDepositoId String
   total             Decimal                    @default(0) @db.Decimal(14, 2)
@@ -1468,6 +1478,8 @@ model TransferenciaEstoque {
   itens             TransferenciaEstoqueItem[]
 
   @@index([empresaId])
+
+  @@unique([empresaId, numero])
 }
 
 model TransferenciaEstoqueItem {
@@ -1484,7 +1496,7 @@ model TransferenciaEstoqueItem {
 model Inventario {
   id                  String           @id @default(cuid())
   empresaId           String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  numero              Int              @unique
+  numero              Int
   descricao           String
   responsavelId       String?
   responsavelNome     String
@@ -1501,6 +1513,8 @@ model Inventario {
   itens               InventarioItem[]
 
   @@index([empresaId])
+
+  @@unique([empresaId, numero])
 }
 
 model InventarioItem {
@@ -1519,7 +1533,7 @@ model InventarioItem {
 model Cotacao {
   id                String              @id @default(cuid())
   empresaId         String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  numero            Int                 @unique
+  numero            Int
   data              DateTime            @db.Date
   prazo             DateTime?           @db.Date // prazo para os fornecedores responderem
   observacoes       String? // para o fornecedor
@@ -1533,6 +1547,8 @@ model Cotacao {
   itens             CotacaoItem[]
 
   @@index([empresaId])
+
+  @@unique([empresaId, numero])
 }
 
 model CotacaoFornecedor {
@@ -2105,7 +2121,7 @@ model SituacaoOrcamento {
 
 model Orcamento {
   id                 String            @id @default(cuid())
-  numero             Int               @unique
+  numero             Int
   tipo               TipoOrcamento     @default(PRODUTO)
   clienteId          String
   cliente            Pessoa            @relation("OrcamentoCliente", fields: [clienteId], references: [id])
@@ -2156,6 +2172,8 @@ model Orcamento {
   @@index([data])
   @@index([clienteId])
   @@index([empresaId])
+
+  @@unique([empresaId, numero])
 }
 
 model OrcamentoItem {
@@ -2267,7 +2285,7 @@ enum Periodicidade {
 model Contrato {
   id                 String              @id @default(cuid())
   empresaId          String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  numero             Int                 @unique
+  numero             Int
   clienteId          String
   cliente            Pessoa              @relation(fields: [clienteId], references: [id])
   vendedorId         String?
@@ -2309,6 +2327,8 @@ model Contrato {
 
   @@index([situacao, proximoVencimento])
   @@index([empresaId])
+
+  @@unique([empresaId, numero])
 }
 
 model ContratoServico {
@@ -2415,7 +2435,7 @@ enum PrioridadeChamado {
 model Chamado {
   id                 String             @id @default(cuid())
   empresaId          String? // loja (CNPJ) dona do registro; ver src/lib/empresa/loja.ts
-  numero             Int                @unique
+  numero             Int
   clienteId          String?
   cliente            Pessoa?            @relation(fields: [clienteId], references: [id])
   contato            String?
@@ -2444,6 +2464,8 @@ model Chamado {
   @@index([clienteId])
   @@index([responsavelId, status])
   @@index([empresaId])
+
+  @@unique([empresaId, numero])
 }
 
 /// Linha do histórico do chamado: comentário, mudança de status, troca de responsável.

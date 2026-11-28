@@ -1,5 +1,6 @@
 "use server";
 
+import { chaveDoc } from "@/lib/sequencia";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma, type EstoqueSituacao, type NotaSituacao, type PapelUsuario } from "@prisma/client";
@@ -294,8 +295,8 @@ export async function salvarConfigVendaAcao(_: Resultado, form: FormData): Promi
     balanca: { prefixo: String(form.get("balancaPrefixo") ?? "2").replace(/\D/g, "").slice(0, 2) || "2", digitosCodigo: Number(form.get("balancaDigitos")) === 5 ? 5 : 4, conteudo: form.get("balancaConteudo") === "PESO" ? "PESO" : "PRECO" },
   };
   await prisma.$transaction([
-    prisma.sequencia.upsert({ where: { chave: "VENDA" }, create: { chave: "VENDA", valor: ultimo }, update: { valor: ultimo } }),
-    prisma.sequencia.upsert({ where: { chave: "DEVOLUCAO" }, create: { chave: "DEVOLUCAO", valor: ultimaDev }, update: { valor: ultimaDev } }),
+    prisma.sequencia.upsert({ where: { chave: await chaveDoc("VENDA") }, create: { chave: await chaveDoc("VENDA"), valor: ultimo }, update: { valor: ultimo } }),
+    prisma.sequencia.upsert({ where: { chave: await chaveDoc("DEVOLUCAO") }, create: { chave: await chaveDoc("DEVOLUCAO"), valor: ultimaDev }, update: { valor: ultimaDev } }),
     prisma.configuracao.upsert({ where: { chave: "venda" }, create: { chave: "venda", valor }, update: { valor } }),
   ]);
   revalidatePath("/vendas", "layout");

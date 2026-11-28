@@ -11,7 +11,7 @@ import { liberarOrcamentos } from "@/lib/orcamentos/vinculos";
 import { categoria, garantirPadroes, receitaDocumento } from "@/lib/financeiro/padroes";
 import { LOJA_ATUAL, lojaAtualId, naLoja } from "@/lib/empresa/loja";
 import { divisaoOs, empresaDosServicos, servicosPorParcela, valorServicos } from "@/lib/os/faturamento";
-import { proximoNumero } from "@/lib/sequencia";
+import { chaveDoc, numeroEmUso, proximoDocLivre, subirSequencia } from "@/lib/sequencia";
 import { parseDia, periodoDia } from "@/lib/datas";
 import { descontoLinha, lerNumero, linhasProdutos, subtotalProduto, subtotalServico } from "@/lib/orcamentos/tipos";
 import { bloqueioAvulsoOs, produtoAvulsoId } from "@/lib/itens/avulso";
@@ -196,7 +196,7 @@ const moverFotos = (tx: Tx, osId: string, de: string, para: string) =>
   de === para ? null : tx.anexo.updateMany({ where: { entidade: "OS_FOTO", entidadeId: osId, referencia: de }, data: { referencia: para } });
 
 export async function proximoNumeroOs() {
-  const [s, m] = await Promise.all([prisma.sequencia.findUnique({ where: { chave: "OS" } }), prisma.ordemServico.aggregate({ _max: { numero: true } })]);
+  const [s, m] = await Promise.all([prisma.sequencia.findUnique({ where: { chave: await chaveDoc("OS") } }), prisma.ordemServico.aggregate({ _max: { numero: true } })]);
   return Math.max(s?.valor ?? 0, m._max.numero ?? 0) + 1;
 }
 
@@ -314,7 +314,7 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
       if (atual.situacaoCfg && !atual.situacaoCfg.permiteEdicao) throw new OsError(`OS na situação "${atual.situacaoCfg.nome}" não podem ser editadas`);
       if (u.papel && atual.situacaoCfg?.bloqueados.includes(u.papel) && atual.situacaoId !== para.id) throw new OsError(`Seu grupo não pode trocar a situação "${atual.situacaoCfg.nome}"`);
       const numero = numeroInformado > 0 ? numeroInformado : atual.numero;
-      if (numero !== atual.numero && (await tx.ordemServico.findUnique({ where: { numero } }))) throw new OsError(`Já existe a OS nº ${numero}`);
+      if (numero !== atual.numero && (await numeroEmUso(tx.ordemServico, numero, atual.empresaId))) throw new OsError(`Já existe a OS nº ${numero}`);
       const existentes = await tx.osItemProduto.findMany({ where: { osId: id } });
       const antigas = await tx.osParcela.findMany({ where: { osId: id }, orderBy: { numero: "asc" } });
       const mudouItens = assinaturaItens(existentes.map((e) => ({ produtoId: e.produtoId, descricao: e.descricao, quantidade: Number(e.quantidade), localOrigemId: e.localOrigemId }))) !== assinaturaItens(novosItens);
@@ -372,10 +372,10 @@ export async function salvarOrdem(d: DadosOs, u: Usuario, id?: string, opts: { p
 
     let numero = numeroInformado;
     if (numero > 0) {
-      if (await tx.ordemServico.findUnique({ where: { numero } })) throw new OsError(`Já existe a OS nº ${numero}`);
-      await tx.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('OS', ${numero}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${numero})`;
+      if (await numeroEmUso(tx.ordemServico, numero)) throw new OsError(`Já existe a OS nº ${numero}`);
+      await subirSequencia(tx, await chaveDoc("OS"), numero);
     } else {
-      do numero = await proximoNumero(tx, "OS"); while (await tx.ordemServico.findUnique({ where: { numero } }));
+      numero = await proximoDocLivre(tx, tx.ordemServico, "OS");
     }
     dados.empresaServicosId = await empresaServicosValida(tx, await lojaAtualId(), empresaServicosEscolhida);
     const o = await tx.ordemServico.create({ data: { ...dados, numero, situacao: "CANCELADA", situacaoId: para.id, criadoPorId: u.id, parcelas: { create: parcelas } } });

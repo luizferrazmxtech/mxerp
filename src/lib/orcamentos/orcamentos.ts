@@ -1,6 +1,6 @@
 import { Prisma, type PapelUsuario } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { proximoNumero } from "@/lib/sequencia";
+import { chaveDoc, numeroEmUso, proximoDocLivre, subirSequencia } from "@/lib/sequencia";
 import { diaSP, parseDia, periodoDia } from "@/lib/datas";
 import { salvarPedido } from "@/lib/vendas/pedidos";
 import { salvarOs } from "@/lib/os/os";
@@ -73,7 +73,7 @@ export async function salvarOrcamento(d: DadosOrcamento, u: Usuario, id?: string
     if (id) {
       const atual = await tx.orcamento.findUniqueOrThrow({ where: { id } });
       const numero = numeroInformado > 0 ? numeroInformado : atual.numero;
-      if (numero !== atual.numero && (await tx.orcamento.findUnique({ where: { numero } }))) throw new OrcamentoError(`Já existe o orçamento nº ${numero}`);
+      if (numero !== atual.numero && (await numeroEmUso(tx.orcamento, numero, atual.empresaId))) throw new OrcamentoError(`Já existe o orçamento nº ${numero}`);
       await tx.orcamentoItem.deleteMany({ where: { orcamentoId: id } });
       await tx.orcamentoServico.deleteMany({ where: { orcamentoId: id } });
       await tx.orcamentoParcela.deleteMany({ where: { orcamentoId: id } });
@@ -83,10 +83,10 @@ export async function salvarOrcamento(d: DadosOrcamento, u: Usuario, id?: string
     }
     let numero = numeroInformado;
     if (numero > 0) {
-      if (await tx.orcamento.findUnique({ where: { numero } })) throw new OrcamentoError(`Já existe o orçamento nº ${numero}`);
-      await tx.$executeRaw`INSERT INTO "Sequencia" (chave, valor) VALUES ('ORCAMENTO', ${numero}) ON CONFLICT (chave) DO UPDATE SET valor = GREATEST("Sequencia".valor, ${numero})`;
+      if (await numeroEmUso(tx.orcamento, numero)) throw new OrcamentoError(`Já existe o orçamento nº ${numero}`);
+      await subirSequencia(tx, await chaveDoc("ORCAMENTO"), numero);
     } else {
-      do numero = await proximoNumero(tx, "ORCAMENTO"); while (await tx.orcamento.findUnique({ where: { numero } }));
+      numero = await proximoDocLivre(tx, tx.orcamento, "ORCAMENTO");
     }
     const sit = t(d.situacaoId) ? await tx.situacaoOrcamento.findUniqueOrThrow({ where: { id: d.situacaoId } }) : await situacaoInicial();
     const o = await tx.orcamento.create({ data: { ...dados, numero, situacaoId: sit.id, criadoPorId: u.id, ...filhos } });
@@ -98,7 +98,7 @@ export async function salvarOrcamento(d: DadosOrcamento, u: Usuario, id?: string
 /** Próximo número (o campo Número do formulário mostra em cinza). */
 export async function proximoNumeroOrcamento() {
   const [s, m] = await Promise.all([
-    prisma.sequencia.findUnique({ where: { chave: "ORCAMENTO" } }),
+    prisma.sequencia.findUnique({ where: { chave: await chaveDoc("ORCAMENTO") } }),
     prisma.orcamento.aggregate({ _max: { numero: true } }),
   ]);
   return Math.max(s?.valor ?? 0, m._max.numero ?? 0) + 1;
@@ -122,8 +122,7 @@ export async function clonarOrcamento(id: string, u: Usuario) {
   const o = await prisma.orcamento.findUniqueOrThrow({ where: { id }, include: { produtos: true, servicos: true } });
   const sit = await situacaoInicial();
   return prisma.$transaction(async (tx) => {
-    let numero: number;
-    do numero = await proximoNumero(tx, "ORCAMENTO"); while (await tx.orcamento.findUnique({ where: { numero } }));
+    const numero = await proximoDocLivre(tx, tx.orcamento, "ORCAMENTO", o.empresaId);
     const { id: _i, numero: _n, token: _t, idLegado: _l, vendaId: _v, osId: _o, createdAt: _c, updatedAt: _u, situacaoId: _s, camposExtras, ...resto } = o;
     void _i; void _n; void _t; void _l; void _v; void _o; void _c; void _u; void _s;
     const { produtos, servicos, ...cab } = resto;

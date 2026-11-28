@@ -1,7 +1,7 @@
 import { Prisma, type PapelUsuario } from "@prisma/client";
 import { prisma, type Tx } from "@/lib/db";
 import { disponivelPorLocal, entrada, saida, transferir } from "@/lib/estoque/estoque";
-import { proximoNumero } from "@/lib/sequencia";
+import { proximoDoc } from "@/lib/sequencia";
 import { parseDia } from "@/lib/datas";
 import { lerNumero } from "@/lib/itens/tipos";
 import { atualizarCustoPorEntrada } from "./custo";
@@ -72,7 +72,7 @@ export async function criarAjusteTx(tx: Tx, d: DadosAjuste, u: Usuario | null, e
   }
   const frete = n(d.frete);
   const total = Math.round((itens.reduce((s, i) => s + n(i.quantidade) * n(i.custo), 0) + frete) * 100) / 100;
-  const numero = await proximoNumero(tx, "AJUSTE");
+  const numero = await proximoDoc(tx, "AJUSTE");
   const a = await tx.ajusteEstoque.create({
     data: { numero, tipo: d.tipo, frete, total, observacoes: d.observacoes.trim() || null, criadoPorId: u?.id, criadoPorNome: u?.nome, inventarioId: extra.inventarioId },
   });
@@ -139,7 +139,7 @@ export async function criarTransferencia(d: DadosTransferencia, u: Usuario) {
     if (!destinoPadrao) throw new DocEstoqueError("O estoque de destino não tem nenhum local cadastrado");
     // do carro só sai o que não está separado para uma OS
     const origemCarro = await tx.deposito.findFirst({ where: { id: d.origemDepositoId, equipeId: { not: null } }, select: { id: true } });
-    const numero = await proximoNumero(tx, "TRANSFERENCIA");
+    const numero = await proximoDoc(tx, "TRANSFERENCIA");
     // o documento nasce antes dos movimentos, para cada movimento apontar para ele (kardex e histórico do carro)
     const doc = await tx.transferenciaEstoque.create({
       data: { numero, origemDepositoId: d.origemDepositoId, destinoDepositoId: d.destinoDepositoId, observacoes: d.observacoes.trim() || null, criadoPorId: u.id, criadoPorNome: u.nome },
@@ -209,7 +209,7 @@ export async function criarInventario(d: DadosInventario) {
     if (!produtos.length) throw new DocEstoqueError("Nenhum produto com controle de estoque nesse filtro");
     const saldos = await tx.saldo.groupBy({ by: ["produtoId"], where: { produtoId: { in: produtos.map((p) => p.id) } }, _sum: { quantidade: true } });
     const porProduto = new Map(saldos.map((s) => [s.produtoId, Number(s._sum.quantidade ?? 0)]));
-    const numero = await proximoNumero(tx, "INVENTARIO");
+    const numero = await proximoDoc(tx, "INVENTARIO");
     return tx.inventario.create({
       data: {
         numero, descricao: d.descricao.trim(), responsavelId: d.responsavelId || null, responsavelNome: d.responsavelNome.trim(), data: parseDia(d.data), motivo: d.motivo.trim() || null,

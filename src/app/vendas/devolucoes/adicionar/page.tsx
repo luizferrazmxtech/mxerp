@@ -19,7 +19,7 @@ export default async function AdicionarDevolucao({ searchParams }: { searchParam
   let vendaId: string | null = null;
   let aviso = "";
   if (numero) {
-    if (por === "venda") vendaId = (await prisma.venda.findUnique({ where: { numero }, select: { id: true } }))?.id ?? null;
+    if (por === "venda") vendaId = (await prisma.venda.findFirst({ where: { numero }, select: { id: true } }))?.id ?? null;
     else {
       const n = await prisma.notaFiscal.findFirst({ where: { numero, modelo: por === "nfe" ? "NFE" : "NFCE", origemTipo: "VENDA", status: "AUTORIZADA" }, select: { origemId: true } });
       vendaId = n?.origemId ?? null;

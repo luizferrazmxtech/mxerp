@@ -1,3 +1,4 @@
+import { chaveDoc } from "@/lib/sequencia";
 import { prisma } from "@/lib/db";
 import { DOCUMENTOS } from "@/lib/orcamentos/config";
 import { configVenda } from "@/lib/vendas/config";
@@ -10,9 +11,9 @@ export const metadata = { title: "Configurações de vendas" };
 export default async function Configuracoes() {
   const [c, seq, max, seqDev, maxDev] = await Promise.all([
     configVenda(),
-    prisma.sequencia.findUnique({ where: { chave: "VENDA" } }),
+    prisma.sequencia.findUnique({ where: { chave: await chaveDoc("VENDA") } }),
     prisma.venda.aggregate({ _max: { numero: true } }),
-    prisma.sequencia.findUnique({ where: { chave: "DEVOLUCAO" } }),
+    prisma.sequencia.findUnique({ where: { chave: await chaveDoc("DEVOLUCAO") } }),
     prisma.devolucao.aggregate({ _max: { numero: true } }),
   ]);
   return (
