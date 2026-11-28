@@ -9,6 +9,7 @@ import { cancelar, cancelarServico, cartaCorrecaoAcao, consultarNotaAcao } from 
 import { Pagina } from "@/components/ui/Pagina";
 import Icone from "@/components/Icone";
 import { numeroDaNota } from "@/lib/fiscal/numeroNota";
+import { origensDasNotas } from "@/lib/fiscal/origemNota";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +31,7 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
   const qrImg = qr ? await QRCode.toDataURL(String(qr), { margin: 0, width: 180 }) : null;
   const chaveFmt = n.chave?.replace(/(\d{4})/g, "$1 ").trim();
   const cancelavel = n.status === "AUTORIZADA" && n.modelo !== "NFSE";
-  const origem = n.origemTipo === "VENDA" && n.origemId
-    ? await prisma.venda.findUnique({ where: { id: n.origemId }, select: { id: true, numero: true } }).then((v) => v && { rotulo: `venda #${v.numero}`, href: `/vendas/${v.id}` })
-    : n.origemTipo === "OS" && n.origemId
-      ? await prisma.ordemServico.findUnique({ where: { id: n.origemId }, select: { id: true, numero: true } }).then((o) => o && { rotulo: `OS #${o.numero}`, href: `/os/${o.id}` })
-      : null;
+  const origem = n.origemId ? (await origensDasNotas([n])).get(n.origemId) ?? null : null;
 
   const emissora = n.empresaId ? await prisma.empresa.findUnique({ where: { id: n.empresaId }, select: { razaoSocial: true, cnpj: true } }) : null;
   const curto = n.modelo === "NFE" ? "NF-e" : n.modelo === "NFCE" ? "NFC-e" : "NFS-e";
@@ -43,7 +40,14 @@ export default async function Nota({ params }: { params: Promise<{ id: string }>
     <div className="space-y-4">
       <div className="no-print flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
-          {origem && <Link href={origem.href} className="btn-sec"><Icone nome="vendas" size={14} /> Gerada pela {origem.rotulo}</Link>}
+          {origem && !origem.outraEmpresa && <Link href={origem.href} className="btn-sec"><Icone nome="vendas" size={14} /> Gerada pela {origem.rotulo}</Link>}
+          {/* nota desta empresa para um documento de outra empresa do grupo (ex.: serviços da OS da MXTECH faturados pela VFX) */}
+          {origem?.outraEmpresa && (
+            <Link href={origem.href} className="btn-sec border-sky-300 bg-sky-50 text-sky-900" title={`Troca para a ${origem.outraEmpresa.nome} e abre a ${origem.rotulo}`}>
+              <Icone nome="vendas" size={14} /> Gerada pela {origem.rotulo} da {origem.outraEmpresa.nome} <span className="rounded bg-sky-200 px-1.5 text-[11px]">empresa do grupo</span> ›
+            </Link>
+          )}
+          {origem?.cliente && <span className="text-[13px] text-slate-600">Cliente: <Link href={`/clientes/${origem.cliente.id}`} className="font-semibold hover:underline">{origem.cliente.nome}</Link></span>}
         </div>
         <div className="flex gap-2">
           {n.xml && <a href={`/api/notas/${n.id}/xml`} className="btn-sec">Baixar XML</a>}

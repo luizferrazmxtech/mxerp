@@ -142,3 +142,30 @@ describe("serviços da OS faturados por outra empresa", () => {
     expect(o.empresaServicosId).toBeNull();
   });
 });
+
+describe("NFS-e da VFX gerada por OS da MXTECH", () => {
+  it("lista da VFX mostra o cliente e a OS da MXTECH, com link que troca de empresa", async () => {
+    const { origensDasNotas } = await import("@/lib/fiscal/origemNota");
+    const o = await naLoja(mx, () => ord.salvarOrdem(dados({ empresaServicosId: vfx }), u));
+    const nota = await prisma.notaFiscal.create({ data: { empresaId: vfx, modelo: "NFSE", serie: 900, numero: 279, numeroNfse: 278, ambiente: "PRODUCAO", origemTipo: "OS", origemId: o.id, valorTotal: 135, status: "AUTORIZADA" } });
+    const notaMx = await prisma.notaFiscal.create({ data: { empresaId: mx, modelo: "NFE", serie: 1, numero: 10, ambiente: "PRODUCAO", origemTipo: "OS", origemId: o.id, valorTotal: 190, status: "AUTORIZADA" } });
+    // na VFX, a lista de OS continua sem a OS da MXTECH (só o vínculo da nota a enxerga)
+    expect(await naLoja(vfx, () => prisma.ordemServico.findMany({ where: { id: { in: [o.id] } } }))).toHaveLength(0);
+    const naVfx = await naLoja(vfx, () => origensDasNotas([nota]));
+    const og = naVfx.get(o.id)!;
+    expect(og.cliente?.nome).toBe("Escritório Central");
+    expect(og.rotulo).toBe(`OS #${o.numero}`);
+    expect(og.outraEmpresa).toEqual({ id: mx, nome: "MXTECH" });
+    expect(og.href).toBe(`/api/loja/abrir?loja=${mx}&ir=%2Fos%2F${o.id}`);
+    // nota da própria empresa da OS: link direto, sem aviso de grupo
+    const naMx = await naLoja(mx, () => origensDasNotas([notaMx]));
+    expect(naMx.get(o.id)!.outraEmpresa).toBeNull();
+    expect(naMx.get(o.id)!.href).toBe(`/os/${o.id}`);
+  });
+
+  it("troca de empresa só redireciona para caminhos internos", async () => {
+    const { destinoSeguro } = await import("@/lib/empresa/abrirNaEmpresa");
+    expect(destinoSeguro("/os/abc")).toBe("/os/abc");
+    for (const ruim of ["//evil.com", "https://evil.com", "/\\evil.com", null, ""]) expect(destinoSeguro(ruim)).toBe("/");
+  });
+});
