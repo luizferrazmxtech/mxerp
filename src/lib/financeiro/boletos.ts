@@ -34,6 +34,8 @@ export const ROTULO_BOLETO: Record<string, string> = {
 };
 
 export class BoletoError extends Error {}
+/** O Inter ainda não terminou de registrar o boleto (o PDF e a linha digitável não saem; o Pix às vezes já sai). */
+export class BoletoEmProcessamento extends BoletoError {}
 
 type Ajustes = { emitirBoletos: boolean; boletosDesde: Date | null; multaPct: number; jurosMesPct: number; diasBaixa: number; mensagemBoleto: string | null; ambiente: string };
 
@@ -389,9 +391,10 @@ export async function pdfBoleto(boletoId: string, ctx?: Contexto | null) {
   }
   if (emProcessamentoNoInter(r)) {
     const sit = ROTULO_BOLETO[b.situacao] ?? b.situacao;
-    throw new BoletoError(ATIVOS.includes(b.situacao)
-      ? `O Banco Inter ainda está processando este boleto (situação no Inter: ${sit}) e não liberou o PDF. Tente de novo em alguns minutos; a linha digitável e o Pix${b.linhaDigitavel ? " já podem ser usados" : " aparecem assim que o processamento terminar"}.`
-      : `O Banco Inter não gera o PDF deste boleto: situação no Inter "${sit}".`);
+    if (!ATIVOS.includes(b.situacao)) throw new BoletoError(`O Banco Inter não gera o PDF deste boleto: situação no Inter "${sit}".`);
+    // o registro do boleto na rede bancária é assíncrono e pode ficar para o próximo dia útil (fim de semana,
+    // feriado, fora do horário); o Pix do BolePix costuma sair antes
+    throw new BoletoEmProcessamento(`O Banco Inter ainda está registrando este boleto (situação no Inter: ${sit}) e só libera o PDF e a linha digitável quando termina, o que pode ficar para o próximo dia útil.${b.pixCopiaECola ? " O Pix já pode ser usado." : " Tente de novo mais tarde."}`);
   }
   if (r.status !== 200) falha("não gerou o PDF do boleto", r);
   const { pdf } = JSON.parse(r.corpo) as { pdf?: string };
