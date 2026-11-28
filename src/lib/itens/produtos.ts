@@ -128,8 +128,8 @@ export async function excluirProduto(id: string) {
 export async function clonarProduto(id: string, usuarioId: string | null) {
   const p = await prisma.produto.findUniqueOrThrow({ where: { id }, include: { valores: true, fornecedores: true, variacoes: true, componentes: true } });
   const codigo = await gerarCodigoProduto();
-  const { id: _i, codigo: _c, gtin: _g, idLegado: _l, createdAt: _cr, updatedAt: _u, camposExtras, valores, fornecedores, variacoes, componentes, ...resto } = p;
-  void _i; void _c; void _g; void _l; void _cr; void _u;
+  const { id: _i, codigo: _c, gtin: _g, idLegado: _l, createdAt: _cr, updatedAt: _u, stRetido: _st, camposExtras, valores, fornecedores, variacoes, componentes, ...resto } = p;
+  void _i; void _c; void _g; void _l; void _cr; void _u; void _st;
   return prisma.produto.create({
     data: {
       ...resto, codigo, nome: `${p.nome} (cópia)`, criadoPorId: usuarioId, camposExtras: (camposExtras ?? undefined) as Prisma.InputJsonValue | undefined,
